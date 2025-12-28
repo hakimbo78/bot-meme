@@ -305,7 +305,7 @@ class SecondaryScanner:
             return []
 
     def add_pair_to_monitor(self, pair_address: str, token_address: str,
-                           dex_type: str, token_decimals: int = 18):
+                           dex_type: str, token_decimals: int = 18, **kwargs):
         """Add a pair to the monitoring list"""
         self.monitored_pairs[pair_address] = {
             'token_address': token_address,
