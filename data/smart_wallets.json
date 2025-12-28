@@ -1,0 +1,26 @@
+{
+    "example1abc123def456": {
+        "address": "ExAmPlE1AbC123DeF456",
+        "total_trades": 15,
+        "wins": 12,
+        "avg_profit_multiplier": 3.2,
+        "early_entries": 10,
+        "last_updated": 1735307738
+    },
+    "example2xyz789ghi012": {
+        "address": "ExAmPlE2XyZ789GhI012",
+        "total_trades": 8,
+        "wins": 5,
+        "avg_profit_multiplier": 2.1,
+        "early_entries": 3,
+        "last_updated": 1735307738
+    },
+    "testelitewallet": {
+        "address": "TestEliteWallet",
+        "total_trades": 15,
+        "wins": 12,
+        "avg_profit_multiplier": 3.2,
+        "early_entries": 10,
+        "last_updated": 1735307738
+    }
+}

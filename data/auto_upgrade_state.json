@@ -1,0 +1,9 @@
+{
+  "monitored_tokens": {},
+  "upgraded_tokens": [
+    "test_token_abc123"
+  ],
+  "last_upgrade_time": {
+    "test_token_abc123": 1766843106.6197603
+  }
+}

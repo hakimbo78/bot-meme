@@ -1,0 +1,119 @@
+chains:
+  base:
+    enabled: true
+    chain_id: 8453
+    rpc_url: "https://base-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm"
+    factory_address: "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
+    weth_address: "0x4200000000000000000000000000000000000006"
+    dex_type: "uniswap_v2"
+    min_liquidity_usd: 8000
+    alert_thresholds:
+      INFO: 40
+      WATCH: 60
+      TRADE: 70
+    goplus_chain_id: "8453"
+    eth_price_usd: 3500  # Fallback ETH price for liquidity calculation
+  
+  ethereum:
+    enabled: false
+    chain_id: 1
+    rpc_url: "https://eth-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm"
+    factory_address: "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"  # Uniswap V2
+    weth_address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    dex_type: "uniswap_v2"
+    min_liquidity_usd: 40000
+    alert_thresholds:
+      INFO: 40
+      WATCH: 60
+      TRADE: 75
+    goplus_chain_id: "1"
+    eth_price_usd: 3500
+  
+  blast:
+    enabled: false
+    chain_id: 81457
+    rpc_url: "https://rpc.blast.io"
+    factory_address: "0x04C9f118d21e8B767D2e50C946f0cC9F6C367300"  # Thruster V2 Factory
+    weth_address: "0x4300000000000000000000000000000000000004"
+    dex_type: "uniswap_v2"
+    min_liquidity_usd: 3000
+    alert_thresholds:
+      INFO: 25
+      WATCH: 45
+      TRADE: 60
+    goplus_chain_id: "81457"
+    eth_price_usd: 3500
+  # SOLANA - Full Implementation (2025-12-27)
+  # Supports: Pump.fun, Raydium, Jupiter
+  # Modes: SNIPER, RUNNING
+  solana:
+    enabled: true
+    rpc_url: "https://solana-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm"
+    
+    # Program IDs
+    programs:
+      pumpfun: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+      raydium: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+      jupiter: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    
+    # Alert thresholds
+    min_liquidity_usd: 20000
+    alert_thresholds:
+      INFO: 30
+      WATCH: 50
+      TRADE: 70
+    
+    # Debug Mode (Production Safe)
+    debug:
+      enabled: true
+      log_top_n: 3
+      log_interval_seconds: 30
+      show_score_breakdown: true
+    
+    # Sniper mode - HIGH RISK early detection
+    sniper:
+      enabled: true
+      max_age_seconds: 120        # 2 minutes
+      min_sol_inflow: 10          # 10 SOL minimum
+      min_buy_velocity: 15        # 15 buys/min
+      min_sniper_score: 70
+      cooldown_minutes: 30
+      max_alerts_per_hour: 10
+    
+    # Running mode - Post-launch momentum
+    running:
+      enabled: true
+      min_age_minutes: 30         # 30 min minimum
+      max_age_days: 14            # 14 days maximum
+      min_liquidity_usd: 50000    # $50k minimum
+      volume_spike_multiplier: 2.0
+      min_running_score: 60
+      cooldown_minutes: 60
+    
+    # Priority detector - TX priority signals
+    priority_detector:
+      enabled: true
+      compute_threshold: 200000     # 200k compute units
+      priority_fee_threshold: 10000  # 0.00001 SOL (lamports)
+      min_jito_tip: 10000           # Minimum Jito tip
+    
+    # Smart wallet detector - Track profitable wallets
+    smart_wallet_detector:
+      enabled: true
+      db_path: "data/smart_wallets.json"
+      tier1_min_success: 0.70       # 70% win rate = elite
+      tier1_min_trades: 10
+      tier2_min_success: 0.50       # 50% win rate = good
+      tier2_min_trades: 5
+    
+    # Auto-upgrade engine - TRADE → SNIPER
+    auto_upgrade:
+      enabled: true
+      upgrade_threshold: 85         # 85+ score = SNIPER
+      max_monitoring_minutes: 30    # Monitor for 30 min max
+      cooldown_seconds: 300         # 5 min between upgrades
+      base_weight: 1.0
+      priority_weight: 1.0
+      smart_wallet_weight: 1.0
+
+

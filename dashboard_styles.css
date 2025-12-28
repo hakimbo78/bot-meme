@@ -1,0 +1,454 @@
+/*
+ * Dashboard Styles - Responsive CSS for Operator Dashboard
+ * Mobile-friendly layout with color-coded modes
+ */
+
+/* ===========================
+   ROOT VARIABLES
+   =========================== */
+:root {
+    --color-sniper: #FF4B4B;
+    --color-trade: #28A745;
+    --color-trade-early: #FFC107;
+    --color-running: #007BFF;
+    --color-info: #6C757D;
+    --color-bg-dark: #0E1117;
+    --color-bg-card: #1E1E2E;
+    --color-text: #FAFAFA;
+    --color-text-muted: #888;
+    --border-radius: 12px;
+    --shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+/* ===========================
+   GLOBAL STYLES
+   =========================== */
+body {
+    background-color: var(--color-bg-dark);
+    color: var(--color-text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ===========================
+   HEADER
+   =========================== */
+.dashboard-header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    padding: 1.5rem 2rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+.dashboard-title {
+    color: var(--color-sniper);
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+}
+
+.dashboard-subtitle {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+/* ===========================
+   STAT CARDS
+   =========================== */
+.stat-card {
+    background: linear-gradient(135deg, #252540 0%, #1e1e2e 100%);
+    border-radius: 10px;
+    padding: 1.25rem;
+    text-align: center;
+    transition: transform 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.stat-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    margin-top: 0.5rem;
+}
+
+/* ===========================
+   TOKEN CARDS
+   =========================== */
+.token-card {
+    background: linear-gradient(135deg, var(--color-bg-card) 0%, #252540 100%);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid;
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+
+.token-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.35);
+}
+
+/* Mode-specific colors */
+.token-card.sniper {
+    border-left-color: var(--color-sniper);
+}
+
+.token-card.trade {
+    border-left-color: var(--color-trade);
+}
+
+.token-card.trade_early,
+.token-card.trade-early {
+    border-left-color: var(--color-trade-early);
+}
+
+.token-card.running {
+    border-left-color: var(--color-running);
+}
+
+/* Token info */
+.token-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+}
+
+.token-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+}
+
+.token-symbol {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin-left: 0.5rem;
+}
+
+.token-address {
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: #666;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.token-address:hover {
+    color: var(--color-sniper);
+}
+
+.token-score {
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.token-score.high {
+    color: var(--color-trade);
+}
+
+.token-score.medium {
+    color: var(--color-trade-early);
+}
+
+.token-score.low {
+    color: var(--color-sniper);
+}
+
+/* ===========================
+   METRICS
+   =========================== */
+.token-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.token-metric {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255,255,255,0.05);
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.token-metric-icon {
+    margin-right: 0.5rem;
+}
+
+/* ===========================
+   MODE BADGE
+   =========================== */
+.mode-badge {
+    display: inline-block;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mode-badge.sniper {
+    background: var(--color-sniper);
+    color: #fff;
+}
+
+.mode-badge.trade {
+    background: var(--color-trade);
+    color: #fff;
+}
+
+.mode-badge.trade_early,
+.mode-badge.trade-early {
+    background: var(--color-trade-early);
+    color: #000;
+}
+
+.mode-badge.running {
+    background: var(--color-running);
+    color: #fff;
+}
+
+/* ===========================
+   WARNING BADGES
+   =========================== */
+.warning-badge {
+    display: inline-block;
+    background: rgba(255,75,75,0.15);
+    color: var(--color-sniper);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    margin: 0.25rem;
+}
+
+.killswitch-badge {
+    background: rgba(220,53,69,0.2);
+    color: #DC3545;
+}
+
+/* ===========================
+   SCORE BAR
+   =========================== */
+.score-bar {
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.1);
+    overflow: hidden;
+    margin-top: 0.75rem;
+}
+
+.score-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease-out;
+}
+
+.score-fill.high {
+    background: linear-gradient(90deg, var(--color-trade) 0%, #20c997 100%);
+}
+
+.score-fill.medium {
+    background: linear-gradient(90deg, var(--color-trade-early) 0%, #fd7e14 100%);
+}
+
+.score-fill.low {
+    background: linear-gradient(90deg, var(--color-sniper) 0%, #e83e8c 100%);
+}
+
+/* ===========================
+   COOLDOWN TIMER
+   =========================== */
+.cooldown-timer {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(0,123,255,0.15);
+    color: var(--color-running);
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-family: monospace;
+}
+
+.cooldown-timer.active {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* ===========================
+   OPERATOR PROTOCOL SECTION
+   =========================== */
+.operator-protocol {
+    background: rgba(255,75,75,0.1);
+    border: 1px solid rgba(255,75,75,0.3);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.operator-protocol h4 {
+    color: var(--color-sniper);
+    margin: 0 0 0.75rem 0;
+    font-size: 0.95rem;
+}
+
+.protocol-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.protocol-item:last-child {
+    border-bottom: none;
+}
+
+.protocol-label {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+}
+
+.protocol-value {
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+/* ===========================
+   RESPONSIVE - MOBILE
+   =========================== */
+@media (max-width: 768px) {
+    .dashboard-header {
+        padding: 1rem;
+    }
+    
+    .dashboard-title {
+        font-size: 1.5rem;
+    }
+    
+    .dashboard-subtitle {
+        font-size: 0.8rem;
+    }
+    
+    .token-card {
+        padding: 1rem;
+    }
+    
+    .token-name {
+        font-size: 1rem;
+    }
+    
+    .token-score {
+        font-size: 1.5rem;
+    }
+    
+    .stat-value {
+        font-size: 1.75rem;
+    }
+    
+    .stat-label {
+        font-size: 0.7rem;
+    }
+    
+    .token-metrics {
+        gap: 0.35rem;
+    }
+    
+    .token-metric {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* ===========================
+   RESPONSIVE - TABLET
+   =========================== */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .dashboard-title {
+        font-size: 1.75rem;
+    }
+}
+
+/* ===========================
+   DARK MODE ENHANCEMENTS
+   =========================== */
+.stExpander {
+    border-color: rgba(255,255,255,0.1) !important;
+}
+
+.stExpander > summary {
+    background: rgba(255,255,255,0.02) !important;
+}
+
+/* ===========================
+   SIDEBAR STYLES
+   =========================== */
+.sidebar-filter-section {
+    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.sidebar-section-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+}
+
+/* ===========================
+   LOADING SPINNER
+   =========================== */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: var(--color-sniper);
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ===========================
+   UTILITY CLASSES
+   =========================== */
+.text-sniper { color: var(--color-sniper); }
+.text-trade { color: var(--color-trade); }
+.text-trade-early { color: var(--color-trade-early); }
+.text-running { color: var(--color-running); }
+.text-muted { color: var(--color-text-muted); }
+
+.bg-sniper { background-color: var(--color-sniper); }
+.bg-trade { background-color: var(--color-trade); }
+.bg-trade-early { background-color: var(--color-trade-early); }
+.bg-running { background-color: var(--color-running); }
+
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
