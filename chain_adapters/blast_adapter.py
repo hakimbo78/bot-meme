@@ -7,4 +7,4 @@ class BlastAdapter(EVMAdapter):
     
     def __init__(self, config):
         super().__init__(config)
-        self.chain_name = "BLAST"
+        self.chain_name = "blast"

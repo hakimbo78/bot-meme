@@ -7,4 +7,4 @@ class BaseChainAdapter(EVMAdapter):
     
     def __init__(self, config):
         super().__init__(config)
-        self.chain_name = "BASE"
+        self.chain_name = "base"
