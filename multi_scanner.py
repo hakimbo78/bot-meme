@@ -108,7 +108,7 @@ class MultiChainScanner:
         self.tasks.append(monitor_task)
         
     async def _chain_loop(self, chain_name: str, queue: asyncio.Queue):
-        """Isolated scan loop for a single chain"""
+        """Isolated scan loop for a single chain - CU OPTIMIZED"""
         adapter = self.adapters[chain_name]
         print(f"✅ [{chain_name.upper()}] Scanner loop started")
         
@@ -117,23 +117,24 @@ class MultiChainScanner:
         
         while self.is_running:
             try:
+                # CU-OPTIMIZED: Use chain-specific scan interval
+                scan_start = time.time()
+                
                 # 1. Scans with internal yields and timeouts
-                # Use scan_new_pairs_async which returns a list
                 pairs = await adapter.scan_new_pairs_async()
                 
                 # 2. Update heartbeat
                 self.heartbeats[chain_name] = time.time()
                 
                 # 3. Enqueue results
-                # 3. Enqueue results
                 if pairs:
                     for pair in pairs:
                         await queue.put(pair)
-                    await asyncio.sleep(0.1)  # Minimal sleep if active
-                else:
-                    await asyncio.sleep(0.5)  # Faster scanning when idle
-                # sleep_time = self.chain_configs.get(chain_name, {}).get('scan_interval', 2)
-                # await asyncio.sleep(sleep_time)
+                
+                # 4. CU-AWARE SLEEP: Respect chain-specific intervals
+                scan_duration = time.time() - scan_start
+                sleep_time = max(0, adapter.scan_interval - scan_duration)
+                await asyncio.sleep(sleep_time)
                 
             except asyncio.CancelledError:
                 print(f"🛑 [{chain_name.upper()}] Task cancelled")
