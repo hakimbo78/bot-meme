@@ -102,6 +102,13 @@ class PumpfunScanner:
         self._max_tracked_tokens = 100
         self._signature_history_limit = 1000
         
+    def _get_instruction_field(self, instruction, field, default=None):
+        """Get field from instruction, handling both dict and object formats."""
+        if isinstance(instruction, dict):
+            return instruction.get(field, default)
+        else:
+            return getattr(instruction, field, default)
+
     def connect(self, client) -> bool:
         """
         Set the Solana RPC client.
