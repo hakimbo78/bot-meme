@@ -83,17 +83,165 @@ class SolanaScanner:
     
     def scan_new_pairs(self) -> List[Dict]:
         """
-        Scan for new tokens - DISABLED for raw instruction parsing approach.
-        
-        This method returns empty list since we use instruction parsing 
-        instead of polling for LP detection.
-        
+        Scan for new Solana tokens and LP events via transaction monitoring.
+
+        Sync wrapper for async scanning functionality.
+
         Returns:
-            Empty list (no polling-based scanning)
+            List of detected token/LP events
         """
-        # Raw instruction parsing doesn't use polling
-        # LP detection happens via parse_transaction() method
-        return []
+        try:
+            # Run async scanning in new event loop
+            return asyncio.run(self.scan_new_pairs_async())
+        except RuntimeError:
+            # If already in event loop, use existing one
+            import nest_asyncio
+            nest_asyncio.apply()
+            return asyncio.run(self.scan_new_pairs_async())
+
+    async def scan_new_pairs_async(self) -> List[Dict]:
+        """
+        Async version of scan_new_pairs for use in async contexts.
+
+        Scan for new Solana tokens and LP events via transaction monitoring.
+
+        Returns:
+            List of detected token/LP events
+        """
+        if not self._connected:
+            return []
+
+        # Rate limit scans
+        now = time.time()
+        if now - self._last_scan_time < self._scan_interval:
+            return []
+        self._last_scan_time = now
+
+        events = []
+
+        try:
+            # Monitor Raydium program for recent LP creation transactions
+            lp_events = await self._monitor_raydium_lp_events()
+            events.extend(lp_events)
+
+            # Monitor Pump.fun for new token creations
+            pump_events = await self._monitor_pumpfun_tokens()
+            events.extend(pump_events)
+
+            if events:
+                solana_log(f"Found {len(events)} Solana events: {len(lp_events)} LP, {len(pump_events)} tokens", "INFO")
+
+        except Exception as e:
+            solana_log(f"Scan error: {e}", "ERROR")
+
+        return events
+
+    def _monitor_raydium_lp_events(self) -> List[Dict]:
+        """
+        Monitor Raydium AMM program for recent LP creation transactions.
+
+        Uses getConfirmedSignaturesForAddress to find recent transactions
+        and parse them for LP creation events.
+
+        Returns:
+            List of LP creation events
+        """
+        import aiohttp
+        import json
+
+        events = []
+        raydium_program_id = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+
+        try:
+            # Get recent confirmed signatures for Raydium program
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getConfirmedSignaturesForAddress",
+                "params": [
+                    raydium_program_id,
+                    {
+                        "limit": 10,  # Check last 10 transactions
+                        "commitment": "confirmed"
+                    }
+                ]
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.rpc_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=10.0)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        signatures = data.get('result', [])
+
+                        # Parse each transaction for LP events
+                        for sig_info in signatures:
+                            signature = sig_info.get('signature')
+                            if signature:
+                                # Parse this transaction for LP events
+                                event = await self.parse_transaction(signature)
+                                if event and 'base_mint' in event:
+                                    events.append(event)
+
+        except Exception as e:
+            solana_log(f"Error monitoring Raydium LP events: {e}", "ERROR")
+
+        return events
+
+    def _monitor_pumpfun_tokens(self) -> List[Dict]:
+        """
+        Monitor Pump.fun program for new token creation transactions.
+
+        Returns:
+            List of new token events
+        """
+        import aiohttp
+        import json
+
+        events = []
+        pumpfun_program_id = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+
+        try:
+            # Get recent confirmed signatures for Pump.fun program
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getConfirmedSignaturesForAddress",
+                "params": [
+                    pumpfun_program_id,
+                    {
+                        "limit": 5,  # Check last 5 transactions (less frequent)
+                        "commitment": "confirmed"
+                    }
+                ]
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.rpc_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=10.0)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        signatures = data.get('result', [])
+
+                        # Parse each transaction for token creation events
+                        for sig_info in signatures:
+                            signature = sig_info.get('signature')
+                            if signature:
+                                # Parse this transaction for token events
+                                event = await self.parse_transaction(signature)
+                                if event and 'token_address' in event:
+                                    events.append(event)
+
+        except Exception as e:
+            solana_log(f"Error monitoring Pump.fun tokens: {e}", "ERROR")
+
+        return events
     
     async def _create_unified_event_async_wrapper(self, token: Dict) -> Optional[Dict]:
         """Wrapper for async metadata resolution."""
