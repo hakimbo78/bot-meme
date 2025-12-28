@@ -529,37 +529,24 @@ class PumpfunScanner:
                 message = tx_data.get('message', {})
                 account_keys = message.get('accountKeys', [])
             else:
-                # Object format - inspect actual structure
-                # Log all attributes to understand structure
-                all_attrs = dir(tx_data)
-                data_attrs = [a for a in all_attrs if not a.startswith('_')]
-                solana_log(f"TX {signature[:8]}... object attrs (first 10): {data_attrs[:10]}", "DEBUG")
+                # Object format - inspect structure and try to get message
+                # Log the actual type to understand it better
+                tx_type = type(tx_data).__name__
+                solana_log(f"TX {signature[:8]}... type={tx_type}", "DEBUG")
                 
-                # Try multiple possible paths for message
-                message = None
-                
-                # Path 1: Direct message attribute
-                if hasattr(tx_data, 'message'):
-                    message = getattr(tx_data, 'message', None)
-                    solana_log(f"TX {signature[:8]}... found .message attribute", "DEBUG")
-                
-                # Path 2: Check if tx_data itself is the message
-                if not message and hasattr(tx_data, 'account_keys'):
-                    message = tx_data
-                    solana_log(f"TX {signature[:8]}... tx_data itself has account_keys", "DEBUG")
-                
-                # Path 3: Inspect value if it exists
-                if not message and hasattr(tx_data, 'value'):
-                    value = getattr(tx_data, 'value', None)
-                    if hasattr(value, 'message'):
-                        message = value.message
-                        solana_log(f"TX {signature[:8]}... found message in .value.message", "DEBUG")
-                
-                if message:
-                    account_keys = getattr(message, 'account_keys', [])
-                    solana_log(f"TX {signature[:8]}... found message with {len(account_keys)} accounts", "DEBUG")
-                else:
-                    solana_log(f"TX {signature[:8]}... could not find message in any path", "DEBUG")
+                # Try to convert to JSON to understand structure
+                try:
+                    tx_json = tx_data.to_json()
+                    import json
+                    tx_dict = json.loads(tx_json)
+                    if 'message' in tx_dict:
+                        message = tx_dict['message']
+                        account_keys = message.get('accountKeys', [])
+                        solana_log(f"TX {signature[:8]}... found message in to_json() with {len(account_keys)} accounts", "DEBUG")
+                    else:
+                        solana_log(f"TX {signature[:8]}... to_json() has no message, keys: {list(tx_dict.keys())}", "DEBUG")
+                except Exception as e:
+                    solana_log(f"TX {signature[:8]}... to_json() failed: {e}", "DEBUG")
             
             if not account_keys:
                 solana_log(f"TX {signature[:8]}... no account_keys found", "DEBUG")
