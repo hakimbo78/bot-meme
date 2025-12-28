@@ -80,7 +80,8 @@ class EVMAdapter(ChainAdapter):
     def connect(self) -> bool:
         """Connect to EVM chain via RPC"""
         try:
-            self.w3 = Web3(Web3.HTTPProvider(self.config['rpc_url']))
+            # Add timeout to HTTP provider
+            self.w3 = Web3(Web3.HTTPProvider(self.config['rpc_url'], request_kwargs={'timeout': 10}))
             
             if not self.w3.is_connected():
                 print(f"❌ {self.get_chain_prefix()} Could not connect to RPC")
@@ -91,7 +92,15 @@ class EVMAdapter(ChainAdapter):
                 abi=FACTORY_ABI
             )
             self.weth = Web3.to_checksum_address(self.config['weth_address'])
+            
+            # Add timeout for block number retrieval
+            import time
+            start_time = time.time()
             self.last_block = self.w3.eth.block_number
+            connection_time = time.time() - start_time
+            
+            if connection_time > 5:
+                print(f"⚠️  {self.get_chain_prefix()} Slow RPC response ({connection_time:.1f}s)")
             
             print(f"✅ {self.get_chain_prefix()} Connected! Block: {self.last_block}")
             return True
