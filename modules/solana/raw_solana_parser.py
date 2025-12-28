@@ -174,32 +174,6 @@ class InstructionFlattener:
         """
         instructions = []
 
-        # Get account keys for resolving indices
-        message = tx_response.transaction.get('message', {})
-        account_keys = message.get('accountKeys', [])
-        
-        solana_log(f"[SOLANA][RAW] account keys: {len(account_keys)}", "DEBUG")
-
-        # 1. Top-level instructions
-        top_level = message.get('instructions', [])
-        solana_log(f"[SOLANA][RAW] top-level instructions: {len(top_level)}", "DEBUG")
-        for instr in top_level:
-            flat = InstructionFlattener._parse_instruction(instr, account_keys)
-            if flat:
-                instructions.append(flat)
-
-        # 2. Inner instructions (CRITICAL for Pump.fun + Raydium)
-        if tx_response.meta:
-            inner_instructions = tx_response.meta.get('innerInstructions', [])
-            solana_log(f"[SOLANA][RAW] inner instruction groups: {len(inner_instructions)}", "DEBUG")
-            for inner_group in inner_instructions:
-                inner_instrs = inner_group.get('instructions', [])
-                solana_log(f"[SOLANA][RAW] inner instructions in group: {len(inner_instrs)}", "DEBUG")
-                for instr in inner_instrs:
-                    flat = InstructionFlattener._parse_instruction(instr, account_keys)
-                    if flat:
-                        instructions.append(flat)
-
         solana_log(f"[SOLANA][RAW] total instructions: {len(instructions)}", "DEBUG")
         return instructions
 
@@ -270,12 +244,11 @@ class ProgramFilter:
         solana_log(f"[SOLANA][RAW] filtering {len(instructions)} instructions", "DEBUG")
         
         for instr in instructions:
-            solana_log(f"[SOLANA][RAW] instruction program: {instr.program_id[:8]}...", "DEBUG")
             if instr.program_id in known_programs:
                 filtered.append(instr)
-                solana_log(f"[SOLANA][RAW] ✓ kept instruction from known program", "DEBUG")
+                solana_log(f"[SOLANA][RAW] ✓ kept {instr.program_id[:8]}... ({instr.instruction_type})", "DEBUG")
             else:
-                solana_log(f"[SOLANA][RAW] ✗ filtered out unknown program", "DEBUG")
+                solana_log(f"[SOLANA][RAW] ✗ filtered {instr.program_id[:8]}...", "DEBUG")
 
         solana_log(f"[SOLANA][RAW] filtered to {len(filtered)} known program instructions", "DEBUG")
         return filtered
