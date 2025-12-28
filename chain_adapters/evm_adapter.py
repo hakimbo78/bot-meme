@@ -10,6 +10,16 @@ from functools import wraps
 from typing import List, Dict, Optional
 from .base_adapter import ChainAdapter
 
+# Import V3 modules
+try:
+    from dex.uniswap_v3 import UniswapV3PoolScanner, V3LiquidityCalculator, V3RiskEngine
+    V3_AVAILABLE = True
+except ImportError:
+    V3_AVAILABLE = False
+    UniswapV3PoolScanner = None
+    V3LiquidityCalculator = None
+    V3RiskEngine = None
+
 
 # Minimal ABIs (reused from existing scanner/analyzer)
 FACTORY_ABI = [
@@ -77,6 +87,15 @@ class EVMAdapter(ChainAdapter):
         self.eth_price_usd = config.get('eth_price_usd', 3500)
         self.goplus_api_url = f"https://api.gopluslabs.io/api/v1/token_security/{config.get('goplus_chain_id', '1')}"
         
+        # DEX Configuration
+        self.enabled_dexes = config.get('dexes', ['uniswap_v2'])
+        self.factory_addresses = config.get('factories', {})
+        
+        # V3 Components
+        self.v3_scanner = None
+        self.v3_liquidity_calc = None
+        self.v3_risk_engine = None
+        
         # CU OPTIMIZATION: Separate clients per chain
         self.session = requests.Session()  # HTTP keep-alive
         
@@ -112,10 +131,25 @@ class EVMAdapter(ChainAdapter):
                 print(f"❌ {self.get_chain_prefix()} Could not connect to RPC")
                 return False
             
-            self.factory = self.w3.eth.contract(
-                address=self.config['factory_address'],  # Skip checksum for now
-                abi=FACTORY_ABI
-            )
+            # Initialize V2 factory (backward compatibility)
+            if 'uniswap_v2' in self.enabled_dexes and self.factory_addresses.get('uniswap_v2'):
+                self.factory = self.w3.eth.contract(
+                    address=self.factory_addresses['uniswap_v2'],
+                    abi=FACTORY_ABI
+                )
+            
+            # Initialize V3 components
+            if V3_AVAILABLE and 'uniswap_v3' in self.enabled_dexes and self.factory_addresses.get('uniswap_v3'):
+                self.v3_scanner = UniswapV3PoolScanner(
+                    self.w3,
+                    self.factory_addresses['uniswap_v3'],
+                    self.config['weth_address'],
+                    self.chain_name
+                )
+                self.v3_liquidity_calc = V3LiquidityCalculator(self.w3, self.eth_price_usd)
+                self.v3_risk_engine = V3RiskEngine()
+                print(f"🔄 {self.get_chain_prefix()} Uniswap V3 support enabled")
+            
             self.weth = Web3.to_checksum_address(self.config['weth_address'])
             
             # Add timeout for block number retrieval
@@ -187,10 +221,10 @@ class EVMAdapter(ChainAdapter):
         self.cu_used_today += cost
     
     def scan_new_pairs(self) -> List[Dict]:
-        """Scan for new PairCreated events"""
+        """Scan for new pairs from all enabled DEXes"""
         new_pairs = []
         
-        if not self.w3 or not self.factory:
+        if not self.w3:
             return new_pairs
         
         try:
@@ -200,49 +234,66 @@ class EVMAdapter(ChainAdapter):
             return new_pairs
         
         if current_block > self.last_block:
-            try:
-                # NUCLEAR FIX: Always scan minimal range to avoid RPC errors
-                # This sacrifices some scanning completeness but ensures stability
-                from_block = current_block - 10  # Only last 10 blocks
-                
-                logs = self.factory.events.PairCreated.get_logs(
-                    from_block=from_block,
-                    to_block=current_block
-                )
-                
-                # Record factory logs for heat calculation
-                if self.heat_engine and logs:
-                    for _ in logs:
-                        self.heat_engine.record_factory_log()
-                
-                for log in logs:
-                    try:
-                        token0 = log['args']['token0']
-                        token1 = log['args']['token1']
-                        pair_address = log['args']['pair']
-                        block_number = log['blockNumber']
-                        
-                        # Identify the meme token (not WETH)
-                        token_address = token0 if token0.lower() != self.weth.lower() else token1
-                        
-                        # Get block timestamp
-                        block_data = self._get_block_data(block_number)
-                        
-                        new_pairs.append({
-                            'token_address': token_address,
-                            'pair_address': pair_address,
-                            'block_number': block_number,
-                            'timestamp': block_data['timestamp'],
-                            'chain': self.chain_name,
-                            'chain_prefix': self.get_chain_prefix()
-                        })
-                    except Exception as e:
-                        print(f"⚠️  {self.get_chain_prefix()} Error processing log: {e}")
-                        continue
-                
-                self.last_block = current_block
-            except Exception as e:
-                print(f"⚠️  {self.get_chain_prefix()} Error fetching pair events: {e}")
+            # Scan V2 pairs
+            if self.factory and 'uniswap_v2' in self.enabled_dexes:
+                v2_pairs = self._scan_v2_pairs(current_block)
+                new_pairs.extend(v2_pairs)
+            
+            # Scan V3 pools
+            if self.v3_scanner and 'uniswap_v3' in self.enabled_dexes:
+                v3_pools = self.v3_scanner.scan_new_pools()
+                new_pairs.extend(v3_pools)
+            
+            self.last_block = current_block
+        
+        return new_pairs
+    
+    def _scan_v2_pairs(self, current_block: int) -> List[Dict]:
+        """Scan Uniswap V2 PairCreated events"""
+        new_pairs = []
+        
+        try:
+            # NUCLEAR FIX: Always scan minimal range to avoid RPC errors
+            from_block = current_block - 10  # Only last 10 blocks
+            
+            logs = self.factory.events.PairCreated.get_logs(
+                from_block=from_block,
+                to_block=current_block
+            )
+            
+            # Record factory logs for heat calculation
+            if self.heat_engine and logs:
+                for _ in logs:
+                    self.heat_engine.record_factory_log()
+            
+            for log in logs:
+                try:
+                    token0 = log['args']['token0']
+                    token1 = log['args']['token1']
+                    pair_address = log['args']['pair']
+                    block_number = log['blockNumber']
+                    
+                    # Identify the meme token (not WETH)
+                    token_address = token0 if token0.lower() != self.weth.lower() else token1
+                    
+                    # Get block timestamp
+                    block_data = self._get_block_data(block_number)
+                    
+                    new_pairs.append({
+                        'token_address': token_address,
+                        'pair_address': pair_address,
+                        'block_number': block_number,
+                        'timestamp': block_data['timestamp'],
+                        'chain': self.chain_name,
+                        'chain_prefix': self.get_chain_prefix(),
+                        'dex_type': 'uniswap_v2'
+                    })
+                except Exception as e:
+                    print(f"⚠️  {self.get_chain_prefix()} Error processing V2 log: {e}")
+                    continue
+            
+        except Exception as e:
+            print(f"⚠️  {self.get_chain_prefix()} Error fetching V2 pair events: {e}")
         
         return new_pairs
 
@@ -592,3 +643,95 @@ class EVMAdapter(ChainAdapter):
             'blacklist': is_blacklisted,
             'top10_holders_percent': top10_percent
         }
+    
+    def analyze_token(self, pair_data: Dict) -> Optional[Dict]:
+        """
+        Enhanced analyze_token with V3 support.
+        """
+        try:
+            token_address = pair_data['token_address']
+            pair_address = pair_data['pair_address']
+            block_number = pair_data.get('block_number', 0)
+            dex_type = pair_data.get('dex_type', 'uniswap_v2')
+            
+            # Get metadata
+            metadata = self.get_token_metadata(token_address)
+            if metadata is None:
+                metadata = {'name': 'UNKNOWN', 'symbol': '???', 'decimals': 18}
+            
+            # Get liquidity (V3-aware)
+            if dex_type == 'uniswap_v3' and self.v3_liquidity_calc:
+                # V3 liquidity calculation
+                pool_data = self.v3_liquidity_calc.calculate_pool_liquidity(
+                    pair_address,
+                    pair_data.get('token0', token_address),
+                    pair_data.get('token1', self.weth),
+                    self.weth
+                )
+                liquidity_usd = pool_data.get('liquidity_usd', 0)
+                
+                # Add V3-specific fields
+                v3_risks = {}
+                if self.v3_risk_engine:
+                    v3_risks = self.v3_risk_engine.assess_pool_risks(pool_data)
+            else:
+                # V2 liquidity calculation
+                liquidity_usd = self.get_liquidity(pair_address, token_address)
+                v3_risks = {}
+            
+            if liquidity_usd is None:
+                liquidity_usd = 0
+            
+            # Get security data
+            security = self.check_security(token_address)
+            if security is None:
+                security = {
+                    'renounced': False,
+                    'mintable': True,
+                    'blacklist': False,
+                    'top10_holders_percent': 100
+                }
+            
+            # Calculate age
+            import time
+            age_minutes = (int(time.time()) - pair_data['timestamp']) / 60
+            
+            # Build base result
+            result = {
+                'name': metadata['name'],
+                'symbol': metadata['symbol'],
+                'address': token_address,
+                'pair_address': pair_address,
+                'block_number': block_number,
+                'age_minutes': age_minutes,
+                'liquidity_usd': liquidity_usd,
+                'renounced': security.get('renounced', False),
+                'mintable': security.get('mintable', False),
+                'blacklist': security.get('blacklist', False),
+                'top10_holders_percent': security.get('top10_holders_percent', 100),
+                'chain': self.chain_name,
+                'chain_prefix': self.get_chain_prefix(),
+                'dex_type': dex_type,
+                
+                # V3-specific fields
+                'fee_tier': pair_data.get('fee_tier'),
+                'v3_risks': v3_risks,
+                
+                # New validation fields - defaults
+                'momentum_confirmed': False,
+                'momentum_score': 0,
+                'momentum_details': {},
+                'fake_pump_suspected': False,
+                'mev_pattern_detected': False,
+                'manipulation_details': [],
+                'dev_activity_flag': 'UNKNOWN',
+                'smart_money_involved': False,
+                'deployer_address': '',
+                'wallet_details': {},
+                'market_phase': 'launch' if age_minutes < 15 else ('growth' if age_minutes < 120 else 'mature')
+            }
+            
+            return result
+        except Exception as e:
+            print(f"⚠️  {self.get_chain_prefix()} Error analyzing token: {e}")
+            return None

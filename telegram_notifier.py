@@ -229,6 +229,11 @@ class TelegramNotifier:
         # Get chain prefix (defaults to [BASE] for backward compatibility)
         chain_prefix = token_data.get('chain_prefix', '[BASE]')
         
+        # Add V3 tag if Uniswap V3
+        dex_tag = ""
+        if token_data.get('dex_type') == 'uniswap_v3':
+            dex_tag = "[V3] "
+        
         # Re-alert indicator
         realert_tag = ""
         if eligibility['is_realert']:
@@ -279,7 +284,7 @@ class TelegramNotifier:
             insights_section = insights_section.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
             insights_section = "💡 *Market Intelligence:*\n" + insights_section + "\n"
         
-        message = f"""{emoji} *{chain_prefix} {alert_level} ALERT* {emoji}{realert_tag}
+        message = f"""{emoji} *{chain_prefix} {dex_tag}{alert_level} ALERT* {emoji}{realert_tag}
 
 *Token:* `{token_data.get('name')}` ({token_data.get('symbol')})
 *Chain:* {chain_prefix}

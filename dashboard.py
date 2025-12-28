@@ -440,11 +440,19 @@ def render_token_card(token: dict):
                     elif source == 'jupiter':
                         source_badge = "🪐 Jupiter"
                     
+                    # DEX badge
+                    dex_badge = ""
+                    dex_type = token.get('dex_type', 'uniswap_v2')
+                    if dex_type == 'uniswap_v3':
+                        fee_tier = token.get('fee_tier', 3000)
+                        fee_percent = fee_tier / 10000  # Convert basis points to percent
+                        dex_badge = f" | **V3 ({fee_percent:.1f}%)**"
+                    
                     source_html = f" | **Source:** {source_badge}" if source_badge else ""
                     
                     st.markdown(f"""
                     **Address:** `{token.get('address', 'N/A')[:20]}...`  
-                    **Chain:** {token.get('chain', 'Unknown').upper()}{source_html}  
+                    **Chain:** {token.get('chain', 'Unknown').upper()}{source_html}{dex_badge}  
                     **Mode:** <span class="mode-badge {mode}">{mode.upper()}</span>  
                     **Age:** {token.get('age_display', 'N/A')}  
                     **Alert Time:** {token.get('alert_time', 'N/A')}
