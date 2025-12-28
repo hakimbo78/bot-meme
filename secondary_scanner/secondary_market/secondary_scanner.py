@@ -67,8 +67,8 @@ class SecondaryScanner:
                     continue
                     
                 try:
-                    # Use lowercase address for RPC compatibility
-                    factory_address = factory_address.lower()
+                    # Checksum the factory address
+                    factory_address = Web3.to_checksum_address(factory_address)
                     
                     # Get recent blocks (last 100 blocks ~ 30 minutes)
                     latest_block = self.web3.eth.block_number
@@ -126,8 +126,8 @@ class SecondaryScanner:
                                     continue
                                 
                                 pair_data = {
-                                    'pair_address': pair_address.lower(),
-                                    'token_address': token_address.lower(),
+                                    'pair_address': Web3.to_checksum_address(pair_address),
+                                    'token_address': Web3.to_checksum_address(token_address),
                                     'dex_type': dex_type,
                                     'token_decimals': 18,  # Assume 18 decimals
                                     'block_number': log['blockNumber'],
@@ -190,8 +190,8 @@ class SecondaryScanner:
             latest_block = self.web3.eth.block_number
             from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
 
-            # Use lowercase address
-            pair_address = pair_address.lower()
+            # Use checksum address
+            pair_address = Web3.to_checksum_address(pair_address)
 
             # Query events
             logs = self.web3.eth.get_logs({
