@@ -341,12 +341,10 @@ class PumpfunScanner:
                 tx_data = tx.transaction if hasattr(tx, 'transaction') else tx
                 solana_log(f"TX {signature[:8]}... Object format, has meta: {meta is not None}", "DEBUG")
             
-            # Metadata may be missing on very early transactions; skip if missing
-            if not meta:
-                solana_log(f"TX {signature[:8]}... skipping candidate due to missing metadata", "DEBUG")
-                return None
-
+            # Metadata may be missing on very early transactions; continue with missing status
             metadata_status = 'present' if meta else 'missing'
+            if not meta:
+                solana_log(f"TX {signature[:8]}... metadata missing, proceeding with metadata-less scoring", "DEBUG")
 
             # Get account keys
             account_keys = []
