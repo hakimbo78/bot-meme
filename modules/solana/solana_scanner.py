@@ -315,6 +315,14 @@ class SolanaScanner:
         if not token_address:
             return None
         
+        # Ensure token_address is a string (not a dict)
+        if isinstance(token_address, dict):
+            token_address = token_address.get('pubkey', '')
+        
+        token_address = str(token_address).strip()
+        if not token_address:
+            return None
+        
         # ====== STEP 1: RESOLVE METADATA ======
         metadata = await self.metadata_resolver.resolve(token_address)
         name = metadata.get('name', 'UNKNOWN') if metadata else 'UNKNOWN'

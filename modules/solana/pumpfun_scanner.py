@@ -577,8 +577,18 @@ class PumpfunScanner:
             if not token_address:
                 # Fallback to account index 1 if balances empty
                 if len(account_keys) > 1:
-                    token_address = str(account_keys[1])
-                    solana_log(f"TX {signature[:8]}... using account[1] as token: {token_address[:8]}", "DEBUG")
+                    account_key = account_keys[1]
+                    # Handle both string and dict formats
+                    if isinstance(account_key, dict):
+                        token_address = str(account_key.get('pubkey', ''))
+                    else:
+                        token_address = str(account_key)
+                    
+                    if token_address:
+                        solana_log(f"TX {signature[:8]}... using account[1] as token: {token_address[:8]}", "DEBUG")
+                    else:
+                        solana_log(f"TX {signature[:8]}... account[1] has no valid pubkey", "DEBUG")
+                        return None
                 else:
                     solana_log(f"TX {signature[:8]}... no token address found and only {len(account_keys)} accounts", "DEBUG")
                     return None
