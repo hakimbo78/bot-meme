@@ -173,28 +173,42 @@ class SecondaryScanner:
                         raise e
                     
                     # Process last 100 pairs (most recent)
+                    parsed_count = 0
                     for log in logs[-100:]:
                         try:
                             # Decode event data
                             data = log['data']
                             topics = log['topics']
                             
+                            # Convert HexBytes to hex string if needed
+                            if hasattr(data, 'hex'):
+                                data_hex = data.hex()
+                            else:
+                                data_hex = data
+                            
                             if len(topics) >= 3:
                                 # topics[1] = token0, topics[2] = token1
-                                token0 = '0x' + topics[1].hex()[26:]  # Remove padding
-                                token1 = '0x' + topics[2].hex()[26:]
+                                # Convert HexBytes to hex and extract address (last 20 bytes)
+                                if hasattr(topics[1], 'hex'):
+                                    token0 = '0x' + topics[1].hex()[26:]  # Remove padding
+                                    token1 = '0x' + topics[2].hex()[26:]
+                                else:
+                                    token0 = '0x' + topics[1][26:]
+                                    token1 = '0x' + topics[2][26:]
                                 
                                 # Extract pair/pool address from data
                                 if dex_type == 'uniswap_v2':
-                                    # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
-                                    if len(data) >= 64:
-                                        pair_address = '0x' + data[2:66]  # Skip 0x, take 64 chars (32 bytes)
+                                    # V2: data contains pair_address (first 32 bytes) + counter
+                                    # Data format: 0x + 64 chars (pair address padded) + ...
+                                    if len(data_hex) >= 64:
+                                        # Extract address from padded 32 bytes (last 20 bytes = 40 chars)
+                                        pair_address = '0x' + data_hex[-40:]
                                     else:
                                         continue
                                 elif dex_type == 'uniswap_v3':
                                     # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
-                                    if len(data) >= 128:
-                                        pair_address = '0x' + data[66:130]  # After tickSpacing
+                                    if len(data_hex) >= 128:
+                                        pair_address = '0x' + data_hex[64:128][-40:]  # Last 20 bytes of second 32-byte chunk
                                     else:
                                         continue
                                 
@@ -218,9 +232,16 @@ class SecondaryScanner:
                                 }
                                 
                                 pairs.append(pair_data)
+                                parsed_count += 1
                                 
                         except Exception as e:
+                            # Log first few errors for debugging
+                            if parsed_count < 3:
+                                print(f"⚠️  [SECONDARY DEBUG] Error parsing log: {e}")
                             continue  # Skip malformed logs
+                    
+                    if parsed_count > 0:
+                        print(f"✅ [SECONDARY] {self.chain_name.upper()}: Parsed {parsed_count}/{len(logs[-100:])} {dex_type.upper()} pairs")
                     
                 except Exception as e:
                     print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
