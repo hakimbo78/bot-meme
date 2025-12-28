@@ -127,12 +127,30 @@ class SolanaScanner:
         """
         Scan for new tokens and return unified events.
         
+        ASYNC WRAPPER: Uses asyncio to run async metadata resolution.
+        
         Returns:
             List of unified token dicts with all available data
         """
         if not self._connected:
             return []
         
+        try:
+            # Run async scan
+            return asyncio.run(self._async_scan_new_pairs())
+        except Exception as e:
+            solana_log(f"Scan wrapper error: {e}", "ERROR")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    async def _async_scan_new_pairs(self) -> List[Dict]:
+        """
+        Async scan for new tokens and return unified events WITH METADATA!
+        
+        Returns:
+            List of unified token dicts with all available data
+        """
         # Rate limit scans
         now = time.time()
         if now - self._last_scan_time < self._scan_interval:
@@ -153,12 +171,15 @@ class SolanaScanner:
             else:
                 solana_log("Scan cycle complete: 0 new candidates", "DEBUG")
             
-            # Process Pump.fun tokens (primary source)
+            # Process Pump.fun tokens (primary source) WITH METADATA RESOLUTION
             for token in pumpfun_tokens:
-                unified = self._create_unified_event(token)
+                unified = await self._create_unified_event_async(token)
                 if unified:
                     unified_events.append(unified)
-                    solana_log(f"New token detected: {unified.get('name')} ({unified.get('symbol')})")
+                    name = unified.get('name', 'UNKNOWN')
+                    symbol = unified.get('symbol', '???')
+                    state = unified.get('state', 'UNKNOWN')
+                    solana_log(f"New token detected: {name} ({symbol}) | State: {state}")
             
             # Check for Raydium pools for cached tokens
             for pool in raydium_pools:
@@ -186,7 +207,7 @@ class SolanaScanner:
             self._cleanup_cache()
             
         except Exception as e:
-            solana_log(f"Scan error: {e}", "ERROR")
+            solana_log(f"Async scan error: {e}", "ERROR")
             import traceback
             traceback.print_exc()
         
@@ -253,6 +274,123 @@ class SolanaScanner:
             'jupiter_active': jupiter_data.get('is_active', False),
             
             # ====== NEW: Metadata + State Machine ======
+            'state': state_record.current_state.value,
+            'metadata_resolved': state_record.metadata_resolved,
+            'lp_detected': state_record.lp_detected,
+            'lp_valid': state_record.lp_valid,
+            'token_state_record': state_record.to_dict(),
+            
+            # Computed fields
+            'timestamp': time.time()
+        }
+        
+        # Cache for later updates
+        self._token_cache[token_address] = unified
+        
+        return unified
+    
+    async def _create_unified_event_async(self, pumpfun_token: Dict) -> Optional[Dict]:
+        """
+        Create unified token event with METADATA RESOLUTION.
+        
+        This is the NEW async version that:
+        1. Resolves metadata from Metaplex
+        2. Detects Raydium LP
+        3. Updates state machine
+        
+        Args:
+            pumpfun_token: Token data from Pump.fun scanner
+            
+        Returns:
+            Unified token dict with resolved metadata and state
+        """
+        token_address = pumpfun_token.get('token_address')
+        if not token_address:
+            return None
+        
+        # ====== STEP 1: RESOLVE METADATA ======
+        metadata = await self.metadata_resolver.resolve(token_address)
+        name = metadata.get('name', 'UNKNOWN') if metadata else 'UNKNOWN'
+        symbol = metadata.get('symbol', '???') if metadata else '???'
+        decimals = metadata.get('decimals', 0) if metadata else 0
+        
+        if metadata:
+            solana_log(f"[META] ✅ Resolved {token_address[:8]}... | {name} ({symbol}) | decimals={decimals}", "DEBUG")
+        else:
+            solana_log(f"[META] ⚠️  Cannot resolve {token_address[:8]}... | Skipping...", "DEBUG")
+        
+        # Get or create state record
+        state_record = self.state_machine.create_token(token_address, symbol)
+        
+        # If metadata resolved, update state machine
+        if metadata:
+            state_record.update_metadata(
+                name=name,
+                symbol=symbol,
+                decimals=decimals
+            )
+            solana_log(f"[STATE] {symbol} → METADATA_OK", "DEBUG")
+        
+        # ====== STEP 2: DETECT RAYDIUM LP ======
+        lp_info = None
+        if metadata:  # Only check LP if metadata is available
+            tx_sig = pumpfun_token.get('tx_signature')
+            if tx_sig:
+                lp_info = await self.lp_detector.detect_from_transaction(tx_sig, token_address)
+                if lp_info:
+                    solana_log(f"[LP] ✅ Raydium LP detected | SOL={lp_info.get('liquidity_sol', 0):.2f} | Pool={lp_info.get('pool_address', '???')[:8]}...", "DEBUG")
+                    state_record.update_lp(
+                        pool_address=lp_info.get('pool_address'),
+                        liquidity_sol=lp_info.get('liquidity_sol', 0)
+                    )
+                    solana_log(f"[STATE] {symbol} → LP_DETECTED", "DEBUG")
+        
+        # Get additional data from other scanners
+        raydium_data = self.raydium.get_liquidity_data(token_address)
+        jupiter_data = self.jupiter.get_momentum_data(token_address)
+        
+        # Build unified event
+        unified = {
+            # Core identity
+            'chain': 'solana',
+            'chain_prefix': self.chain_prefix,
+            'address': token_address,
+            'token_address': token_address,
+            'tx_signature': pumpfun_token.get('tx_signature'),
+            
+            # Pump.fun data
+            'source': 'pumpfun',
+            'name': name,
+            'symbol': symbol,
+            'creator_wallet': pumpfun_token.get('creator_wallet', ''),
+            'age_seconds': pumpfun_token.get('age_seconds', 0),
+            'age_minutes': pumpfun_token.get('age_seconds', 0) / 60,
+            'sol_inflow': pumpfun_token.get('sol_inflow', 0),
+            'sol_inflow_usd': pumpfun_token.get('sol_inflow_usd', 0),
+            'buy_count': pumpfun_token.get('buy_count', 0),
+            'buy_velocity': pumpfun_token.get('buy_velocity', 0),
+            'unique_buyers': pumpfun_token.get('unique_buyers', 0),
+            'creator_sold': pumpfun_token.get('creator_sold', False),
+            'metadata_status': 'resolved' if metadata else 'missing',
+            
+            # Metadata (NEW)
+            'metadata': metadata if metadata else {},
+            'decimals': decimals,
+            
+            # Raydium data
+            'has_raydium_pool': raydium_data.get('has_raydium_pool', False) or bool(lp_info),
+            'liquidity_usd': raydium_data.get('liquidity_usd', 0),
+            'liquidity_sol': raydium_data.get('liquidity_sol', 0),
+            'liquidity_trend': raydium_data.get('liquidity_trend', 'unknown'),
+            'lp_info': lp_info if lp_info else {},
+            
+            # Jupiter data
+            'jupiter_listed': jupiter_data.get('jupiter_listed', False),
+            'jupiter_volume_24h': jupiter_data.get('volume_24h_usd', 0),
+            'routing_trend': jupiter_data.get('routing_trend', 'unknown'),
+            'jupiter_active': jupiter_data.get('is_active', False),
+            
+            # ====== State Machine ======
             'state': state_record.current_state.value,
             'metadata_resolved': state_record.metadata_resolved,
             'lp_detected': state_record.lp_detected,
