@@ -6,7 +6,7 @@ chains:
     dexes: ["uniswap_v2", "uniswap_v3"]
     factories:
       uniswap_v2: "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"  # Uniswap V2 Factory on Base
-      uniswap_v3: "0x1F98431c8aD98523631AE4a59f267346ea31F984"  # Uniswap V3 Factory (same on all chains)
+      uniswap_v3: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD"  # Uniswap V3 Factory on Base (FIXED!)
     weth_address: "0x4200000000000000000000000000000000000006"
     min_liquidity_usd: 1000
     alert_thresholds:
