@@ -187,8 +187,28 @@ class SolanaScanner:
             if self._scan_interval > 30:
                 self._scan_interval = max(self._scan_interval // 2, 30)
             
-            # For now, return empty - LP detection via transaction parsing
-            return []
+            # Process recent signatures for LP events
+            lp_events = []
+            for sig_info in signatures[:2]:  # Only process 2 most recent to avoid rate limits
+                signature = sig_info.get('signature')
+                if not signature:
+                    continue
+                
+                # Check if we've already processed this signature
+                if signature in self._token_cache:
+                    continue
+                
+                # Parse transaction for LP events
+                try:
+                    event = self.raw_parser.parse_transaction(signature)
+                    if event:
+                        lp_events.append(event)
+                        self._token_cache[signature] = time.time()
+                        solana_log(f"[RAYDIUM] Detected LP event: {event.get('name', 'UNKNOWN')}", "INFO")
+                except Exception as e:
+                    solana_log(f"Error parsing Raydium transaction {signature[:8]}...: {e}", "ERROR")
+            
+            return lp_events
             
         except requests.exceptions.Timeout:
             solana_log("Raydium monitoring timeout", "WARNING")
@@ -251,8 +271,28 @@ class SolanaScanner:
             if self._scan_interval > 30:
                 self._scan_interval = max(self._scan_interval // 2, 30)
             
-            # For now, return empty - need transaction parsing for actual detection
-            return []
+            # Process recent signatures for token events
+            token_events = []
+            for sig_info in signatures[:2]:  # Only process 2 most recent to avoid rate limits
+                signature = sig_info.get('signature')
+                if not signature:
+                    continue
+                
+                # Check if we've already processed this signature
+                if signature in self._token_cache:
+                    continue
+                
+                # Parse transaction for token events
+                try:
+                    event = self.raw_parser.parse_transaction(signature)
+                    if event:
+                        token_events.append(event)
+                        self._token_cache[signature] = time.time()
+                        solana_log(f"[PUMP] Detected token event: {event.get('name', 'UNKNOWN')}", "INFO")
+                except Exception as e:
+                    solana_log(f"Error parsing Pump.fun transaction {signature[:8]}...: {e}", "ERROR")
+            
+            return token_events
             
         except requests.exceptions.Timeout:
             solana_log("Pump.fun monitoring timeout", "WARNING")
