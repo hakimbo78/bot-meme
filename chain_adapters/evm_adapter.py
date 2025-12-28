@@ -184,7 +184,7 @@ class EVMAdapter(ChainAdapter):
             print(f"⚠️  {self.get_chain_prefix()} RPC Timeout ({timeout}s)")
             return None
         except Exception as e:
-            # print(f"⚠️  {self.get_chain_prefix()} RPC Error: {e}")
+            print(f"⚠️  {self.get_chain_prefix()} RPC Error: {e}")
             return None
 
     async def scan_new_pairs_async(self) -> List[Dict]:
@@ -203,9 +203,10 @@ class EVMAdapter(ChainAdapter):
             if not current_block:
                 return new_pairs
             
-            # If fast forwarding or startup, reset overlap logic but respect slice size
+            # If fast forwarding or startup, scan more blocks to catch up
             if self.last_block == 0:
-                self.last_block = current_block - 5
+                self.last_block = max(0, current_block - 100)  # Scan last 100 blocks on startup
+                print(f"🔍 {self.get_chain_prefix()} Startup scan: blocks {self.last_block + 1} to {current_block}")
             
             # 2. Slice blocks (Max 5 blocks per scan)
             # We want to scan forward from last_block
@@ -213,8 +214,10 @@ class EVMAdapter(ChainAdapter):
             if start_block > current_block:
                 return new_pairs
                 
-            # Limit range to 5 blocks
-            end_block = min(current_block, start_block + 4) # Inclusive range [start, start+4] = 5 blocks
+            # Limit range to 10 blocks per scan (more aggressive)
+            end_block = min(current_block, start_block + 9) # Inclusive range [start, start+9] = 10 blocks
+            
+            print(f"🔍 {self.get_chain_prefix()} Scanning blocks {start_block} to {end_block}")
             
             # Yield to event loop
             await asyncio.sleep(0)
