@@ -110,10 +110,18 @@ class SecondaryScanner:
                     if not pair_created_sig:
                         continue
                     
+                    # Set topics based on dex type
+                    if dex_type == 'uniswap_v2':
+                        topics = [pair_created_sig, None, None]
+                    elif dex_type == 'uniswap_v3':
+                        topics = [pair_created_sig, None, None, None]
+                    else:
+                        continue
+                    
                     # Query PairCreated/PoolCreated events
                     logs = self.web3.eth.get_logs({
-                        'address': [factory_address],
-                        'topics': [pair_created_sig],
+                        'address': factory_address,
+                        'topics': topics,
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
                     })
