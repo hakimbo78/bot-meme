@@ -302,25 +302,17 @@ async def main():
         secondary_enabled = False
         
         if SECONDARY_MODULE_AVAILABLE:
-            print(f"{Fore.BLUE}🔍 Checking secondary scanner initialization...")
             try:
                 # Get global secondary scanner config
                 secondary_config = CHAIN_CONFIGS.get('secondary_scanner', {})
-                print(f"{Fore.BLUE}📋 Secondary config: {secondary_config}")
                 
                 # Initialize secondary scanner for each enabled EVM chain
                 secondary_scanners = {}
                 for chain_name in evm_chains:
-                    print(f"{Fore.BLUE}🔍 Checking chain: {chain_name}")
                     chain_config = CHAIN_CONFIGS.get('chains', {}).get(chain_name, {})
-                    print(f"{Fore.BLUE}  - Chain enabled: {chain_config.get('enabled', False)}")
-                    
                     if chain_config.get('enabled', False):
                         # Get web3 provider from adapter
                         adapter = scanner.get_adapter(chain_name)
-                        print(f"{Fore.BLUE}  - Adapter found: {adapter is not None}")
-                        print(f"{Fore.BLUE}  - Adapter has w3: {hasattr(adapter, 'w3') if adapter else False}")
-                        
                         if adapter and hasattr(adapter, 'w3'):
                             # Merge chain config with global secondary config
                             full_config = {
@@ -329,26 +321,17 @@ async def main():
                                 'secondary_scanner': secondary_config
                             }
                             
-                            print(f"{Fore.BLUE}  - Creating SecondaryScanner for {chain_name}")
                             sec_scanner = SecondaryScanner(
                                 adapter.w3, 
                                 full_config
                             )
                             
-                            print(f"{Fore.BLUE}  - SecondaryScanner enabled: {sec_scanner.is_enabled()}")
-                            
                             # Discover and add pairs to monitor
-                            print(f"{Fore.BLUE}  - Discovering pairs for {chain_name}")
                             discovered_pairs = sec_scanner.discover_pairs()
-                            print(f"{Fore.BLUE}  - Found {len(discovered_pairs)} pairs")
-                            
                             for pair_info in discovered_pairs:
                                 sec_scanner.add_pair_to_monitor(**pair_info)
                             
                             secondary_scanners[chain_name] = sec_scanner
-                            print(f"{Fore.BLUE}  ✅ Added scanner for {chain_name}")
-                
-                print(f"{Fore.BLUE}📊 Total secondary scanners created: {len(secondary_scanners)}")
                 
                 if secondary_scanners:
                     secondary_enabled = True
