@@ -21,15 +21,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure SSH
+      - name: Configure SSH key
         run: |
           mkdir -p ~/.ssh
-          # Remove CR to avoid libcrypto errors on Windows-style secrets
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+          if [ -n "$SSH_KEY_B64" ]; then
+            echo "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_rsa
+          else
+            echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+          fi
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+
+      - name: Smoke test SSH connectivity
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${VPS_USER}@${VPS_HOST} "echo 'ssh ok'"
 
       - name: Sync files to VPS
         run: |
