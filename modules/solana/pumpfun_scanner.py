@@ -515,19 +515,27 @@ class PumpfunScanner:
     def _extract_token_creation(self, tx_data, meta, signature: str) -> Optional[Dict]:
         """Extract token creation details."""
         try:
-            # Handle both object and dict formats for tx_data
+            # tx_data is the .transaction object from response
+            # It has a .message attribute that contains account_keys
+            
+            block_time = getattr(tx_data, 'block_time', None) or time.time()
+            
+            # Get message and account keys
+            message = None
+            account_keys = []
+            
             if isinstance(tx_data, dict):
-                solana_log(f"TX {signature[:8]}... dict keys: {list(tx_data.keys())}", "DEBUG")
-                block_time = tx_data.get('blockTime') or time.time()
+                solana_log(f"TX {signature[:8]}... dict format", "DEBUG")
                 message = tx_data.get('message', {})
                 account_keys = message.get('accountKeys', [])
             else:
-                # Log what attributes this object has
-                attrs = [a for a in dir(tx_data) if not a.startswith('_')][:10]
-                solana_log(f"TX {signature[:8]}... object attrs: {attrs}", "DEBUG")
-                block_time = getattr(tx_data, 'block_time', None) or time.time()
+                # Object format - has message attribute
                 message = getattr(tx_data, 'message', None)
-                account_keys = getattr(message, 'account_keys', []) if message else []
+                if message:
+                    account_keys = getattr(message, 'account_keys', [])
+                    solana_log(f"TX {signature[:8]}... found message with {len(account_keys)} accounts", "DEBUG")
+                else:
+                    solana_log(f"TX {signature[:8]}... no message attribute", "DEBUG")
             
             if not account_keys:
                 solana_log(f"TX {signature[:8]}... no account_keys found", "DEBUG")
