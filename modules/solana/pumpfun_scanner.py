@@ -255,11 +255,12 @@ class PumpfunScanner:
             
             # Define the blocking call
             def fetch_tx():
+                from solana.rpc.commitment import Finalized
                 return self.client.get_transaction(
                     sig_obj,
                     encoding="jsonParsed",
                     max_supported_transaction_version=0,
-                    commitment=Confirmed
+                    commitment=Finalized
                 )
             
             try:
@@ -280,13 +281,20 @@ class PumpfunScanner:
                 
             tx = tx_response.value
             
+            # Debug: Check transaction structure
+            if tx is None:
+                solana_log(f"TX {signature[:8]}... tx object is None", "DEBUG")
+                return None
+            
             # Check for dict vs object (Alchemy can vary)
             if isinstance(tx, dict):
                 meta = tx.get('meta')
                 tx_data = tx.get('transaction')
+                solana_log(f"TX {signature[:8]}... Dict format, meta keys: {list(meta.keys()) if meta else 'None'}", "DEBUG")
             else:
                 meta = tx.meta if hasattr(tx, 'meta') else None
                 tx_data = tx.transaction if hasattr(tx, 'transaction') else tx
+                solana_log(f"TX {signature[:8]}... Object format, has meta: {meta is not None}", "DEBUG")
             
             # Metadata may be missing on very early transactions; continue with minimal parsing
             metadata_status = 'present' if meta else 'missing'
