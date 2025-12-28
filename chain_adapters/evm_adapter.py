@@ -76,6 +76,23 @@ class EVMAdapter(ChainAdapter):
         self.weth = None
         self.eth_price_usd = config.get('eth_price_usd', 3500)
         self.goplus_api_url = f"https://api.gopluslabs.io/api/v1/token_security/{config.get('goplus_chain_id', '1')}"
+        
+        # CU OPTIMIZATION: Separate clients per chain
+        self.session = requests.Session()  # HTTP keep-alive
+        
+        # CU GUARDRAILS
+        self.daily_cu_budget = config.get('daily_cu_budget', 50000)  # Base: 50k, ETH: 25k
+        self.cu_used_today = 0
+        self.cu_reset_time = time.time() + 86400  # Reset daily
+        
+        # METADATA CACHE - Cache forever as per requirements
+        self.metadata_cache = {}
+        self.lp_cache = {}  # LP detection cache
+        
+        # SCANNING CONFIG - Chain-specific from config
+        self.scan_interval = config.get('scan_interval', self._get_scan_interval())
+        self.max_block_range = config.get('max_block_range', self._get_max_block_range())
+        self.shortlist_limit = config.get('shortlist_limit', self._get_shortlist_limit())
     
     def connect(self) -> bool:
         """Connect to EVM chain via RPC"""
@@ -117,6 +134,49 @@ class EVMAdapter(ChainAdapter):
     def _get_block_data(self, block_number):
         """Get block data with retry logic"""
         return self.w3.eth.get_block(block_number)
+    
+    def _get_scan_interval(self) -> int:
+        """Get chain-specific scan interval for CU optimization"""
+        chain_name = self.config.get('chain_name', '').lower()
+        if chain_name == 'base':
+            return 25  # 20-30s average
+        elif chain_name == 'ethereum':
+            return 52  # 45-60s average
+        else:
+            return 30
+    
+    def _get_max_block_range(self) -> int:
+        """Get max block range for eth_getLogs"""
+        chain_name = self.config.get('chain_name', '').lower()
+        if chain_name == 'base':
+            return 2  # 1-2 blocks
+        elif chain_name == 'ethereum':
+            return 1  # 1 block
+        else:
+            return 1
+    
+    def _get_shortlist_limit(self) -> int:
+        """Get max candidates per cycle"""
+        chain_name = self.config.get('chain_name', '').lower()
+        if chain_name == 'base':
+            return 3
+        elif chain_name == 'ethereum':
+            return 1
+        else:
+            return 2
+    
+    def _check_cu_budget(self) -> bool:
+        """Check if we have CU budget remaining"""
+        now = time.time()
+        if now > self.cu_reset_time:
+            self.cu_used_today = 0
+            self.cu_reset_time = now + 86400
+        
+        return self.cu_used_today < self.daily_cu_budget
+    
+    def _increment_cu(self, cost: int):
+        """Track CU usage"""
+        self.cu_used_today += cost
     
     def scan_new_pairs(self) -> List[Dict]:
         """Scan for new PairCreated events"""
@@ -369,6 +429,56 @@ class EVMAdapter(ChainAdapter):
         except Exception as e:
             print(f"⚠️  [{self.chain_name.upper()}] CU-optimized scan error: {e}")
             return []
+    
+    def _get_token_metadata_cached(self, token_address: str) -> Optional[Dict]:
+        """Get token metadata with caching - called ONCE per token forever"""
+        if token_address in self.metadata_cache:
+            return self.metadata_cache[token_address]
+        
+        try:
+            token_address = Web3.to_checksum_address(token_address)
+            token_contract = self.w3.eth.contract(address=token_address, abi=ERC20_ABI)
+            
+            name = token_contract.functions.name().call()
+            symbol = token_contract.functions.symbol().call()
+            decimals = token_contract.functions.decimals().call()
+            
+            metadata = {'name': name, 'symbol': symbol, 'decimals': decimals}
+            self.metadata_cache[token_address] = metadata
+            return metadata
+        except Exception as e:
+            print(f"⚠️  [{self.chain_name.upper()}] Error getting token metadata: {e}")
+            # Cache failed metadata too to avoid retries
+            self.metadata_cache[token_address] = {'name': 'UNKNOWN', 'symbol': '???', 'decimals': 18}
+            return self.metadata_cache[token_address]
+    
+    def _get_liquidity_cached(self, pair_address: str, token_address: str) -> Optional[float]:
+        """Get liquidity with LP cache - cache LP detection forever"""
+        cache_key = f"{pair_address}:{token_address}"
+        if cache_key in self.lp_cache:
+            return self.lp_cache[cache_key]
+        
+        try:
+            pair_address = Web3.to_checksum_address(pair_address)
+            pair_contract = self.w3.eth.contract(address=pair_address, abi=PAIR_ABI)
+            
+            token0 = pair_contract.functions.token0().call()
+            reserves = pair_contract.functions.getReserves().call()
+            
+            # Determine which reserve is WETH
+            if token0.lower() == self.weth.lower():
+                weth_reserve = reserves[0]
+            else:
+                weth_reserve = reserves[1]
+            
+            # Convert WETH to USD (WETH has 18 decimals)
+            liquidity_usd = (weth_reserve / 1e18) * self.eth_price_usd
+            self.lp_cache[cache_key] = liquidity_usd
+            return liquidity_usd
+        except Exception as e:
+            print(f"⚠️  [{self.chain_name.upper()}] Error getting liquidity: {e}")
+            self.lp_cache[cache_key] = 0
+            return 0
     
     @retry_with_backoff(max_retries=2, base_delay=1)
     def get_token_metadata(self, token_address: str) -> Optional[Dict]:
