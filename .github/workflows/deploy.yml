@@ -36,15 +36,19 @@ jobs:
           VPS_PATH="/home/hakim/bot-meme"
           REPO="https://github.com/hakimbo78/bot-meme.git"
           
-          # Handle existing directory
-          if [ -d "$VPS_PATH/.git" ]; then
+          # Initialize git repo if needed
+          if [ ! -d "$VPS_PATH/.git" ]; then
+            echo "📦 First time setup: initializing git..."
+            mkdir -p $VPS_PATH
+            cd $VPS_PATH
+            git init
+            git remote add origin $REPO
+            git branch -M main
+            git pull origin main
+          else
             echo "🔄 Pulling latest code..."
             cd $VPS_PATH
             git pull origin main
-          else
-            echo "🔄 Cleaning old directory and cloning repo..."
-            rm -rf $VPS_PATH
-            git clone $REPO $VPS_PATH
           fi
           
           # Install/update dependencies
@@ -61,13 +65,3 @@ jobs:
           sudo systemctl restart meme-bot
           echo "✅ Deploy complete!"
           DEPLOY_EOF
-
-      - name: Install deps and restart service
-        run: |
-          ssh ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && \
-            python3 -m venv .venv || true && \
-            source .venv/bin/activate && \
-            pip install --upgrade pip && \
-            pip install -r requirements.txt && \
-            sudo systemctl restart meme-bot && \
-            sudo systemctl status meme-bot --no-pager --lines=20"
