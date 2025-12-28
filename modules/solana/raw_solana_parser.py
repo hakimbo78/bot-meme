@@ -177,9 +177,12 @@ class InstructionFlattener:
         # Get account keys for resolving indices
         message = tx_response.transaction.get('message', {})
         account_keys = message.get('accountKeys', [])
+        
+        solana_log(f"[SOLANA][RAW] account keys: {len(account_keys)}", "DEBUG")
 
         # 1. Top-level instructions
         top_level = message.get('instructions', [])
+        solana_log(f"[SOLANA][RAW] top-level instructions: {len(top_level)}", "DEBUG")
         for instr in top_level:
             flat = InstructionFlattener._parse_instruction(instr, account_keys)
             if flat:
@@ -188,8 +191,11 @@ class InstructionFlattener:
         # 2. Inner instructions (CRITICAL for Pump.fun + Raydium)
         if tx_response.meta:
             inner_instructions = tx_response.meta.get('innerInstructions', [])
+            solana_log(f"[SOLANA][RAW] inner instruction groups: {len(inner_instructions)}", "DEBUG")
             for inner_group in inner_instructions:
-                for instr in inner_group.get('instructions', []):
+                inner_instrs = inner_group.get('instructions', [])
+                solana_log(f"[SOLANA][RAW] inner instructions in group: {len(inner_instrs)}", "DEBUG")
+                for instr in inner_instrs:
                     flat = InstructionFlattener._parse_instruction(instr, account_keys)
                     if flat:
                         instructions.append(flat)
@@ -261,10 +267,17 @@ class ProgramFilter:
         known_programs = set(PROGRAM_IDS.values())
         filtered = []
 
+        solana_log(f"[SOLANA][RAW] filtering {len(instructions)} instructions", "DEBUG")
+        
         for instr in instructions:
+            solana_log(f"[SOLANA][RAW] instruction program: {instr.program_id[:8]}...", "DEBUG")
             if instr.program_id in known_programs:
                 filtered.append(instr)
+                solana_log(f"[SOLANA][RAW] ✓ kept instruction from known program", "DEBUG")
+            else:
+                solana_log(f"[SOLANA][RAW] ✗ filtered out unknown program", "DEBUG")
 
+        solana_log(f"[SOLANA][RAW] filtered to {len(filtered)} known program instructions", "DEBUG")
         return filtered
 
 
@@ -292,15 +305,17 @@ class PumpfunCreateDetector:
         """
         for instr in instructions:
             if instr.program_id == PROGRAM_IDS['pumpfun']:
-                # Check for initializeMint or create instruction
-                if instr.instruction_type in ['initializeMint', 'create']:
+                solana_log(f"[SOLANA][PUMP] found Pump.fun instruction: {instr.instruction_type}", "DEBUG")
+                
+                # Check for various Pump.fun instructions that indicate token creation
+                if instr.instruction_type in ['initializeMint', 'create', 'initializeMint2']:
                     # Extract from parsed data
                     parsed = instr.parsed
                     if parsed and isinstance(parsed, dict):
                         info = parsed.get('info', {})
 
                         mint = info.get('mint')
-                        mint_authority = info.get('mintAuthority')
+                        mint_authority = info.get('mintAuthority') 
                         creator = info.get('creator')
 
                         if mint:
@@ -320,6 +335,10 @@ class PumpfunCreateDetector:
                                 'creator_sold': False,
                                 'metadata_status': 'missing'  # Will be updated if metadata found
                             }
+                
+                # Also check for other Pump.fun instructions that might indicate creation
+                elif instr.instruction_type and 'mint' in instr.instruction_type.lower():
+                    solana_log(f"[SOLANA][PUMP] potential mint instruction: {instr.instruction_type}", "DEBUG")
 
         return None
 
@@ -340,7 +359,11 @@ class RaydiumLPDetector:
         """
         Detect LP creation from Raydium AMM v4 instructions.
 
-        Uses instruction.accounts[8] to extract base mint for Pump.fun matching.
+        For initialize2 instruction (pool creation):
+        - accounts[12]: amm_coin_mint (one token)
+        - accounts[13]: amm_pc_mint (other token, usually the new token)
+
+        We want the token that is likely the new Pump.fun token.
 
         Args:
             instructions: Filtered instructions
@@ -350,21 +373,31 @@ class RaydiumLPDetector:
         """
         for instr in instructions:
             if instr.program_id == PROGRAM_IDS['raydium_amm']:
-                # Raydium AMM v4 LP creation - extract base mint from accounts[8]
-                if len(instr.accounts) > 8:
-                    base_mint = instr.accounts[8]
+                # Raydium AMM v4 initialize2 instruction for pool creation
+                if instr.instruction_type == 'initialize2' or len(instr.accounts) >= 14:
+                    # Extract both mints
+                    if len(instr.accounts) >= 14:
+                        coin_mint = instr.accounts[12]  # amm_coin_mint
+                        pc_mint = instr.accounts[13]    # amm_pc_mint (usually the new token)
+                        
+                        # Determine which one is likely the new token
+                        # Usually pc_mint is the token being listed (new Pump.fun token)
+                        base_mint = pc_mint
+                        
+                        # Validate it's a valid mint address
+                        if base_mint and len(base_mint) == 44:  # Solana addresses are 44 chars base58
+                            solana_log(f"[SOLANA][RAYDIUM][LP] detected pool creation for token: {base_mint[:8]}...", "INFO")
+                            solana_log(f"[SOLANA][RAYDIUM][LP] coin_mint: {coin_mint[:8]}, pc_mint: {pc_mint[:8]}", "DEBUG")
 
-                    # Validate it's a valid mint address (basic check)
-                    if base_mint and len(base_mint) == 44:  # Solana addresses are 44 chars base58
-                        solana_log(f"[SOLANA][RAYDIUM][LP] detected for base mint: {base_mint[:8]}...", "INFO")
-
-                        return {
-                            'base_mint': base_mint,
-                            'lp_event': 'RAYDIUM_LP_CREATED',
-                            'program_id': instr.program_id,
-                            'instruction_accounts': len(instr.accounts),
-                            'detection_method': 'instruction_parsing'
-                        }
+                            return {
+                                'base_mint': base_mint,
+                                'coin_mint': coin_mint,
+                                'pc_mint': pc_mint,
+                                'lp_event': 'RAYDIUM_LP_CREATED',
+                                'program_id': instr.program_id,
+                                'instruction_accounts': len(instr.accounts),
+                                'detection_method': 'initialize2_parsing'
+                            }
 
         return None
 
