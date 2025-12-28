@@ -70,9 +70,9 @@ class SecondaryScanner:
                     # Checksum the factory address
                     factory_address = Web3.to_checksum_address(factory_address)
                     
-                    # Get recent blocks (last 5000 blocks ~ 1 day)
+                    # Get recent blocks (last 1000 blocks ~ 3-4 hours)
                     latest_block = self.web3.eth.block_number
-                    from_block = max(0, latest_block - 5000)
+                    from_block = max(0, latest_block - 1000)
                     
                     # PairCreated/PoolCreated event signature
                     pair_created_sig = self.pair_created_sigs.get(dex_type)
@@ -81,7 +81,7 @@ class SecondaryScanner:
                     
                     # Query PairCreated/PoolCreated events
                     logs = self.web3.eth.get_logs({
-                        'address': factory_address,
+                        'address': [factory_address],
                         'topics': [pair_created_sig],
                         'fromBlock': from_block,
                         'toBlock': latest_block
@@ -192,7 +192,7 @@ class SecondaryScanner:
 
             # Query events
             logs = self.web3.eth.get_logs({
-                'address': pair_address,
+                'address': [pair_address],
                 'topics': [signature],
                 'fromBlock': from_block,
                 'toBlock': latest_block
