@@ -197,13 +197,14 @@ class SecondaryScanner:
                             
                             if len(topics) >= 3:
                                 # topics[1] = token0, topics[2] = token1
-                                # Convert HexBytes to hex and extract address (last 20 bytes)
+                                # Topics are 32 bytes (64 hex chars) with address in last 20 bytes (40 hex chars)
                                 if hasattr(topics[1], 'hex'):
-                                    token0 = '0x' + topics[1].hex()[26:]  # Remove padding
-                                    token1 = '0x' + topics[2].hex()[26:]
+                                    # Extract last 40 hex chars (20 bytes) for address
+                                    token0 = '0x' + topics[1].hex()[-40:]
+                                    token1 = '0x' + topics[2].hex()[-40:]
                                 else:
-                                    token0 = '0x' + topics[1][26:]
-                                    token1 = '0x' + topics[2][26:]
+                                    token0 = '0x' + topics[1][-40:]
+                                    token1 = '0x' + topics[2][-40:]
                                 
                                 # Debug first token pair
                                 if idx == 0:
