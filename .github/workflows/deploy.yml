@@ -1,0 +1,52 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+env:
+  VPS_HOST: 38.47.176.142
+  VPS_USER: hakim
+  VPS_PATH: /home/hakim/bot-meme
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Sync files to VPS
+        run: |
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.venv' \
+            --exclude '__pycache__' \
+            --exclude '*.log' \
+            --exclude '.env' \
+            ./ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}
+
+      - name: Install deps and restart service
+        run: |
+          ssh ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && \
+            python3 -m venv .venv || true && \
+            source .venv/bin/activate && \
+            pip install --upgrade pip && \
+            pip install -r requirements.txt && \
+            sudo systemctl restart meme-bot && \
+            sudo systemctl status meme-bot --no-pager --lines=20"
