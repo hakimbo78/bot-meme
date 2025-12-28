@@ -47,12 +47,98 @@ class SecondaryScanner:
 
     def discover_pairs(self) -> List[Dict]:
         """
-        Discover existing pairs to monitor.
-        This is a simplified version - in practice would scan factory events.
+        Discover existing pairs to monitor by scanning recent PairCreated events.
         """
-        # For now, return empty list - pairs would be discovered via factory logs
-        # or maintained in a database of known pairs
-        return []
+        try:
+            pairs = []
+            chain_config = self.config
+            
+            # Get factory addresses
+            factories = chain_config.get('factories', {})
+            
+            for dex_type, factory_address in factories.items():
+                if dex_type not in ['uniswap_v2', 'uniswap_v3']:
+                    continue
+                    
+                try:
+                    # Get recent blocks (last 10000 blocks ~ 1-2 days)
+                    latest_block = self.web3.eth.block_number
+                    from_block = max(0, latest_block - 10000)
+                    
+                    # PairCreated event signature
+                    pair_created_sig = '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612'
+                    
+                    # Query PairCreated events
+                    logs = self.web3.eth.get_logs({
+                        'address': factory_address,
+                        'topics': [pair_created_sig],
+                        'fromBlock': from_block,
+                        'toBlock': latest_block
+                    })
+                    
+                    print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last 10000 blocks")
+                    
+                    # Process last 100 pairs (most recent)
+                    for log in logs[-100:]:
+                        try:
+                            # Decode event data (simplified)
+                            # In practice, you'd use proper ABI decoding
+                            data = log['data']
+                            topics = log['topics']
+                            
+                            if len(topics) >= 3:
+                                # topics[1] = token0, topics[2] = token1
+                                token0 = '0x' + topics[1].hex()[26:]  # Remove padding
+                                token1 = '0x' + topics[2].hex()[26:]
+                                
+                                # For simplicity, assume token1 is the meme token (not WETH)
+                                weth_address = chain_config.get('weth_address', '').lower()
+                                if token0.lower() == weth_address:
+                                    token_address = token1
+                                elif token1.lower() == weth_address:
+                                    token_address = token0
+                                else:
+                                    # Skip non-WETH pairs for now
+                                    continue
+                                
+                                pair_data = {
+                                    'pair_address': log['address'],
+                                    'token_address': token_address,
+                                    'dex_type': dex_type,
+                                    'token_decimals': 18,  # Assume 18 decimals
+                                    'block_number': log['blockNumber'],
+                                    'chain': self.chain_name
+                                }
+                                
+                                pairs.append(pair_data)
+                                
+                        except Exception as e:
+                            continue  # Skip malformed logs
+                    
+                except Exception as e:
+                    print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
+                    continue
+            
+            # Remove duplicates and limit to 50 pairs per chain
+            seen_pairs = set()
+            unique_pairs = []
+            for pair in pairs:
+                pair_key = (pair['pair_address'], pair['token_address'])
+                if pair_key not in seen_pairs:
+                    seen_pairs.add(pair_key)
+                    unique_pairs.append(pair)
+            
+            # Sort by block number (most recent first) and take top 50
+            unique_pairs.sort(key=lambda x: x['block_number'], reverse=True)
+            final_pairs = unique_pairs[:50]
+            
+            print(f"✅ [SECONDARY] {self.chain_name.upper()}: Monitoring {len(final_pairs)} pairs")
+            
+            return final_pairs
+            
+        except Exception as e:
+            print(f"⚠️  [SECONDARY] Error discovering pairs: {e}")
+            return []
 
     def add_pair_to_monitor(self, pair_address: str, token_address: str,
                            dex_type: str, token_decimals: int = 18):

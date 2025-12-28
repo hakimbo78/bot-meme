@@ -311,10 +311,17 @@ async def main():
                         # Get web3 provider from adapter
                         adapter = scanner.get_adapter(chain_name)
                         if adapter and hasattr(adapter, 'web3'):
-                            secondary_scanners[chain_name] = SecondaryScanner(
+                            sec_scanner = SecondaryScanner(
                                 adapter.web3, 
                                 {**chain_config, 'chain_name': chain_name}
                             )
+                            
+                            # Discover and add pairs to monitor
+                            discovered_pairs = sec_scanner.discover_pairs()
+                            for pair_info in discovered_pairs:
+                                sec_scanner.add_pair_to_monitor(**pair_info)
+                            
+                            secondary_scanners[chain_name] = sec_scanner
                 
                 if secondary_scanners:
                     secondary_enabled = True
