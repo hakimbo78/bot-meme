@@ -30,7 +30,9 @@ jobs:
         run: ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts 2>&1
 
       - name: Install rsync
-        run: sudo apt-get update && sudo apt-get install -y rsync
+        run: |
+          which rsync || (sudo apt-get update && sudo apt-get install -y rsync)
+          rsync --version | head -1
 
       - name: Sync files to VPS
         run: |
