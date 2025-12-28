@@ -1,18 +1,23 @@
 """
-Solana Scanner - Main Orchestrator
+Solana Scanner - Raw JSON-RPC Parser
 
-Coordinates all Solana sub-scanners:
-- Pump.fun (early detection)
-- Raydium (liquidity)
-- Jupiter (momentum)
+Fully RAW JSON-RPC based parser for Pump.fun + Raydium events.
+No SDK abstractions, direct RPC calls with deterministic parsing.
 
-Produces unified token events for scoring and alerting.
+KEY FEATURES:
+- Raw getTransaction JSON-RPC calls
+- Instruction flattening from message + innerInstructions
+- Hardcoded program ID filtering
+- Metadata-less safe mode
+- Sniper-grade deterministic state machine
 
-UPGRADE: With metadata resolution and LP detection:
-- Token metadata resolved via Metaplex
-- Raydium LP detection + validation
-- Auto state machine: DETECTED → METADATA_OK → LP_DETECTED → SNIPER_ARMED
-- Safe mode: No blind buys without LP + metadata
+EXPECTED LOG FLOW:
+[SOLANA][RAW] meta ok
+[SOLANA][PUMP] new token detected
+[SOLANA][STATE] DETECTED
+[SOLANA][RAYDIUM] LP detected
+[SOLANA][SCORE] boosted
+[SOLANA][SNIPER] ARMED
 
 CRITICAL: READ-ONLY - No execution, no wallets
 """
@@ -20,76 +25,41 @@ import time
 import asyncio
 from typing import Dict, List, Optional
 
-from .solana_utils import (
-    create_solana_client,
-    solana_log,
-    is_valid_solana_address
-)
-from .pumpfun_scanner import PumpfunScanner
-from .raydium_scanner import RaydiumScanner
-from .jupiter_scanner import JupiterScanner
-from .metadata_resolver import MetadataResolver
-from .raydium_lp_detector import RaydiumLPDetector
-from .token_state import TokenStateMachine, TokenState
+from .solana_utils import solana_log
+from .raw_solana_parser import RawSolanaParser
+from .token_state import TokenStateMachine
 
 
 class SolanaScanner:
     """
-    Main orchestrator for Solana token scanning.
-    
-    Coordinates Pump.fun, Raydium, and Jupiter scanners to produce
-    unified token events with all available data.
+    Raw JSON-RPC based Solana scanner.
+
+    Uses fully RAW parsing for sniper-grade detection of Pump.fun + Raydium events.
+    No SDK abstractions, deterministic state machine.
     """
-    
+
     def __init__(self, config: Dict = None):
         """
-        Initialize Solana scanner.
-        
+        Initialize raw Solana scanner.
+
         Args:
             config: Solana chain config from chains.yaml
         """
         self.config = config or {}
         self.chain_name = "solana"
         self.chain_prefix = "[SOL]"
-        
-        # Initialize client
-        rpc_url = self.config.get('rpc_url', 'https://api.mainnet-beta.solana.com')
-        self.client = create_solana_client(rpc_url)
-        
-        # Initialize sub-scanners
-        self.pumpfun = PumpfunScanner(config)
-        self.raydium = RaydiumScanner(config)
-        self.jupiter = JupiterScanner(config)
-        
-        # ====== NEW: Metadata Resolution & LP Detection ======
-        # Metadata resolver
-        metadata_cache_ttl = self.config.get('metadata_cache_ttl', 1800)
-        self.metadata_resolver = MetadataResolver(
-            client=self.client,
-            cache_ttl=metadata_cache_ttl
-        )
-        
-        # Raydium LP detector
-        min_lp_sol = self.config.get('min_lp_sol', 10.0)
-        self.lp_detector = RaydiumLPDetector(
-            client=self.client,
-            min_liquidity_sol=min_lp_sol
-        )
-        
-        # Token state machine
-        sniper_score_threshold = self.config.get('sniper_score_threshold', 70)
-        safe_mode = self.config.get('safe_mode', True)
-        self.state_machine = TokenStateMachine(
-            min_lp_sol=min_lp_sol,
-            sniper_score_threshold=sniper_score_threshold,
-            safe_mode=safe_mode
-        )
-        
+
+        # Raw RPC URL
+        self.rpc_url = self.config.get('rpc_url', 'https://api.mainnet-beta.solana.com')
+
+        # Raw parser
+        self.raw_parser = RawSolanaParser(self.rpc_url)
+
         # State
-        self._connected = False
+        self._connected = True  # Always connected for raw RPC
         self._last_scan_time = 0
         self._scan_interval = 5  # seconds between scans
-        
+
         # Token cache for unified events
         self._token_cache: Dict[str, Dict] = {}
         self._cache_ttl = 3600  # 1 hour cache
@@ -579,6 +549,20 @@ class SolanaScanner:
             return lp_info.to_dict() if state_record and state_record.lp_valid else None
         
         return None
+    
+    async def parse_transaction(self, signature: str) -> Optional[Dict]:
+        """
+        Parse a single transaction for token events via instruction parsing.
+        
+        Fully async, no polling. Detects Pump.fun creation and Raydium LP events.
+        
+        Args:
+            signature: Transaction signature
+            
+        Returns:
+            Token event dict or None
+        """
+        return await self.raw_parser.parse_transaction(signature)
     
     def update_token_score(self, token_mint: str, score: float) -> Optional[Dict]:
         """

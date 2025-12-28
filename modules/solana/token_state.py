@@ -54,6 +54,8 @@ class TokenStateRecord:
     metadata: Dict[str, Any] = field(default_factory=dict)
     lp_info: Dict[str, Any] = field(default_factory=dict)
     reason_skipped: str = ""
+    buy_velocity: float = 0.0  # Buys per minute
+    smart_wallet_detected: bool = False  # Smart money wallet activity
     
     def to_dict(self) -> Dict:
         """Convert to dict."""
@@ -67,7 +69,9 @@ class TokenStateRecord:
             "score": self.score,
             "last_score": self.last_score,
             "age_seconds": time.time() - self.created_at,
-            "reason_skipped": self.reason_skipped
+            "reason_skipped": self.reason_skipped,
+            "buy_velocity": self.buy_velocity,
+            "smart_wallet_detected": self.smart_wallet_detected
         }
     
     @property
@@ -403,6 +407,38 @@ class TokenStateMachine:
             record for record in self._states.values()
             if record.current_state == state
         ]
+    
+    def update_buy_velocity(self, mint: str, velocity: float) -> Optional[TokenStateRecord]:
+        """
+        Update token buy velocity.
+        
+        Args:
+            mint: Token mint
+            velocity: Buy velocity (buys per minute)
+            
+        Returns:
+            Updated TokenStateRecord
+        """
+        record = self._states.get(mint)
+        if record:
+            record.buy_velocity = velocity
+        return record
+    
+    def set_smart_wallet_detected(self, mint: str, detected: bool = True) -> Optional[TokenStateRecord]:
+        """
+        Mark smart wallet detection for token.
+        
+        Args:
+            mint: Token mint
+            detected: Whether smart wallet was detected
+            
+        Returns:
+            Updated TokenStateRecord
+        """
+        record = self._states.get(mint)
+        if record:
+            record.smart_wallet_detected = detected
+        return record
     
     def cleanup(self, max_age_hours: int = 24):
         """
