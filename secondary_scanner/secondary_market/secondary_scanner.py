@@ -32,11 +32,18 @@ class SecondaryScanner:
         self.max_pairs_per_scan = 100
         self.min_liquidity_threshold = chain_config.get('secondary_scanner', {}).get('min_liquidity', 50000)
 
-        # Block range configuration (6 hours worth)
-        self.lookback_blocks = {
+        # Block range configuration
+        # V2: 6 hours (moderate lookback)
+        self.lookback_blocks_v2 = {
             'ethereum': 1800,  # ~6 hours at 12s blocks
             'base': 3000,      # ~6 hours at 7.2s blocks
         }.get(self.chain_name, 1800)
+        
+        # V3: 24 hours (longer lookback due to lower activity)
+        self.lookback_blocks_v3 = {
+            'ethereum': 7200,  # ~24 hours at 12s blocks (7200 blocks)
+            'base': 12000,     # ~24 hours at 7.2s blocks (12000 blocks)
+        }.get(self.chain_name, 7200)
 
         # Status tracking
         self.secondary_status = "ACTIVE"
@@ -118,7 +125,9 @@ class SecondaryScanner:
                     factory_address = Web3.to_checksum_address(factory_address)
                     
                     # Resolve block range using configured lookback
-                    from_block, latest_block = self.resolve_secondary_block_range(self.lookback_blocks)
+                    # Use longer lookback for V3 due to lower activity
+                    lookback = self.lookback_blocks_v3 if dex_type == 'uniswap_v3' else self.lookback_blocks_v2
+                    from_block, latest_block = self.resolve_secondary_block_range(lookback)
                     
                     # Use cached last scanned block to avoid re-scanning
                     last_scanned = self.last_scanned_block.get(dex_type, 0)
@@ -165,7 +174,9 @@ class SecondaryScanner:
                         # Query PairCreated/PoolCreated events
                         logs = self.web3.eth.get_logs(payload)
                         
-                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
+                        # Calculate blocks scanned
+                        blocks_scanned = latest_block - from_block
+                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {blocks_scanned} blocks")
                         
                         # Update last scanned block
                         self.last_scanned_block[dex_type] = latest_block
