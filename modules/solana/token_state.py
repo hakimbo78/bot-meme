@@ -28,8 +28,10 @@ from .solana_utils import solana_log
 class TokenState(Enum):
     """Token lifecycle states."""
     DETECTED = "DETECTED"  # Pump.fun detected
+    METADATA_PENDING = "METADATA_PENDING"  # Awaiting metadata or LP
     METADATA_OK = "METADATA_OK"  # Metadata resolved
     LP_DETECTED = "LP_DETECTED"  # Raydium LP found
+    WATCH = "WATCH"  # Monitoring for opportunity
     SNIPER_ARMED = "SNIPER_ARMED"  # Ready to buy
     BOUGHT = "BOUGHT"  # Trade executed
     SKIPPED = "SKIPPED"  # Failed validation

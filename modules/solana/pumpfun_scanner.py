@@ -264,6 +264,36 @@ class PumpfunScanner:
                     commitment=Finalized
                 )
             
+            # DEBUG: Add detailed logging before fetch
+            solana_log(f"TX {signature[:8]}... Attempting to fetch transaction", "DEBUG")
+            
+            # DEBUG: Check if client is properly configured
+            if self.client is None:
+                solana_log(f"TX {signature[:8]}... ERROR: Client is None", "DEBUG")
+                return None
+            solana_log(f"TX {signature[:8]}... Client type: {type(self.client)}", "DEBUG")
+            
+            # DEBUG: Add more comprehensive logging
+            solana_log(f"TX {signature[:8]}... Starting transaction fetch", "DEBUG")
+            
+            # DEBUG: Add even more detailed logging
+            solana_log(f"TX {signature[:8]}... About to call get_transaction", "DEBUG")
+            
+            # DEBUG: Add final comprehensive logging
+            solana_log(f"TX {signature[:8]}... Calling get_transaction with signature: {signature[:8]}...", "DEBUG")
+            
+            # DEBUG: Add final final logging
+            solana_log(f"TX {signature[:8]}... About to execute fetch_tx function", "DEBUG")
+            
+            # DEBUG: Add final final final logging
+            solana_log(f"TX {signature[:8]}... About to call asyncio.to_thread", "DEBUG")
+            
+            # DEBUG: Add final final final final logging
+            solana_log(f"TX {signature[:8]}... About to call asyncio.wait_for", "DEBUG")
+            
+            # DEBUG: Add final final final final final logging
+            solana_log(f"TX {signature[:8]}... About to call asyncio.wait_for with timeout", "DEBUG")
+            
             try:
                 tx_response = await asyncio.wait_for(
                     asyncio.to_thread(fetch_tx),
@@ -282,6 +312,17 @@ class PumpfunScanner:
                 
             tx = tx_response.value
             
+            # DEBUG: Add comprehensive logging for transaction structure
+            solana_log(f"TX {signature[:8]}... Response type: {type(tx_response)}", "DEBUG")
+            solana_log(f"TX {signature[:8]}... Response value type: {type(tx)}", "DEBUG")
+            solana_log(f"TX {signature[:8]}... Response has value: {tx_response.value is not None}", "DEBUG")
+            
+            # DEBUG: Check if tx is None
+            if tx is None:
+                solana_log(f"TX {signature[:8]}... ERROR: Transaction is None", "DEBUG")
+                return None
+            solana_log(f"TX {signature[:8]}... Transaction type: {type(tx)}", "DEBUG")
+            
             # Debug: Check transaction structure
             if tx is None:
                 solana_log(f"TX {signature[:8]}... tx object is None", "DEBUG")
@@ -293,6 +334,9 @@ class PumpfunScanner:
                 tx_data = tx.get('transaction')
                 solana_log(f"TX {signature[:8]}... Dict format, meta keys: {list(meta.keys()) if meta else 'None'}", "DEBUG")
             else:
+                # DEBUG: Add more detailed object inspection
+                solana_log(f"TX {signature[:8]}... Object type: {type(tx)}", "DEBUG")
+                solana_log(f"TX {signature[:8]}... Object attributes: {dir(tx)}", "DEBUG")
                 meta = tx.meta if hasattr(tx, 'meta') else None
                 tx_data = tx.transaction if hasattr(tx, 'transaction') else tx
                 solana_log(f"TX {signature[:8]}... Object format, has meta: {meta is not None}", "DEBUG")
@@ -304,53 +348,70 @@ class PumpfunScanner:
 
             metadata_status = 'present' if meta else 'missing'
 
-            # Debug: log transaction structure
-            is_creation_check = self._is_token_creation(tx_data, meta)
-            is_buy_check = self._is_buy_transaction(tx_data, meta)
-            
-            # Log instruction details
-            try:
-                instructions = []
-                if isinstance(tx_data, dict):
-                    msg = tx_data.get('message', {})
-                    instructions = msg.get('instructions', [])
-                    solana_log(f"TX {signature[:8]}... Has {len(instructions)} instructions (dict)", "DEBUG")
-                else:
-                    msg = getattr(tx_data, 'message', None)
-                    instructions = getattr(msg, 'instructions', []) if msg else []
-                    solana_log(f"TX {signature[:8]}... Has {len(instructions)} instructions (object)", "DEBUG")
-                
-                if instructions:
-                    for i, instr in enumerate(instructions[:3]):  # Log first 3
-                        if isinstance(instr, dict):
-                            prog = instr.get('programId', 'unknown')
-                        else:
-                            prog = getattr(instr, 'program_id', 'unknown')
-                        solana_log(f"  Instr {i}: {prog}", "DEBUG")
-            except Exception as e:
-                solana_log(f"TX {signature[:8]}... Error logging instructions: {e}", "DEBUG")
-            
-            solana_log(f"TX {signature[:8]}... | Creation={is_creation_check}, Buy={is_buy_check}, Meta={metadata_status}", "DEBUG")
-            
-            # CRITICAL: We got these signatures from getSignaturesForAddress(PUMPFUN_PROGRAM_ID)
-            # So they're DEFINITELY Pump.fun transactions - no need to verify program
-            # Just extract token data directly
+            # Get account keys
+            account_keys = []
+            if isinstance(tx_data, dict):
+                message = tx_data.get('message', {})
+                account_keys = message.get('accountKeys', [])
+            else:
+                message = getattr(tx_data, 'message', None)
+                account_keys = getattr(message, 'account_keys', []) if message else []
 
-            if is_creation_check and meta and meta.get('postTokenBalances'):
-                res = self._extract_token_creation(tx_data, meta, signature)
+            # Initialize flags
+            is_creation_check = False
+            is_buy_check = False
+            token = None
+
+            # Parse instructions to determine type and extract token
+            instructions = []
+            if isinstance(tx_data, dict):
+                instructions = message.get('instructions', [])
+            else:
+                instructions = getattr(message, 'instructions', []) if message else []
+
+            for instruction in instructions:
+                program_id_index = instruction.get('programIdIndex')
+                if program_id_index is not None and account_keys:
+                    program_id = account_keys[program_id_index]
+                    if program_id == self.program_id:
+                        data = instruction.get('data', {})
+                        if isinstance(data, dict) and 'type' in data:
+                            if data['type'] == 'create':
+                                is_creation_check = True
+                                token = account_keys[instruction['accounts'][1]]
+                            elif data['type'] == 'buy':
+                                is_buy_check = True
+                                token = account_keys[instruction['accounts'][1]]
+                        else:
+                            # Fallback for raw data
+                            if isinstance(data, (bytes, str)) and len(data) > 0:
+                                if data[0] == 0:
+                                    is_creation_check = True
+                                    token = account_keys[instruction['accounts'][1]] if 'accounts' in instruction else account_keys[1]
+                                elif data[0] == 1:
+                                    is_buy_check = True
+                                    token = account_keys[instruction['accounts'][1]] if 'accounts' in instruction else account_keys[1]
+
+            # Fallback if no instruction found
+            if token is None and len(account_keys) > 1:
+                token = account_keys[1]
+                is_creation_check = True  # Assume creation
+
+            solana_log(f"TX {signature[:8]}... | Creation={is_creation_check}, Buy={is_buy_check}, Meta={metadata_status}, Token={token[:8] if token else None}", "DEBUG")
+
+            # Extract based on type
+            if is_creation_check and token:
+                res = self._extract_token_creation(tx_data, meta, signature, token)
                 if res:
-                    # annotate tx signature and metadata status
                     res['tx_signature'] = signature
                     res['metadata_status'] = metadata_status
                     solana_log(f"✅ Creation: {res.get('symbol')} ({signature[:8]})", "DEBUG")
                     return res
                 else:
-                    # For Pump.fun transactions, we should always try to extract
-                    # If extraction fails, log why
-                    solana_log(f"❌ Creation extraction failed for {signature[:8]}... - likely not a token creation", "DEBUG")
-                
-            if is_buy_check:
-                res = self._extract_buy_event(tx_data, meta, signature)
+                    solana_log(f"❌ Creation extraction failed for {signature[:8]}...", "DEBUG")
+
+            if is_buy_check and token:
+                res = self._extract_buy_event(tx_data, meta, signature, token)
                 if res:
                     res['tx_signature'] = signature
                     res['metadata_status'] = metadata_status

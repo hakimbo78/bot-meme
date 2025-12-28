@@ -11,6 +11,7 @@ from .solana_utils import (
     MIN_LIQUIDITY_TRADE,
     solana_log
 )
+from .metadata_less_scorer import MetadataLessScorer
 
 # 3️⃣ Standardized Skip Reasons (ENUM)
 SKIP_REASONS = [
