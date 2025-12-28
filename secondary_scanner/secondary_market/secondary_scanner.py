@@ -103,7 +103,7 @@ class SecondaryScanner:
                     
                     # Get recent blocks (last 10 blocks ~ 3 minutes)
                     latest_block = self.web3.eth.block_number
-                    from_block = max(0, latest_block - 10)
+                    from_block = max(1, latest_block - 10)
                     
                     # PairCreated/PoolCreated event signature
                     pair_created_sig = self.pair_created_sigs.get(dex_type)
@@ -112,7 +112,7 @@ class SecondaryScanner:
                     
                     # Query PairCreated/PoolCreated events
                     logs = self.web3.eth.get_logs({
-                        'address': factory_address,
+                        'address': [factory_address],
                         'topics': [pair_created_sig],
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
