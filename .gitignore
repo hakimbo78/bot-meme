@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+ENV/
+
+# OS/editor
+.DS_Store
+.vscode/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Archives
+*.zip
+*.tar.gz
+
+# Local data caches (safe defaults)
+data/*.db
+simulation_output.txt
