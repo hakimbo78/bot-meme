@@ -66,125 +66,34 @@ class SolanaScanner:
         
     def connect(self) -> bool:
         """
-        Connect all sub-scanners to Solana RPC.
+        Connect to Solana RPC for raw parsing.
         
         Returns:
-            True if at least Pump.fun scanner connected
+            True if RPC URL is configured
         """
-        if not self.client:
-            solana_log("No Solana client available", "ERROR")
+        if not self.rpc_url:
+            solana_log("No Solana RPC URL configured", "ERROR")
             return False
         
-        # Connect sub-scanners
-        pumpfun_ok = self.pumpfun.connect(self.client)
-        raydium_ok = self.raydium.connect(self.client)
-        jupiter_ok = self.jupiter.connect(self.client)
+        # For raw RPC parsing, we're always "connected" as long as we have an RPC URL
+        self._connected = True
+        solana_log("✅ Connected to Solana RPC for raw parsing")
         
-        # Connect metadata resolver and LP detector
-        self.metadata_resolver.set_client(self.client)
-        self.lp_detector.set_client(self.client)
-        
-        self._connected = pumpfun_ok  # Pump.fun is required
-        
-        if self._connected:
-            solana_log(f"✅ Connected to Solana (Pump.fun: {pumpfun_ok}, Raydium: {raydium_ok}, Jupiter: {jupiter_ok}, Metadata: OK, LP Detector: OK)")
-        else:
-            solana_log("Failed to connect Pump.fun scanner", "ERROR")
-        
-        return self._connected
+        return True
     
     def scan_new_pairs(self) -> List[Dict]:
         """
-        Scan for new tokens and return unified events WITH METADATA RESOLUTION.
+        Scan for new tokens - DISABLED for raw instruction parsing approach.
         
-        Handles both sync and async calling contexts properly.
+        This method returns empty list since we use instruction parsing 
+        instead of polling for LP detection.
         
         Returns:
-            List of unified token dicts with all available data
+            Empty list (no polling-based scanning)
         """
-        if not self._connected:
-            return []
-        
-        # Rate limit scans
-        now = time.time()
-        if now - self._last_scan_time < self._scan_interval:
-            return []
-        self._last_scan_time = now
-        
-        unified_events = []
-        
-        try:
-            # Scan all sources
-            pumpfun_tokens = self.pumpfun.scan()
-            raydium_pools = self.raydium.scan()
-            jupiter_data = self.jupiter.scan()
-            
-            # DEBUG: Log scan results
-            if pumpfun_tokens or raydium_pools or jupiter_data:
-                solana_log(f"Scan results: Pumpfun={len(pumpfun_tokens)}, Raydium={len(raydium_pools)}, Jupiter={len(jupiter_data)}")
-            else:
-                solana_log("Scan cycle complete: 0 new candidates", "DEBUG")
-            
-            # Process Pump.fun tokens with metadata resolution
-            for token in pumpfun_tokens:
-                try:
-                    # Try to get event loop for async metadata resolution
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            # In async context, use executor
-                            import concurrent.futures
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                                future = executor.submit(asyncio.run, self._create_unified_event_async_wrapper(token))
-                                unified = future.result(timeout=10)
-                        else:
-                            # Not running, use asyncio.run
-                            unified = asyncio.run(self._create_unified_event_async_wrapper(token))
-                    except RuntimeError:
-                        # No event loop, create one
-                        unified = asyncio.run(self._create_unified_event_async_wrapper(token))
-                    
-                    if unified:
-                        unified_events.append(unified)
-                        name = unified.get('name', 'UNKNOWN')
-                        symbol = unified.get('symbol', '???')
-                        state = unified.get('state', 'UNKNOWN')
-                        solana_log(f"New token detected: {name} ({symbol}) | State: {state}")
-                except Exception as e:
-                    solana_log(f"Error processing token {token.get('token_address', '???')}: {e}", "ERROR")
-                    continue
-            
-            # Check for Raydium pools for cached tokens
-            for pool in raydium_pools:
-                token_mint = pool.get('token_mint')
-                if token_mint and token_mint in self._token_cache:
-                    # Update cached token with Raydium data
-                    self._token_cache[token_mint].update({
-                        'has_raydium_pool': True,
-                        'raydium_pool': pool.get('pool_address'),
-                        'liquidity_usd': pool.get('liquidity_usd', 0),
-                        'liquidity_trend': pool.get('liquidity_trend', 'stable')
-                    })
-            
-            # Update Jupiter data for cached tokens
-            for jup_token in jupiter_data:
-                token_mint = jup_token.get('token_mint')
-                if token_mint and token_mint in self._token_cache:
-                    self._token_cache[token_mint].update({
-                        'jupiter_listed': True,
-                        'jupiter_volume_24h': jup_token.get('volume_24h_usd', 0),
-                        'routing_trend': jup_token.get('routing_trend', 'stable')
-                    })
-            
-            # Cleanup old cache entries
-            self._cleanup_cache()
-            
-        except Exception as e:
-            solana_log(f"Scan error: {e}", "ERROR")
-            import traceback
-            traceback.print_exc()
-        
-        return unified_events
+        # Raw instruction parsing doesn't use polling
+        # LP detection happens via parse_transaction() method
+        return []
     
     async def _create_unified_event_async_wrapper(self, token: Dict) -> Optional[Dict]:
         """Wrapper for async metadata resolution."""
