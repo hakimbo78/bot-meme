@@ -67,12 +67,12 @@ class SecondaryScanner:
                     continue
                     
                 try:
-                    # Checksum the factory address
-                    factory_address = Web3.to_checksum_address(factory_address)
+                    # Use lowercase address for RPC compatibility
+                    factory_address = factory_address.lower()
                     
-                    # Get recent blocks (last 1000 blocks ~ 3-4 hours)
+                    # Get recent blocks (last 100 blocks ~ 30 minutes)
                     latest_block = self.web3.eth.block_number
-                    from_block = max(0, latest_block - 1000)
+                    from_block = max(0, latest_block - 100)
                     
                     # PairCreated/PoolCreated event signature
                     pair_created_sig = self.pair_created_sigs.get(dex_type)
@@ -83,8 +83,8 @@ class SecondaryScanner:
                     logs = self.web3.eth.get_logs({
                         'address': [factory_address],
                         'topics': [pair_created_sig],
-                        'fromBlock': from_block,
-                        'toBlock': latest_block
+                        'fromBlock': hex(from_block),
+                        'toBlock': hex(latest_block)
                     })
                     
                     print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last 10000 blocks")
@@ -126,8 +126,8 @@ class SecondaryScanner:
                                     continue
                                 
                                 pair_data = {
-                                    'pair_address': Web3.to_checksum_address(pair_address),
-                                    'token_address': Web3.to_checksum_address(token_address),
+                                    'pair_address': pair_address.lower(),
+                                    'token_address': token_address.lower(),
                                     'dex_type': dex_type,
                                     'token_decimals': 18,  # Assume 18 decimals
                                     'block_number': log['blockNumber'],
@@ -190,12 +190,15 @@ class SecondaryScanner:
             latest_block = self.web3.eth.block_number
             from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
 
+            # Use lowercase address
+            pair_address = pair_address.lower()
+
             # Query events
             logs = self.web3.eth.get_logs({
                 'address': [pair_address],
                 'topics': [signature],
-                'fromBlock': from_block,
-                'toBlock': latest_block
+                'fromBlock': hex(from_block),
+                'toBlock': hex(latest_block)
             })
 
             events = []
