@@ -105,6 +105,11 @@ class SecondaryScanner:
                     latest_block = self.web3.eth.block_number
                     from_block = max(0, latest_block - 10)
                     
+                    # PairCreated/PoolCreated event signature
+                    pair_created_sig = self.pair_created_sigs.get(dex_type)
+                    if not pair_created_sig:
+                        continue
+                    
                     # Query PairCreated/PoolCreated events
                     logs = self.web3.eth.get_logs({
                         'address': factory_address,
