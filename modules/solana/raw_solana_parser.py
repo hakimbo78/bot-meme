@@ -223,20 +223,31 @@ class InstructionFlattener:
         """Parse single instruction into FlatInstruction."""
         try:
             # Debug: log instruction structure
-            solana_log(f"[SOLANA][RAW] parsing instruction: keys={len(instr)}", "DEBUG")
+            solana_log(f"[SOLANA][RAW] parsing instruction: keys={list(instr.keys())}", "DEBUG")
             
-            # Resolve program ID
-            program_id_index = instr.get('programIdIndex')
-            if program_id_index is None:
-                solana_log(f"[SOLANA][RAW] no programIdIndex in instruction", "DEBUG")
-                return None
-                
-            if program_id_index >= len(account_keys):
-                solana_log(f"[SOLANA][RAW] programIdIndex {program_id_index} >= account_keys {len(account_keys)}", "DEBUG")
-                return None
+            # Handle both old and new instruction formats
+            program_id = None
+            
+            # Format 1: New format with direct programId
+            if 'programId' in instr:
+                program_id = instr['programId']
+                solana_log(f"[SOLANA][RAW] using direct programId: {program_id[:8]}...", "DEBUG")
+            # Format 2: Old format with programIdIndex
+            elif 'programIdIndex' in instr:
+                program_id_index = instr.get('programIdIndex')
+                if program_id_index is None:
+                    solana_log(f"[SOLANA][RAW] no programIdIndex in instruction", "DEBUG")
+                    return None
+                    
+                if program_id_index >= len(account_keys):
+                    solana_log(f"[SOLANA][RAW] programIdIndex {program_id_index} >= account_keys {len(account_keys)}", "DEBUG")
+                    return None
 
-            program_id = account_keys[program_id_index]
-            solana_log(f"[SOLANA][RAW] program_id: {program_id[:8]}...", "DEBUG")
+                program_id = account_keys[program_id_index]
+                solana_log(f"[SOLANA][RAW] resolved programId from index: {program_id[:8]}...", "DEBUG")
+            else:
+                solana_log(f"[SOLANA][RAW] no programId or programIdIndex in instruction", "DEBUG")
+                return None
 
             # Resolve accounts
             accounts = []
@@ -244,10 +255,11 @@ class InstructionFlattener:
             solana_log(f"[SOLANA][RAW] instruction accounts: {len(instr_accounts)}", "DEBUG")
             
             for acc_idx in instr_accounts:
-                if acc_idx < len(account_keys):
+                if isinstance(acc_idx, int) and acc_idx < len(account_keys):
                     accounts.append(account_keys[acc_idx])
+                    solana_log(f"[SOLANA][RAW] resolved account {acc_idx}: {account_keys[acc_idx][:8]}...", "DEBUG")
                 else:
-                    solana_log(f"[SOLANA][RAW] account index {acc_idx} >= account_keys {len(account_keys)}", "DEBUG")
+                    solana_log(f"[SOLANA][RAW] invalid account index {acc_idx} or not integer", "DEBUG")
 
             # Get data and parsed info
             data = instr.get('data', '')
