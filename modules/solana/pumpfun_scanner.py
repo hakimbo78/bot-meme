@@ -303,6 +303,28 @@ class PumpfunScanner:
             is_creation_check = self._is_token_creation(tx_data, meta)
             is_buy_check = self._is_buy_transaction(tx_data, meta)
             
+            # Log instruction details
+            try:
+                instructions = []
+                if isinstance(tx_data, dict):
+                    msg = tx_data.get('message', {})
+                    instructions = msg.get('instructions', [])
+                    solana_log(f"TX {signature[:8]}... Has {len(instructions)} instructions (dict)", "DEBUG")
+                else:
+                    msg = getattr(tx_data, 'message', None)
+                    instructions = getattr(msg, 'instructions', []) if msg else []
+                    solana_log(f"TX {signature[:8]}... Has {len(instructions)} instructions (object)", "DEBUG")
+                
+                if instructions:
+                    for i, instr in enumerate(instructions[:3]):  # Log first 3
+                        if isinstance(instr, dict):
+                            prog = instr.get('programId', 'unknown')
+                        else:
+                            prog = getattr(instr, 'program_id', 'unknown')
+                        solana_log(f"  Instr {i}: {prog}", "DEBUG")
+            except Exception as e:
+                solana_log(f"TX {signature[:8]}... Error logging instructions: {e}", "DEBUG")
+            
             solana_log(f"TX {signature[:8]}... | Creation={is_creation_check}, Buy={is_buy_check}, Meta={metadata_status}", "DEBUG")
             
             if is_creation_check or (meta is None):
