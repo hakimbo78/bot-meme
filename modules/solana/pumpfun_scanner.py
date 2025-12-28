@@ -454,14 +454,14 @@ class PumpfunScanner:
         return None
     
     def _is_token_creation(self, tx_data, meta) -> bool:
-        """Check if transaction is a token creation."""
+        """Check if transaction is a token creation - works with or without metadata."""
         try:
-            # Handle both object and dict formats
+            # Method 1: Check logs if available
             logs = []
             if isinstance(meta, dict):
                 logs = meta.get('logMessages', [])
             else:
-                logs = getattr(meta, 'log_messages', [])
+                logs = getattr(meta, 'log_messages', []) if meta else []
             
             if logs:
                 for log in logs:
@@ -469,6 +469,30 @@ class PumpfunScanner:
                         return True
                     if 'InitializeMint' in log:
                         return True
+            
+            # Method 2: Fallback - check if this transaction touches Pump.fun program
+            # (if no logs, assume it might be a creation based on program interaction)
+            if not logs and meta is None:
+                # When no metadata, check tx_data for pumpfun program
+                instructions = []
+                if isinstance(tx_data, dict):
+                    msg = tx_data.get('message', {})
+                    instructions = msg.get('instructions', [])
+                else:
+                    msg = getattr(tx_data, 'message', None)
+                    instructions = getattr(msg, 'instructions', []) if msg else []
+                
+                # If transaction calls pumpfun program, assume it could be creation
+                # (more aggressive detection without metadata)
+                for instr in instructions:
+                    if isinstance(instr, dict):
+                        program_id = instr.get('programId')
+                    else:
+                        program_id = getattr(instr, 'program_id', None)
+                    
+                    if program_id and str(program_id) == self.program_id:
+                        return True  # Pumpfun program called - likely creation
+                
         except Exception:
             pass
         return False
