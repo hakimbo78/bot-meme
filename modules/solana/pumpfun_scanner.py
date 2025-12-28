@@ -170,6 +170,7 @@ class PumpfunScanner:
                 return []
             
             signatures = response.value
+            solana_log(f"Fetched {len(signatures)} signatures from Pump.fun program", "DEBUG")
             
             # New filtered list
             candidates = []
@@ -197,7 +198,7 @@ class PumpfunScanner:
                 candidates.append(sig_info)
                 self._processed_signatures.add(sig)
             
-            # Sort candidates by recency (although get_sigs returns recent first, ensure it)
+            solana_log(f"Found {len(candidates)} new candidate signatures (processed: {len(self._processed_signatures)})", "DEBUG")
             # They are namedtuple-like, assume order is correct or sort by block_time desc
             
             # --- Phase 3: Lazy Meta Fetch ---
@@ -231,12 +232,12 @@ class PumpfunScanner:
                 excess = len(self._processed_signatures) - self._signature_history_limit
                 # Quick set reduction
                 self._processed_signatures = set(list(self._processed_signatures)[-self._signature_history_limit:])
+                solana_log(f"Cleaned {excess} old signatures from history", "DEBUG")
                 
             # Update tracked tokens
             self._update_tracked_tokens()
             
-            if new_tokens:
-                solana_log(f"✅ Safe scan complete: {len(new_tokens)} new tokens", "INFO")
+            solana_log(f"Scan cycle complete: {len(new_tokens)} new candidates", "DEBUG")
 
         except Exception as e:
             solana_log(f"Pump.fun async scan error: {e}", "ERROR")
