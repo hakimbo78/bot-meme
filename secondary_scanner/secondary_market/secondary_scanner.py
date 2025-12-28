@@ -41,6 +41,12 @@ class SecondaryScanner:
             'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67b'
         }
 
+        # Pair/Pool created event signatures
+        self.pair_created_sigs = {
+            'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612',
+            'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee871103'
+        }
+
     def is_enabled(self) -> bool:
         """Check if secondary scanner is enabled"""
         return self.config.get('secondary_scanner', {}).get('enabled', False)
@@ -61,14 +67,19 @@ class SecondaryScanner:
                     continue
                     
                 try:
-                    # Get recent blocks (last 10000 blocks ~ 1-2 days)
+                    # Checksum the factory address
+                    factory_address = Web3.to_checksum_address(factory_address)
+                    
+                    # Get recent blocks (last 5000 blocks ~ 1 day)
                     latest_block = self.web3.eth.block_number
-                    from_block = max(0, latest_block - 10000)
+                    from_block = max(0, latest_block - 5000)
                     
-                    # PairCreated event signature
-                    pair_created_sig = '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612'
+                    # PairCreated/PoolCreated event signature
+                    pair_created_sig = self.pair_created_sigs.get(dex_type)
+                    if not pair_created_sig:
+                        continue
                     
-                    # Query PairCreated events
+                    # Query PairCreated/PoolCreated events
                     logs = self.web3.eth.get_logs({
                         'address': factory_address,
                         'topics': [pair_created_sig],
@@ -81,8 +92,7 @@ class SecondaryScanner:
                     # Process last 100 pairs (most recent)
                     for log in logs[-100:]:
                         try:
-                            # Decode event data (simplified)
-                            # In practice, you'd use proper ABI decoding
+                            # Decode event data
                             data = log['data']
                             topics = log['topics']
                             
@@ -90,6 +100,20 @@ class SecondaryScanner:
                                 # topics[1] = token0, topics[2] = token1
                                 token0 = '0x' + topics[1].hex()[26:]  # Remove padding
                                 token1 = '0x' + topics[2].hex()[26:]
+                                
+                                # Extract pair/pool address from data
+                                if dex_type == 'uniswap_v2':
+                                    # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
+                                    if len(data) >= 64:
+                                        pair_address = '0x' + data[2:66]  # Skip 0x, take 64 chars (32 bytes)
+                                    else:
+                                        continue
+                                elif dex_type == 'uniswap_v3':
+                                    # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
+                                    if len(data) >= 128:
+                                        pair_address = '0x' + data[66:130]  # After tickSpacing
+                                    else:
+                                        continue
                                 
                                 # For simplicity, assume token1 is the meme token (not WETH)
                                 weth_address = chain_config.get('weth_address', '').lower()
@@ -102,8 +126,8 @@ class SecondaryScanner:
                                     continue
                                 
                                 pair_data = {
-                                    'pair_address': log['address'],
-                                    'token_address': token_address,
+                                    'pair_address': Web3.to_checksum_address(pair_address),
+                                    'token_address': Web3.to_checksum_address(token_address),
                                     'dex_type': dex_type,
                                     'token_decimals': 18,  # Assume 18 decimals
                                     'block_number': log['blockNumber'],
