@@ -47,6 +47,37 @@ class SecondaryScanner:
             'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee871103'
         }
 
+        # Uniswap V2 Factory ABI (minimal for events)
+        self.v2_factory_abi = [
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "internalType": "address", "name": "token0", "type": "address"},
+                    {"indexed": True, "internalType": "address", "name": "token1", "type": "address"},
+                    {"indexed": False, "internalType": "address", "name": "pair", "type": "address"},
+                    {"indexed": False, "internalType": "uint256", "name": "", "type": "uint256"}
+                ],
+                "name": "PairCreated",
+                "type": "event"
+            }
+        ]
+
+        # Uniswap V3 Factory ABI (minimal for events)
+        self.v3_factory_abi = [
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "internalType": "address", "name": "token0", "type": "address"},
+                    {"indexed": True, "internalType": "address", "name": "token1", "type": "address"},
+                    {"indexed": True, "internalType": "uint24", "name": "fee", "type": "uint24"},
+                    {"indexed": False, "internalType": "int24", "name": "tickSpacing", "type": "int24"},
+                    {"indexed": False, "internalType": "address", "name": "pool", "type": "address"}
+                ],
+                "name": "PoolCreated",
+                "type": "event"
+            }
+        ]
+
     def is_enabled(self) -> bool:
         """Check if secondary scanner is enabled"""
         return self.config.get('secondary_scanner', {}).get('enabled', False)
@@ -74,67 +105,55 @@ class SecondaryScanner:
                     latest_block = self.web3.eth.block_number
                     from_block = max(0, latest_block - 100)
                     
-                    # PairCreated/PoolCreated event signature
-                    pair_created_sig = self.pair_created_sigs.get(dex_type)
-                    if not pair_created_sig:
+                    # Create contract and get events
+                    if dex_type == 'uniswap_v2':
+                        contract = self.web3.eth.contract(address=factory_address, abi=self.v2_factory_abi)
+                        event_filter = contract.events.PairCreated.create_filter(fromBlock=from_block, toBlock=latest_block)
+                        logs = event_filter.get_all_entries()
+                    elif dex_type == 'uniswap_v3':
+                        contract = self.web3.eth.contract(address=factory_address, abi=self.v3_factory_abi)
+                        event_filter = contract.events.PoolCreated.create_filter(fromBlock=from_block, toBlock=latest_block)
+                        logs = event_filter.get_all_entries()
+                    else:
                         continue
                     
-                    # Query PairCreated/PoolCreated events
-                    logs = self.web3.eth.get_logs({
-                        'address': factory_address,
-                        'topics': [pair_created_sig],
-                        'fromBlock': hex(from_block),
-                        'toBlock': hex(latest_block)
-                    })
-                    
-                    print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last 10000 blocks")
+                    print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last 100 blocks")
                     
                     # Process last 100 pairs (most recent)
                     for log in logs[-100:]:
                         try:
-                            # Decode event data
-                            data = log['data']
-                            topics = log['topics']
+                            # Decode event data using contract
+                            token0 = log.args.token0
+                            token1 = log.args.token1
                             
-                            if len(topics) >= 3:
-                                # topics[1] = token0, topics[2] = token1
-                                token0 = '0x' + topics[1].hex()[26:]  # Remove padding
-                                token1 = '0x' + topics[2].hex()[26:]
-                                
-                                # Extract pair/pool address from data
-                                if dex_type == 'uniswap_v2':
-                                    # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
-                                    if len(data) >= 64:
-                                        pair_address = '0x' + data[2:66]  # Skip 0x, take 64 chars (32 bytes)
-                                    else:
-                                        continue
-                                elif dex_type == 'uniswap_v3':
-                                    # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
-                                    if len(data) >= 128:
-                                        pair_address = '0x' + data[66:130]  # After tickSpacing
-                                    else:
-                                        continue
-                                
-                                # For simplicity, assume token1 is the meme token (not WETH)
-                                weth_address = chain_config.get('weth_address', '').lower()
-                                if token0.lower() == weth_address:
-                                    token_address = token1
-                                elif token1.lower() == weth_address:
-                                    token_address = token0
-                                else:
-                                    # Skip non-WETH pairs for now
-                                    continue
-                                
-                                pair_data = {
-                                    'pair_address': Web3.to_checksum_address(pair_address),
-                                    'token_address': Web3.to_checksum_address(token_address),
-                                    'dex_type': dex_type,
-                                    'token_decimals': 18,  # Assume 18 decimals
-                                    'block_number': log['blockNumber'],
-                                    'chain': self.chain_name
-                                }
-                                
-                                pairs.append(pair_data)
+                            # Extract pair/pool address
+                            if dex_type == 'uniswap_v2':
+                                pair_address = log.args.pair
+                            elif dex_type == 'uniswap_v3':
+                                pair_address = log.args.pool
+                            else:
+                                continue
+                            
+                            # For simplicity, assume token1 is the meme token (not WETH)
+                            weth_address = chain_config.get('weth_address', '').lower()
+                            if token0.lower() == weth_address:
+                                token_address = token1
+                            elif token1.lower() == weth_address:
+                                token_address = token0
+                            else:
+                                # Skip non-WETH pairs for now
+                                continue
+                            
+                            pair_data = {
+                                'pair_address': Web3.to_checksum_address(pair_address),
+                                'token_address': Web3.to_checksum_address(token_address),
+                                'dex_type': dex_type,
+                                'token_decimals': 18,  # Assume 18 decimals
+                                'block_number': log.blockNumber,
+                                'chain': self.chain_name
+                            }
+                            
+                            pairs.append(pair_data)
                                 
                         except Exception as e:
                             continue  # Skip malformed logs
