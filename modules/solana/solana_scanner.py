@@ -122,11 +122,11 @@ class SolanaScanner:
 
         try:
             # Monitor Raydium program for recent LP creation transactions
-            lp_events = self._monitor_raydium_lp_events()
+            lp_events = await self._monitor_raydium_lp_events()
             events.extend(lp_events)
 
             # Monitor Pump.fun for new token creations
-            pump_events = self._monitor_pumpfun_tokens()
+            pump_events = await self._monitor_pumpfun_tokens()
             events.extend(pump_events)
 
             # Log scanning activity
@@ -140,7 +140,7 @@ class SolanaScanner:
 
         return events
 
-    def _monitor_raydium_lp_events(self) -> List[Dict]:
+    async def _monitor_raydium_lp_events(self) -> List[Dict]:
         """
         Monitor Raydium AMM program for recent LP creation transactions.
 
@@ -200,7 +200,7 @@ class SolanaScanner:
                 
                 # Parse transaction for LP events
                 try:
-                    event = self.raw_parser.parse_transaction(signature)
+                    event = await self.raw_parser.parse_transaction(signature)
                     if event:
                         lp_events.append(event)
                         self._token_cache[signature] = time.time()
@@ -225,7 +225,7 @@ class SolanaScanner:
             solana_log(f"Raydium monitoring error: {e}", "ERROR")
             return []
 
-    def _monitor_pumpfun_tokens(self) -> List[Dict]:
+    async def _monitor_pumpfun_tokens(self) -> List[Dict]:
         """
         Monitor Pump.fun program for new token creation transactions.
 
@@ -284,7 +284,7 @@ class SolanaScanner:
                 
                 # Parse transaction for token events
                 try:
-                    event = self.raw_parser.parse_transaction(signature)
+                    event = await self.raw_parser.parse_transaction(signature)
                     if event:
                         token_events.append(event)
                         self._token_cache[signature] = time.time()

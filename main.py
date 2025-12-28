@@ -389,12 +389,11 @@ async def main():
                         # Yield control to event loop
                         await asyncio.sleep(0.1)
                         
-                        # Run blocking scan in thread to avoid starvation
-                        # This wraps the existing synchronous SolanaScanner module
-                        # Enforce 30s timeout for the entire scan cycle
+                        # Run async scan directly (no thread wrapper needed)
+                        # Enforce 45s timeout for the entire scan cycle
                         try:
                             tokens = await asyncio.wait_for(
-                                asyncio.to_thread(solana_scanner.scan_new_pairs),
+                                solana_scanner.scan_new_pairs_async(),
                                 timeout=45.0
                             )
                         except asyncio.TimeoutError:
