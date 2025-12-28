@@ -58,10 +58,10 @@ jobs:
           # Install/update dependencies only if requirements changed or first deploy
           if [ "$FIRST_DEPLOY" = true ] || git diff HEAD~1 requirements.txt | grep -q .; then
             echo "📥 Installing/updating packages..."
-            if [ ! -d ".venv" ]; then
-              python3 -m venv .venv
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
             fi
-            .venv/bin/pip install -q -r requirements.txt
+            venv/bin/pip install -q -r requirements.txt
             echo "✅ Packages installed"
           else
             echo "⏭️  requirements.txt unchanged, skipping pip install"
