@@ -119,21 +119,27 @@ class MultiChainScanner:
             try:
                 # CU-OPTIMIZED: Use chain-specific scan interval
                 scan_start = time.time()
+                print(f"🔄 [{chain_name.upper()}] Starting scan cycle...")
                 
                 # 1. Scans with internal yields and timeouts
                 pairs = await adapter.scan_new_pairs_async()
                 
                 # 2. Update heartbeat
                 self.heartbeats[chain_name] = time.time()
+                scan_end = time.time()
                 
-                # 3. Enqueue results
+                # 3. Enqueue results and log
                 if pairs:
+                    print(f"✅ [{chain_name.upper()}] Found {len(pairs)} new pairs")
                     for pair in pairs:
                         await queue.put(pair)
+                else:
+                    print(f"⏸️  [{chain_name.upper()}] No new pairs found")
                 
                 # 4. CU-AWARE SLEEP: Respect chain-specific intervals
-                scan_duration = time.time() - scan_start
+                scan_duration = scan_end - scan_start
                 sleep_time = max(0, adapter.scan_interval - scan_duration)
+                print(f"😴 [{chain_name.upper()}] Scan took {scan_duration:.1f}s, sleeping {sleep_time:.1f}s")
                 await asyncio.sleep(sleep_time)
                 
             except asyncio.CancelledError:

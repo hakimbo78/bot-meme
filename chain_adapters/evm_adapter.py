@@ -1,7 +1,7 @@
 """
 EVM-based chain adapter with shared logic for Base, Ethereum, and Blast
-CU-OPTIMIZED VERSION - Alchemy CU-first thinking
 """
+import time
 import time
 import asyncio
 import requests
@@ -44,7 +44,7 @@ PAIR_ABI = [
 ]
 
 
-def retry_with_backoff(max_retries=1, base_delay=1):  # REDUCED retries for CU savings
+def retry_with_backoff(max_retries=3, base_delay=1):
     """Decorator to retry functions with exponential backoff on network errors"""
     def decorator(func):
         @wraps(func)
@@ -67,7 +67,7 @@ def retry_with_backoff(max_retries=1, base_delay=1):  # REDUCED retries for CU s
 
 
 class EVMAdapter(ChainAdapter):
-    """Shared EVM chain adapter for Ethereum-compatible chains - CU OPTIMIZED"""
+    """Shared EVM chain adapter for Ethereum-compatible chains"""
     
     def __init__(self, config: dict):
         super().__init__(config)
@@ -76,66 +76,6 @@ class EVMAdapter(ChainAdapter):
         self.weth = None
         self.eth_price_usd = config.get('eth_price_usd', 3500)
         self.goplus_api_url = f"https://api.gopluslabs.io/api/v1/token_security/{config.get('goplus_chain_id', '1')}"
-        
-        # CU OPTIMIZATION: Separate clients per chain
-        self.session = requests.Session()  # HTTP keep-alive
-        
-        # CU GUARDRAILS
-        self.daily_cu_budget = config.get('daily_cu_budget', 50000)  # Base: 50k, ETH: 25k
-        self.cu_used_today = 0
-        self.cu_reset_time = time.time() + 86400  # Reset daily
-        
-        # METADATA CACHE - Cache forever as per requirements
-        self.metadata_cache = {}
-        self.lp_cache = {}  # LP detection cache
-        
-        # SCANNING CONFIG - Chain-specific from config
-        self.scan_interval = config.get('scan_interval', self._get_scan_interval())
-        self.max_block_range = config.get('max_block_range', self._get_max_block_range())
-        self.shortlist_limit = config.get('shortlist_limit', self._get_shortlist_limit())
-    
-    def _get_scan_interval(self) -> int:
-        """Get chain-specific scan interval for CU optimization"""
-        chain_name = self.config.get('chain_name', '').lower()
-        if chain_name == 'base':
-            return 25  # 20-30s average
-        elif chain_name == 'ethereum':
-            return 52  # 45-60s average
-        else:
-            return 30
-    
-    def _get_max_block_range(self) -> int:
-        """Get max block range for eth_getLogs"""
-        chain_name = self.config.get('chain_name', '').lower()
-        if chain_name == 'base':
-            return 2  # 1-2 blocks
-        elif chain_name == 'ethereum':
-            return 1  # 1 block
-        else:
-            return 1
-    
-    def _get_shortlist_limit(self) -> int:
-        """Get max candidates per cycle"""
-        chain_name = self.config.get('chain_name', '').lower()
-        if chain_name == 'base':
-            return 3
-        elif chain_name == 'ethereum':
-            return 1
-        else:
-            return 2
-    
-    def _check_cu_budget(self) -> bool:
-        """Check if we have CU budget remaining"""
-        now = time.time()
-        if now > self.cu_reset_time:
-            self.cu_used_today = 0
-            self.cu_reset_time = now + 86400
-        
-        return self.cu_used_today < self.daily_cu_budget
-    
-    def _increment_cu(self, cost: int):
-        """Track CU usage"""
-        self.cu_used_today += cost
     
     def connect(self) -> bool:
         """Connect to EVM chain via RPC"""
@@ -148,7 +88,7 @@ class EVMAdapter(ChainAdapter):
                 return False
             
             self.factory = self.w3.eth.contract(
-                address=self.config['factory_address'],
+                address=self.config['factory_address'],  # Skip checksum for now
                 abi=FACTORY_ABI
             )
             self.weth = Web3.to_checksum_address(self.config['weth_address'])
@@ -158,15 +98,6 @@ class EVMAdapter(ChainAdapter):
             start_time = time.time()
             self.last_block = self.w3.eth.block_number
             connection_time = time.time() - start_time
-            
-            if connection_time > 5:
-                print(f"⚠️  {self.get_chain_prefix()} Slow RPC response ({connection_time:.1f}s)")
-            
-            print(f"✅ {self.get_chain_prefix()} Connected! Block: {self.last_block}")
-            return True
-        except Exception as e:
-            print(f"❌ {self.get_chain_prefix()} Connection error: {e}")
-            return False
             
             if connection_time > 5:
                 print(f"⚠️  {self.get_chain_prefix()} Slow RPC response ({connection_time:.1f}s)")
@@ -259,62 +190,68 @@ class EVMAdapter(ChainAdapter):
     async def scan_new_pairs_async(self) -> List[Dict]:
         """
         CU-OPTIMIZED STAGED SCANNER PIPELINE
-        
+
         Stage 1: Block Tick (cheap)
         Stage 2: Factory Logs (address-filtered, limited range)
         Stage 3: Cheap Heuristics (NO eth_call)
         Stage 4: Shortlist (HARD LIMIT)
         Stage 5: Expensive RPC (STRICT - only for shortlist)
         """
+        print(f"🔍 [{self.chain_name.upper()}] CU-optimized scan starting...")
+
         # CU CHECK: Emergency slow mode if budget exceeded
         if not self._check_cu_budget():
-            print(f"🚨 {self.get_chain_prefix()} CU BUDGET EXCEEDED - Entering slow mode")
+            print(f"🚨 [{self.chain_name.upper()}] CU BUDGET EXCEEDED - Entering slow mode")
             await asyncio.sleep(300)  # 5min cooldown
             return []
-        
+
         candidates = []
-        
+
         try:
             # ===== STAGE 1: BLOCK TICK =====
             current_block = await self._run_with_timeout(self._get_current_block)
             if not current_block:
+                print(f"❌ [{self.chain_name.upper()}] Failed to get current block")
                 return []
-            
+
             # Check if we need to scan
             if current_block <= self.last_block:
+                print(f"⏸️  [{self.chain_name.upper()}] No new blocks (current: {current_block}, last: {self.last_block})")
                 return []
-            
+
             self._increment_cu(1)  # eth_blockNumber cost
-            
+
             # ===== STAGE 2: FACTORY LOGS =====
             # Limited block range per chain
             from_block = max(self.last_block + 1, current_block - self.max_block_range)
             to_block = current_block
-            
+
             def fetch_factory_logs():
                 return self.factory.events.PairCreated.get_logs(
                     from_block=from_block,
                     to_block=to_block
                 )
-            
+
             logs = await self._run_with_timeout(fetch_factory_logs, timeout=5.0)
             if not logs:
                 self.last_block = current_block
+                print(f"📭 [{self.chain_name.upper()}] No factory logs found in blocks {from_block}-{to_block}")
                 return []
-            
+
             self._increment_cu(len(logs) * 5)  # eth_getLogs cost estimate
-            
+            print(f"📋 [{self.chain_name.upper()}] Found {len(logs)} factory logs")
+
             # ===== STAGE 3: CHEAP HEURISTICS =====
             # Raw log parsing - NO eth_call
             for log in logs:
                 try:
                     await asyncio.sleep(0)  # Yield
-                    
+
                     token0 = log['args']['token0'].lower()
                     token1 = log['args']['token1'].lower()
                     pair_addr = log['args']['pair'].lower()
                     block_num = log['blockNumber']
-                    
+
                     # Identify meme token (not WETH)
                     if token0 == self.weth.lower():
                         token_addr = token1
@@ -322,36 +259,36 @@ class EVMAdapter(ChainAdapter):
                         token_addr = token0
                     else:
                         continue  # Skip non-WETH pairs
-                    
+
                     # Get deploy tx hash from log (raw parsing)
                     tx_hash = log['transactionHash'].hex()
-                    
+
                     # CHEAP HEURISTICS (no RPC calls):
                     # - Skip if both tokens are WETH (already did)
                     # - Check deploy tx value (need raw tx data)
-                    
+
                     # Get raw transaction data (CHEAP - single eth_getTransactionByHash)
                     tx_data = await self._run_with_timeout(
                         lambda: self.w3.eth.get_transaction(tx_hash),
                         timeout=3.0
                     )
-                    
+
                     if not tx_data:
                         continue
-                    
+
                     deploy_value = tx_data['value']  # Wei
-                    
+
                     # Heuristic: deploy tx value > threshold
                     min_deploy_value = 10**16  # 0.01 ETH in wei
                     if deploy_value < min_deploy_value:
                         continue
-                    
+
                     # Heuristic: tx.from not blacklisted (basic check)
                     deployer = tx_data['from'].lower()
                     blacklist = ['0x0000000000000000000000000000000000000000']  # Add more if needed
                     if deployer in blacklist:
                         continue
-                    
+
                     candidates.append({
                         'token_address': token_addr,
                         'pair_address': pair_addr,
@@ -362,25 +299,27 @@ class EVMAdapter(ChainAdapter):
                         'chain': self.chain_name,
                         'chain_prefix': self.get_chain_prefix()
                     })
-                    
+
                 except Exception as e:
                     continue
-            
+
             # ===== STAGE 4: SHORTLIST =====
             # Sort by deploy value (proxy for seriousness)
             candidates.sort(key=lambda x: x['deploy_value'], reverse=True)
             shortlist = candidates[:self.shortlist_limit]
-            
+
+            print(f"🎯 [{self.chain_name.upper()}] Shortlisted {len(shortlist)}/{len(candidates)} candidates")
+
             # ===== STAGE 5: EXPENSIVE RPC =====
             # ONLY for shortlist - get metadata and liquidity
             final_pairs = []
-            
+
             for candidate in shortlist:
                 try:
                     await asyncio.sleep(0)  # Yield
-                    
+
                     token_addr = candidate['token_address']
-                    
+
                     # Check metadata cache first
                     if token_addr in self.metadata_cache:
                         metadata = self.metadata_cache[token_addr]
@@ -394,7 +333,7 @@ class EVMAdapter(ChainAdapter):
                         if metadata:
                             self.metadata_cache[token_addr] = metadata
                             self._increment_cu(15)  # 3 eth_calls
-                    
+
                     # EXPENSIVE: Get liquidity (eth_call to pair contract)
                     liquidity = await self._run_with_timeout(
                         self._get_liquidity_cached,
@@ -402,10 +341,10 @@ class EVMAdapter(ChainAdapter):
                         token_addr,
                         timeout=5.0
                     )
-                    
+
                     if liquidity is not None:
                         self._increment_cu(10)  # eth_calls for reserves
-                    
+
                     # Build final pair data
                     pair_data = {
                         **candidate,
@@ -415,70 +354,21 @@ class EVMAdapter(ChainAdapter):
                         'liquidity_usd': liquidity or 0,
                         'timestamp': int(time.time())  # Approximate
                     }
-                    
+
                     final_pairs.append(pair_data)
-                    
+
                 except Exception as e:
                     continue
-            
+
             # Update last scanned block
             self.last_block = current_block
-            
+
+            print(f"✅ [{self.chain_name.upper()}] Scan complete - {len(final_pairs)} final pairs")
             return final_pairs
-            
+
         except Exception as e:
-            print(f"⚠️  {self.get_chain_prefix()} CU-optimized scan error: {e}")
+            print(f"⚠️  [{self.chain_name.upper()}] CU-optimized scan error: {e}")
             return []
-    
-    def _get_token_metadata_cached(self, token_address: str) -> Optional[Dict]:
-        """Get token metadata with caching - called ONCE per token forever"""
-        if token_address in self.metadata_cache:
-            return self.metadata_cache[token_address]
-        
-        try:
-            token_address = Web3.to_checksum_address(token_address)
-            token_contract = self.w3.eth.contract(address=token_address, abi=ERC20_ABI)
-            
-            name = token_contract.functions.name().call()
-            symbol = token_contract.functions.symbol().call()
-            decimals = token_contract.functions.decimals().call()
-            
-            metadata = {'name': name, 'symbol': symbol, 'decimals': decimals}
-            self.metadata_cache[token_address] = metadata
-            return metadata
-        except Exception as e:
-            print(f"⚠️  {self.get_chain_prefix()} Error getting token metadata: {e}")
-            # Cache failed metadata too to avoid retries
-            self.metadata_cache[token_address] = {'name': 'UNKNOWN', 'symbol': '???', 'decimals': 18}
-            return self.metadata_cache[token_address]
-    
-    def _get_liquidity_cached(self, pair_address: str, token_address: str) -> Optional[float]:
-        """Get liquidity with LP cache - cache LP detection forever"""
-        cache_key = f"{pair_address}:{token_address}"
-        if cache_key in self.lp_cache:
-            return self.lp_cache[cache_key]
-        
-        try:
-            pair_address = Web3.to_checksum_address(pair_address)
-            pair_contract = self.w3.eth.contract(address=pair_address, abi=PAIR_ABI)
-            
-            token0 = pair_contract.functions.token0().call()
-            reserves = pair_contract.functions.getReserves().call()
-            
-            # Determine which reserve is WETH
-            if token0.lower() == self.weth.lower():
-                weth_reserve = reserves[0]
-            else:
-                weth_reserve = reserves[1]
-            
-            # Convert WETH to USD (WETH has 18 decimals)
-            liquidity_usd = (weth_reserve / 1e18) * self.eth_price_usd
-            self.lp_cache[cache_key] = liquidity_usd
-            return liquidity_usd
-        except Exception as e:
-            print(f"⚠️  {self.get_chain_prefix()} Error getting liquidity: {e}")
-            self.lp_cache[cache_key] = 0
-            return 0
     
     @retry_with_backoff(max_retries=2, base_delay=1)
     def get_token_metadata(self, token_address: str) -> Optional[Dict]:
