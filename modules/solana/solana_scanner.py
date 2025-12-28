@@ -125,9 +125,9 @@ class SolanaScanner:
     
     def scan_new_pairs(self) -> List[Dict]:
         """
-        Scan for new tokens and return unified events.
+        Scan for new tokens and return unified events WITH METADATA RESOLUTION.
         
-        ASYNC WRAPPER: Uses asyncio to run async metadata resolution.
+        Handles both sync and async calling contexts properly.
         
         Returns:
             List of unified token dicts with all available data
@@ -135,22 +135,6 @@ class SolanaScanner:
         if not self._connected:
             return []
         
-        try:
-            # Run async scan
-            return asyncio.run(self._async_scan_new_pairs())
-        except Exception as e:
-            solana_log(f"Scan wrapper error: {e}", "ERROR")
-            import traceback
-            traceback.print_exc()
-            return []
-    
-    async def _async_scan_new_pairs(self) -> List[Dict]:
-        """
-        Async scan for new tokens and return unified events WITH METADATA!
-        
-        Returns:
-            List of unified token dicts with all available data
-        """
         # Rate limit scans
         now = time.time()
         if now - self._last_scan_time < self._scan_interval:
@@ -171,15 +155,34 @@ class SolanaScanner:
             else:
                 solana_log("Scan cycle complete: 0 new candidates", "DEBUG")
             
-            # Process Pump.fun tokens (primary source) WITH METADATA RESOLUTION
+            # Process Pump.fun tokens with metadata resolution
             for token in pumpfun_tokens:
-                unified = await self._create_unified_event_async(token)
-                if unified:
-                    unified_events.append(unified)
-                    name = unified.get('name', 'UNKNOWN')
-                    symbol = unified.get('symbol', '???')
-                    state = unified.get('state', 'UNKNOWN')
-                    solana_log(f"New token detected: {name} ({symbol}) | State: {state}")
+                try:
+                    # Try to get event loop for async metadata resolution
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # In async context, use executor
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                                future = executor.submit(asyncio.run, self._create_unified_event_async_wrapper(token))
+                                unified = future.result(timeout=10)
+                        else:
+                            # Not running, use asyncio.run
+                            unified = asyncio.run(self._create_unified_event_async_wrapper(token))
+                    except RuntimeError:
+                        # No event loop, create one
+                        unified = asyncio.run(self._create_unified_event_async_wrapper(token))
+                    
+                    if unified:
+                        unified_events.append(unified)
+                        name = unified.get('name', 'UNKNOWN')
+                        symbol = unified.get('symbol', '???')
+                        state = unified.get('state', 'UNKNOWN')
+                        solana_log(f"New token detected: {name} ({symbol}) | State: {state}")
+                except Exception as e:
+                    solana_log(f"Error processing token {token.get('token_address', '???')}: {e}", "ERROR")
+                    continue
             
             # Check for Raydium pools for cached tokens
             for pool in raydium_pools:
@@ -207,11 +210,15 @@ class SolanaScanner:
             self._cleanup_cache()
             
         except Exception as e:
-            solana_log(f"Async scan error: {e}", "ERROR")
+            solana_log(f"Scan error: {e}", "ERROR")
             import traceback
             traceback.print_exc()
         
         return unified_events
+    
+    async def _create_unified_event_async_wrapper(self, token: Dict) -> Optional[Dict]:
+        """Wrapper for async metadata resolution."""
+        return await self._create_unified_event_async(token)
     
     def _create_unified_event(self, pumpfun_token: Dict) -> Optional[Dict]:
         """
