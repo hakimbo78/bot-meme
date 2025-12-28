@@ -212,18 +212,24 @@ class SecondaryScanner:
                                 
                                 # Extract pair/pool address from data
                                 if dex_type == 'uniswap_v2':
-                                    # V2: data contains pair_address (first 32 bytes) + counter
-                                    # Data format: 0x + 64 chars (pair address padded) + ...
+                                    # V2 PairCreated data structure:
+                                    # - Field 1 (bytes 0-31, hex 0-63): pair address (padded to 32 bytes)
+                                    # - Field 2 (bytes 32-63, hex 64-127): counter uint256
                                     if len(data_hex) >= 64:
-                                        # Extract address from padded 32 bytes (last 20 bytes = 40 chars)
-                                        pair_address = '0x' + data_hex[-40:]
+                                        # Extract address from first 32 bytes (last 20 bytes of first field)
+                                        # Chars 0-23 = padding, chars 24-63 = address
+                                        pair_address = '0x' + data_hex[24:64]
                                     else:
                                         skip_reasons['invalid_data'] += 1
                                         continue
                                 elif dex_type == 'uniswap_v3':
-                                    # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
+                                    # V3 PoolCreated data structure:
+                                    # - Field 1 (bytes 0-31, hex 0-63): tickSpacing int24 (padded)
+                                    # - Field 2 (bytes 32-63, hex 64-127): pool address (padded to 32 bytes)
                                     if len(data_hex) >= 128:
-                                        pair_address = '0x' + data_hex[64:128][-40:]  # Last 20 bytes of second 32-byte chunk
+                                        # Extract address from second 32 bytes (last 20 bytes)
+                                        # Chars 64-87 = padding, chars 88-127 = address
+                                        pair_address = '0x' + data_hex[88:128]
                                     else:
                                         skip_reasons['invalid_data'] += 1
                                         continue
