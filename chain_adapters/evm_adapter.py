@@ -90,9 +90,17 @@ class EVMAdapter(ChainAdapter):
         self.lp_cache = {}  # LP detection cache
         
         # SCANNING CONFIG - Chain-specific from config
-        self.scan_interval = config.get('scan_interval', self._get_scan_interval())
+        self._static_scan_interval = config.get('scan_interval', self._get_scan_interval())
         self.max_block_range = config.get('max_block_range', self._get_max_block_range())
         self.shortlist_limit = config.get('shortlist_limit', self._get_shortlist_limit())
+    
+    @property
+    def scan_interval(self) -> int:
+        """Get adaptive scan interval based on market heat"""
+        if self.heat_engine:
+            return self.heat_engine.get_adaptive_scan_interval()
+        else:
+            return self._static_scan_interval
     
     def connect(self) -> bool:
         """Connect to EVM chain via RPC"""
@@ -201,6 +209,11 @@ class EVMAdapter(ChainAdapter):
                     from_block=from_block,
                     to_block=current_block
                 )
+                
+                # Record factory logs for heat calculation
+                if self.heat_engine and logs:
+                    for _ in logs:
+                        self.heat_engine.record_factory_log()
                 
                 for log in logs:
                     try:

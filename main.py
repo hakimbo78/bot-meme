@@ -524,7 +524,11 @@ async def main():
                                 # Skip if analysis failed
                                 if analysis is None:
                                     print(f"{Fore.RED}⚠️  {chain_prefix} Analysis failed, skipping token")
-
+                                    continue
+                                
+                                # Check for liquidity spike (cached, no eth_call)
+                                if adapter.heat_engine and analysis.get('liquidity_usd', 0) > 50000:
+                                    adapter.heat_engine.set_liquidity_spike_flag()
                                 
                                 # MARKET INTEL: Pattern Matching & Rotation Bias
                                 pattern_insight = None
@@ -574,6 +578,10 @@ async def main():
                                     print(f"{Fore.YELLOW}⚠️  {chain_prefix} Low liquidity (${analysis.get('liquidity_usd'):,.0f} < ${min_liquidity:,})")
                                     continue
                                 
+                                # Record shortlisted candidate for heat calculation
+                                if adapter.heat_engine:
+                                    adapter.heat_engine.record_shortlisted_candidate()
+                                
                                 # Score it
                                 score_result = scorer.score_token(analysis, chain_config)
                                 
@@ -617,6 +625,9 @@ async def main():
                                         
                                         if success:
                                             print(f"{Fore.GREEN}✅ {chain_prefix} Telegram alert sent!")
+                                            # Record alert triggered for heat calculation
+                                            if adapter.heat_engine:
+                                                adapter.heat_engine.record_alert_triggered()
                                         else:
                                             print(f"{Fore.YELLOW}ℹ️  {chain_prefix} Alert skipped")
                                     except Exception as e:

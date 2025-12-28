@@ -114,6 +114,7 @@ class MultiChainScanner:
         
         # Init heartbeat
         self.heartbeats[chain_name] = time.time()
+        previous_interval = adapter.scan_interval
         
         while self.is_running:
             try:
@@ -138,9 +139,20 @@ class MultiChainScanner:
                 
                 # 4. CU-AWARE SLEEP: Respect chain-specific intervals
                 scan_duration = scan_end - scan_start
-                sleep_time = max(0, adapter.scan_interval - scan_duration)
+                current_interval = adapter.scan_interval
+                
+                # Log heat status and interval adjustment
+                if adapter.heat_engine:
+                    heat_status = adapter.heat_engine.get_heat_status()
+                    print(f"[HEAT][{chain_name.upper()}] Market heat: {heat_status['score']} ({heat_status['zone']})")
+                    if current_interval != previous_interval:
+                        print(f"[SCAN][{chain_name.upper()}] Interval adjusted: {previous_interval} → {current_interval}")
+                
+                sleep_time = max(0, current_interval - scan_duration)
                 print(f"😴 [{chain_name.upper()}] Scan took {scan_duration:.1f}s, sleeping {sleep_time:.1f}s")
                 await asyncio.sleep(sleep_time)
+                
+                previous_interval = current_interval
                 
             except asyncio.CancelledError:
                 print(f"🛑 [{chain_name.upper()}] Task cancelled")
@@ -160,8 +172,12 @@ class MultiChainScanner:
             for chain_name, last_beat in self.heartbeats.items():
                 diff = now - last_beat
                 
-                # Get chain-specific scan interval for stall threshold
-                scan_interval = self.chain_configs.get(chain_name, {}).get('scan_interval', 30)
+                # Get chain-specific scan interval from adapter (CU-optimized)
+                adapter = self.adapters.get(chain_name)
+                if adapter:
+                    scan_interval = getattr(adapter, 'scan_interval', 30)
+                else:
+                    scan_interval = 30
                 stall_threshold = scan_interval + 30  # Allow scan_interval + 30s buffer
                 
                 if diff > stall_threshold:

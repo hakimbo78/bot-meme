@@ -13,11 +13,6 @@ chains:
       TRADE: 70
     goplus_chain_id: "8453"
     eth_price_usd: 3500  # Fallback ETH price for liquidity calculation
-    # CU OPTIMIZATION SETTINGS
-    daily_cu_budget: 50000  # Base gets higher budget due to faster blocks
-    scan_interval: 25  # 20-30s between scans
-    max_block_range: 2  # 1-2 blocks per eth_getLogs
-    shortlist_limit: 3  # Max 3 candidates per cycle
   
   ethereum:
     enabled: true
@@ -33,11 +28,6 @@ chains:
       TRADE: 75
     goplus_chain_id: "1"
     eth_price_usd: 3500
-    # CU OPTIMIZATION SETTINGS
-    daily_cu_budget: 25000  # ETH gets lower budget due to slower blocks
-    scan_interval: 52  # 45-60s between scans
-    max_block_range: 1  # 1 block per eth_getLogs
-    shortlist_limit: 1  # Max 1 candidate per cycle
   
   blast:
     enabled: false
