@@ -165,36 +165,35 @@ class SolanaScanner:
             response.raise_for_status()
             recent_blockhash = response.json()['result']['value']['blockhash']
             
-            # Get program accounts (this is expensive, but for monitoring)
-            # Actually, let's get recent transactions instead
+            # Use getSignaturesForAddress instead of getProgramAccounts (lighter)
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "method": "getProgramAccounts",
+                "method": "getSignaturesForAddress",
                 "params": [
                     raydium_program_id,
                     {
-                        "commitment": "confirmed",
-                        "encoding": "base64",
-                        "filters": [
-                            {
-                                "dataSize": 165  # AMM account size
-                            }
-                        ],
-                        "withContext": True
+                        "limit": 5,  # Only check last 5 transactions
+                        "commitment": "confirmed"
                     }
                 ]
             }
             
-            response = requests.post(self.rpc_url, json=payload, timeout=30)
+            response = requests.post(self.rpc_url, json=payload, timeout=15)
             response.raise_for_status()
             
-            accounts = response.json().get('result', [])
-            solana_log(f"[RAYDIUM] Found {len(accounts)} AMM accounts", "INFO")
+            signatures = response.json().get('result', [])
+            solana_log(f"[RAYDIUM] Found {len(signatures)} recent signatures", "INFO")
             
             # For now, return empty - LP detection via transaction parsing
             return []
             
+        except requests.exceptions.Timeout:
+            solana_log("Raydium monitoring timeout", "WARNING")
+            return []
+        except requests.exceptions.RequestException as e:
+            solana_log(f"Raydium monitoring network error: {e}", "ERROR")
+            return []
         except Exception as e:
             solana_log(f"Raydium monitoring error: {e}", "ERROR")
             return []
@@ -223,31 +222,35 @@ class SolanaScanner:
             response.raise_for_status()
             recent_blockhash = response.json()['result']['value']['blockhash']
             
-            # Get program accounts for Pump.fun
+            # Use getSignaturesForAddress instead of getProgramAccounts (lighter)
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "method": "getProgramAccounts",
+                "method": "getSignaturesForAddress",
                 "params": [
                     pumpfun_program_id,
                     {
-                        "commitment": "confirmed",
-                        "encoding": "base64",
-                        "filters": [],
-                        "withContext": True
+                        "limit": 5,  # Only check last 5 transactions
+                        "commitment": "confirmed"
                     }
                 ]
             }
             
-            response = requests.post(self.rpc_url, json=payload, timeout=30)
+            response = requests.post(self.rpc_url, json=payload, timeout=15)
             response.raise_for_status()
             
-            accounts = response.json().get('result', [])
-            solana_log(f"[PUMP] Found {len(accounts)} program accounts", "INFO")
+            signatures = response.json().get('result', [])
+            solana_log(f"[PUMP] Found {len(signatures)} recent signatures", "INFO")
             
             # For now, return empty - need transaction parsing for actual detection
             return []
             
+        except requests.exceptions.Timeout:
+            solana_log("Pump.fun monitoring timeout", "WARNING")
+            return []
+        except requests.exceptions.RequestException as e:
+            solana_log(f"Pump.fun monitoring network error: {e}", "ERROR")
+            return []
         except Exception as e:
             solana_log(f"Pump.fun monitoring error: {e}", "ERROR")
             return []
