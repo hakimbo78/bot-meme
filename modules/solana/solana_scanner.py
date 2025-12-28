@@ -153,31 +153,19 @@ class SolanaScanner:
             # Poll for recent transactions to Raydium program
             raydium_program_id = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
             
-            # Get recent blockhash first
+            # Use getSignaturesForAddress to get recent transactions
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "method": "getRecentBlockhash",
-                "params": [{"commitment": "confirmed"}]
+                "method": "getSignaturesForAddress",
+                "params": [
+                    raydium_program_id,
+                    {
+                        "limit": 5,  # Only check last 5 transactions
+                        "commitment": "confirmed"
+                    }
+                ]
             }
-            
-            response = requests.post(self.rpc_url, json=payload, timeout=10)
-            response.raise_for_status()
-            
-            json_response = response.json()
-            if 'error' in json_response:
-                solana_log(f"Raydium blockhash RPC error: {json_response['error']}", "ERROR")
-                return []
-            
-            result = json_response.get('result', {})
-            value = result.get('value', {})
-            recent_blockhash = value.get('blockhash')
-            if not recent_blockhash:
-                solana_log("Raydium: Failed to get recent blockhash", "ERROR")
-                return []
-            
-            # Use getSignaturesForAddress instead of getProgramAccounts (lighter)
-            payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getSignaturesForAddress",
@@ -231,31 +219,19 @@ class SolanaScanner:
         try:
             pumpfun_program_id = "6EF8rrecthR5Dkzon8NQtpjxFYLdSdkHtTZhEtHLiMf"
             
-            # Get recent blockhash
+            # Use getSignaturesForAddress to get recent transactions
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "method": "getRecentBlockhash",
-                "params": [{"commitment": "confirmed"}]
+                "method": "getSignaturesForAddress",
+                "params": [
+                    pumpfun_program_id,
+                    {
+                        "limit": 5,  # Only check last 5 transactions
+                        "commitment": "confirmed"
+                    }
+                ]
             }
-            
-            response = requests.post(self.rpc_url, json=payload, timeout=10)
-            response.raise_for_status()
-            
-            json_response = response.json()
-            if 'error' in json_response:
-                solana_log(f"Pump.fun blockhash RPC error: {json_response['error']}", "ERROR")
-                return []
-            
-            result = json_response.get('result', {})
-            value = result.get('value', {})
-            recent_blockhash = value.get('blockhash')
-            if not recent_blockhash:
-                solana_log("Pump.fun: Failed to get recent blockhash", "ERROR")
-                return []
-            
-            # Use getSignaturesForAddress instead of getProgramAccounts (lighter)
-            payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getSignaturesForAddress",
