@@ -174,7 +174,12 @@ class SecondaryScanner:
                     
                     # Process last 100 pairs (most recent)
                     parsed_count = 0
-                    for log in logs[-100:]:
+                    skip_reasons = {'no_weth': 0, 'parse_error': 0, 'invalid_data': 0}
+                    
+                    logs_to_process = logs[-100:]
+                    print(f"🔍 [SECONDARY DEBUG] {self.chain_name.upper()}: Processing {len(logs_to_process)} {dex_type.upper()} events...")
+                    
+                    for idx, log in enumerate(logs_to_process):
                         try:
                             # Decode event data
                             data = log['data']
@@ -186,6 +191,10 @@ class SecondaryScanner:
                             else:
                                 data_hex = data
                             
+                            # Debug first event
+                            if idx == 0:
+                                print(f"🔍 [SECONDARY DEBUG] First event - data type: {type(data)}, topics count: {len(topics)}")
+                            
                             if len(topics) >= 3:
                                 # topics[1] = token0, topics[2] = token1
                                 # Convert HexBytes to hex and extract address (last 20 bytes)
@@ -196,6 +205,10 @@ class SecondaryScanner:
                                     token0 = '0x' + topics[1][26:]
                                     token1 = '0x' + topics[2][26:]
                                 
+                                # Debug first token pair
+                                if idx == 0:
+                                    print(f"🔍 [SECONDARY DEBUG] token0: {token0}, token1: {token1}")
+                                
                                 # Extract pair/pool address from data
                                 if dex_type == 'uniswap_v2':
                                     # V2: data contains pair_address (first 32 bytes) + counter
@@ -204,22 +217,36 @@ class SecondaryScanner:
                                         # Extract address from padded 32 bytes (last 20 bytes = 40 chars)
                                         pair_address = '0x' + data_hex[-40:]
                                     else:
+                                        skip_reasons['invalid_data'] += 1
                                         continue
                                 elif dex_type == 'uniswap_v3':
                                     # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
                                     if len(data_hex) >= 128:
                                         pair_address = '0x' + data_hex[64:128][-40:]  # Last 20 bytes of second 32-byte chunk
                                     else:
+                                        skip_reasons['invalid_data'] += 1
                                         continue
+                                
+                                # Debug first pair address
+                                if idx == 0:
+                                    print(f"🔍 [SECONDARY DEBUG] pair_address: {pair_address}")
                                 
                                 # For simplicity, assume token1 is the meme token (not WETH)
                                 weth_address = chain_config.get('weth_address', '').lower()
+                                
+                                # Debug WETH check
+                                if idx == 0:
+                                    print(f"🔍 [SECONDARY DEBUG] WETH address: {weth_address}")
+                                    print(f"🔍 [SECONDARY DEBUG] token0 == WETH: {token0.lower() == weth_address}")
+                                    print(f"🔍 [SECONDARY DEBUG] token1 == WETH: {token1.lower() == weth_address}")
+                                
                                 if token0.lower() == weth_address:
                                     token_address = token1
                                 elif token1.lower() == weth_address:
                                     token_address = token0
                                 else:
                                     # Skip non-WETH pairs for now
+                                    skip_reasons['no_weth'] += 1
                                     continue
                                 
                                 pair_data = {
@@ -236,12 +263,16 @@ class SecondaryScanner:
                                 
                         except Exception as e:
                             # Log first few errors for debugging
-                            if parsed_count < 3:
-                                print(f"⚠️  [SECONDARY DEBUG] Error parsing log: {e}")
+                            skip_reasons['parse_error'] += 1
+                            if skip_reasons['parse_error'] <= 3:
+                                print(f"⚠️  [SECONDARY DEBUG] Error parsing log #{idx}: {e}")
                             continue  # Skip malformed logs
                     
-                    if parsed_count > 0:
-                        print(f"✅ [SECONDARY] {self.chain_name.upper()}: Parsed {parsed_count}/{len(logs[-100:])} {dex_type.upper()} pairs")
+                    # Print summary
+                    print(f"📊 [SECONDARY DEBUG] {self.chain_name.upper()} {dex_type.upper()}: Parsed {parsed_count}/{len(logs_to_process)} pairs")
+                    print(f"   ├─ Skipped (no WETH): {skip_reasons['no_weth']}")
+                    print(f"   ├─ Skipped (invalid data): {skip_reasons['invalid_data']}")
+                    print(f"   └─ Skipped (parse errors): {skip_reasons['parse_error']}")
                     
                 except Exception as e:
                     print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
