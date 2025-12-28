@@ -290,29 +290,33 @@ class PumpfunScanner:
             
             # Metadata may be missing on very early transactions; continue with minimal parsing
             metadata_status = 'present' if meta else 'missing'
-                
-            # Reuse existing parsing logic
-            is_creation = self._is_token_creation(tx_data, meta)
-            is_buy = self._is_buy_transaction(tx_data, meta)
             
-            if is_creation or (meta is None):
+            # Debug: log transaction structure
+            is_creation_check = self._is_token_creation(tx_data, meta)
+            is_buy_check = self._is_buy_transaction(tx_data, meta)
+            
+            solana_log(f"TX {signature[:8]}... | Creation={is_creation_check}, Buy={is_buy_check}, Meta={metadata_status}", "DEBUG")
+            
+            if is_creation_check or (meta is None):
                 res = self._extract_token_creation(tx_data, meta, signature)
                 if res: 
                     # annotate tx signature and metadata status
                     res['tx_signature'] = signature
                     res['metadata_status'] = metadata_status
-                    solana_log(f"Detected Creation: {res.get('symbol')} ({signature[:8]})", "DEBUG")
+                    solana_log(f"✅ Creation: {res.get('symbol')} ({signature[:8]})", "DEBUG")
                     return res
+                else:
+                    solana_log(f"❌ Creation extraction failed for {signature[:8]}... (meta={metadata_status})", "DEBUG")
                 
-            if is_buy:
+            if is_buy_check:
                 res = self._extract_buy_event(tx_data, meta, signature)
                 if res:
                     res['tx_signature'] = signature
                     res['metadata_status'] = metadata_status
-                    # solana_log(f"Detected Buy: {res.get('symbol')} ({signature[:8]})", "DEBUG")
+                    solana_log(f"✅ Buy event: {res.get('symbol')} ({signature[:8]})", "DEBUG")
                     return res
-            
-            # solana_log(f"TX {signature[:8]}... is neither creation nor tracked buy", "DEBUG")
+                else:
+                    solana_log(f"❌ Buy extraction failed for {signature[:8]}...", "DEBUG")
 
                 
         except Exception as e:
