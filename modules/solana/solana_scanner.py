@@ -153,53 +153,14 @@ class SolanaScanner:
         """
         Monitor Pump.fun program for new token creation transactions.
 
+        Placeholder - Token detection happens via instruction parsing when transactions are fed to parse_transaction().
+
         Returns:
-            List of new token events
+            Empty list (monitoring disabled for now)
         """
-        import aiohttp
-        import json
-
-        events = []
-        pumpfun_program_id = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
-
-        try:
-            # Get recent confirmed signatures for Pump.fun program
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getConfirmedSignaturesForAddress",
-                "params": [
-                    pumpfun_program_id,
-                    {
-                        "limit": 5,  # Check last 5 transactions (less frequent)
-                        "commitment": "confirmed"
-                    }
-                ]
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.rpc_url,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=10.0)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        signatures = data.get('result', [])
-
-                        # Parse each transaction for token creation events
-                        for sig_info in signatures:
-                            signature = sig_info.get('signature')
-                            if signature:
-                                # Parse this transaction for token events
-                                event = await self.parse_transaction(signature)
-                                if event and 'token_address' in event:
-                                    events.append(event)
-
-        except Exception as e:
-            solana_log(f"Error monitoring Pump.fun tokens: {e}", "ERROR")
-
-        return events
+        # Token detection via instruction parsing happens in RawSolanaParser.parse_transaction()
+        # when transactions are provided externally
+        return []
     
     async def _create_unified_event_async_wrapper(self, token: Dict) -> Optional[Dict]:
         """Wrapper for async metadata resolution."""
