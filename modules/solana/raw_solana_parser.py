@@ -174,6 +174,47 @@ class InstructionFlattener:
         """
         instructions = []
 
+        # Get account keys for resolving indices
+        message = tx_response.transaction.get('message', {})
+        account_keys = message.get('accountKeys', [])
+        
+        solana_log(f"[SOLANA][RAW] message keys: {list(message.keys())}", "DEBUG")
+        solana_log(f"[SOLANA][RAW] account keys count: {len(account_keys)}", "DEBUG")
+        
+        # Check if account keys are in the right format
+        if account_keys and isinstance(account_keys[0], dict):
+            # Handle new format where accountKeys is array of objects
+            account_keys = [acc.get('pubkey', '') for acc in account_keys]
+            solana_log(f"[SOLANA][RAW] converted account keys to strings: {len(account_keys)}", "DEBUG")
+
+        # 1. Top-level instructions
+        top_level = message.get('instructions', [])
+        solana_log(f"[SOLANA][RAW] top-level instructions: {len(top_level)}", "DEBUG")
+        
+        # Debug first instruction if exists
+        if top_level:
+            first_instr = top_level[0]
+            solana_log(f"[SOLANA][RAW] first instruction keys: {list(first_instr.keys())}", "DEBUG")
+            if 'programIdIndex' in first_instr:
+                solana_log(f"[SOLANA][RAW] programIdIndex: {first_instr['programIdIndex']}", "DEBUG")
+        
+        for instr in top_level:
+            flat = InstructionFlattener._parse_instruction(instr, account_keys)
+            if flat:
+                instructions.append(flat)
+
+        # 2. Inner instructions (CRITICAL for Pump.fun + Raydium)
+        if tx_response.meta:
+            inner_instructions = tx_response.meta.get('innerInstructions', [])
+            solana_log(f"[SOLANA][RAW] inner instruction groups: {len(inner_instructions)}", "DEBUG")
+            for inner_group in inner_instructions:
+                inner_instrs = inner_group.get('instructions', [])
+                solana_log(f"[SOLANA][RAW] inner instructions in group: {len(inner_instrs)}", "DEBUG")
+                for instr in inner_instrs:
+                    flat = InstructionFlattener._parse_instruction(instr, account_keys)
+                    if flat:
+                        instructions.append(flat)
+
         solana_log(f"[SOLANA][RAW] total instructions: {len(instructions)}", "DEBUG")
         return instructions
 
@@ -181,18 +222,32 @@ class InstructionFlattener:
     def _parse_instruction(instr: Dict, account_keys: List[str]) -> Optional[FlatInstruction]:
         """Parse single instruction into FlatInstruction."""
         try:
+            # Debug: log instruction structure
+            solana_log(f"[SOLANA][RAW] parsing instruction: keys={len(instr)}", "DEBUG")
+            
             # Resolve program ID
             program_id_index = instr.get('programIdIndex')
-            if program_id_index is None or program_id_index >= len(account_keys):
+            if program_id_index is None:
+                solana_log(f"[SOLANA][RAW] no programIdIndex in instruction", "DEBUG")
+                return None
+                
+            if program_id_index >= len(account_keys):
+                solana_log(f"[SOLANA][RAW] programIdIndex {program_id_index} >= account_keys {len(account_keys)}", "DEBUG")
                 return None
 
             program_id = account_keys[program_id_index]
+            solana_log(f"[SOLANA][RAW] program_id: {program_id[:8]}...", "DEBUG")
 
             # Resolve accounts
             accounts = []
-            for acc_idx in instr.get('accounts', []):
+            instr_accounts = instr.get('accounts', [])
+            solana_log(f"[SOLANA][RAW] instruction accounts: {len(instr_accounts)}", "DEBUG")
+            
+            for acc_idx in instr_accounts:
                 if acc_idx < len(account_keys):
                     accounts.append(account_keys[acc_idx])
+                else:
+                    solana_log(f"[SOLANA][RAW] account index {acc_idx} >= account_keys {len(account_keys)}", "DEBUG")
 
             # Get data and parsed info
             data = instr.get('data', '')
@@ -202,17 +257,21 @@ class InstructionFlattener:
             instruction_type = None
             if parsed and isinstance(parsed, dict):
                 instruction_type = parsed.get('type')
+                solana_log(f"[SOLANA][RAW] instruction type: {instruction_type}", "DEBUG")
 
-            return FlatInstruction(
+            flat = FlatInstruction(
                 program_id=program_id,
                 accounts=accounts,
                 data=data,
                 instruction_type=instruction_type,
                 parsed=parsed
             )
+            
+            solana_log(f"[SOLANA][RAW] ✓ parsed instruction: {program_id[:8]}... ({instruction_type})", "DEBUG")
+            return flat
 
         except Exception as e:
-            solana_log(f"Error parsing instruction: {e}", "ERROR")
+            solana_log(f"[SOLANA][RAW] Error parsing instruction: {e}", "ERROR")
             return None
 
 
