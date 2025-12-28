@@ -108,11 +108,11 @@ class SecondaryScanner:
                     # Create contract and get events
                     if dex_type == 'uniswap_v2':
                         contract = self.web3.eth.contract(address=factory_address, abi=self.v2_factory_abi)
-                        event_filter = contract.events.PairCreated.create_filter(fromBlock=from_block, toBlock=latest_block)
+                        event_filter = contract.events.PairCreated.createFilter(fromBlock=from_block, toBlock=latest_block)
                         logs = event_filter.get_all_entries()
                     elif dex_type == 'uniswap_v3':
                         contract = self.web3.eth.contract(address=factory_address, abi=self.v3_factory_abi)
-                        event_filter = contract.events.PoolCreated.create_filter(fromBlock=from_block, toBlock=latest_block)
+                        event_filter = contract.events.PoolCreated.createFilter(fromBlock=from_block, toBlock=latest_block)
                         logs = event_filter.get_all_entries()
                     else:
                         continue
