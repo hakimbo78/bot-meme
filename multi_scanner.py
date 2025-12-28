@@ -131,7 +131,7 @@ class MultiChainScanner:
                         await queue.put(pair)
                     await asyncio.sleep(0.1)  # Minimal sleep if active
                 else:
-                    await asyncio.sleep(2.0)  # Moderate sleep if idle
+                    await asyncio.sleep(0.5)  # Faster scanning when idle
                 # sleep_time = self.chain_configs.get(chain_name, {}).get('scan_interval', 2)
                 # await asyncio.sleep(sleep_time)
                 

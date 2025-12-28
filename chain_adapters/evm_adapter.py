@@ -88,7 +88,7 @@ class EVMAdapter(ChainAdapter):
                 return False
             
             self.factory = self.w3.eth.contract(
-                address=Web3.to_checksum_address(self.config['factory_address']),
+                address=self.config['factory_address'],  # Skip checksum for now
                 abi=FACTORY_ABI
             )
             self.weth = Web3.to_checksum_address(self.config['weth_address'])
@@ -173,7 +173,7 @@ class EVMAdapter(ChainAdapter):
         
         return new_pairs
 
-    async def _run_with_timeout(self, func, *args, timeout=15.0):
+    async def _run_with_timeout(self, func, *args, timeout=10.0):
         """Run blocking call in thread with timeout"""
         try:
             return await asyncio.wait_for(
@@ -213,8 +213,8 @@ class EVMAdapter(ChainAdapter):
             if start_block > current_block:
                 return new_pairs
                 
-            # Limit range to 10 blocks per scan (more aggressive)
-            end_block = min(current_block, start_block + 9) # Inclusive range [start, start+9] = 10 blocks
+            # Limit range to 50 blocks per scan (more aggressive for active chains)
+            end_block = min(current_block, start_block + 49) # Inclusive range [start, start+49] = 50 blocks
             
             # Yield to event loop
             await asyncio.sleep(0)
@@ -227,7 +227,7 @@ class EVMAdapter(ChainAdapter):
                     to_block=end_block
                 )
             
-            logs = await self._run_with_timeout(fetch_logs) # Uses default timeout (15s)
+            logs = await self._run_with_timeout(fetch_logs, timeout=8.0) # Shorter timeout for logs
             
             if logs:
                 for log in logs:
