@@ -24,22 +24,16 @@ jobs:
       - name: Configure SSH key
         run: |
           mkdir -p ~/.ssh
-          if [ -n "$SSH_KEY_B64" ]; then
-            echo "Using base64 SSH key..."
-            echo "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_rsa
-            echo "Key size: $(wc -c < ~/.ssh/id_rsa) bytes"
-          elif [ -n "$SSH_PRIVATE_KEY" ]; then
-            echo "Using plain SSH key..."
-            echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
-            echo "Key size: $(wc -c < ~/.ssh/id_rsa) bytes"
-          else
-            echo "ERROR: No SSH key found in secrets!"
+          echo "Decoding base64 SSH key..."
+          echo "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_rsa
+          if [ ! -s ~/.ssh/id_rsa ]; then
+            echo "ERROR: Key file empty after decode!"
             exit 1
           fi
+          echo "Key size: $(wc -c < ~/.ssh/id_rsa) bytes"
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts 2>&1 || true
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
           SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
 
       - name: Verify SSH key format
@@ -52,9 +46,9 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke test SSH connectivity
+      - name: Smoke test SSH connectivity (verbose)
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${VPS_USER}@${VPS_HOST} "echo 'ssh ok'"
+          ssh -vvv -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "echo 'ssh ok'" 2>&1 | head -50
 
       - name: Sync files to VPS
         run: |
