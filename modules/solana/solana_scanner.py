@@ -59,7 +59,7 @@ class SolanaScanner:
         # State
         self._connected = True  # Always connected for raw RPC
         self._last_scan_time = 0
-        self._scan_interval = 5  # seconds between scans
+        self._scan_interval = 30  # seconds between scans (reduced frequency to avoid rate limits)
 
         # Token cache for unified events
         self._token_cache: Dict[str, Dict] = {}
@@ -161,7 +161,7 @@ class SolanaScanner:
                 "params": [
                     raydium_program_id,
                     {
-                        "limit": 5,  # Only check last 5 transactions
+                        "limit": 3,  # Only check last 3 transactions (reduced to be more conservative)
                         "commitment": "confirmed"
                     }
                 ]
@@ -183,6 +183,10 @@ class SolanaScanner:
             signatures = json_response.get('result', [])
             solana_log(f"[RAYDIUM] Found {len(signatures)} recent signatures", "INFO")
             
+            # Reset scan interval on successful request
+            if self._scan_interval > 30:
+                self._scan_interval = max(self._scan_interval // 2, 30)
+            
             # For now, return empty - LP detection via transaction parsing
             return []
             
@@ -190,6 +194,11 @@ class SolanaScanner:
             solana_log("Raydium monitoring timeout", "WARNING")
             return []
         except requests.exceptions.RequestException as e:
+            if hasattr(e.response, 'status_code') and e.response.status_code == 429:
+                solana_log("Raydium rate limited (429), backing off", "WARNING")
+                # Increase scan interval temporarily
+                self._scan_interval = min(self._scan_interval * 2, 300)  # Max 5 minutes
+                return []
             solana_log(f"Raydium monitoring network error: {e}", "ERROR")
             return []
         except Exception as e:
@@ -216,7 +225,7 @@ class SolanaScanner:
                 "params": [
                     pumpfun_program_id,
                     {
-                        "limit": 5,  # Only check last 5 transactions
+                        "limit": 3,  # Only check last 3 transactions (reduced to be more conservative)
                         "commitment": "confirmed"
                     }
                 ]
@@ -238,6 +247,10 @@ class SolanaScanner:
             signatures = json_response.get('result', [])
             solana_log(f"[PUMP] Found {len(signatures)} recent signatures", "INFO")
             
+            # Reset scan interval on successful request
+            if self._scan_interval > 30:
+                self._scan_interval = max(self._scan_interval // 2, 30)
+            
             # For now, return empty - need transaction parsing for actual detection
             return []
             
@@ -245,6 +258,11 @@ class SolanaScanner:
             solana_log("Pump.fun monitoring timeout", "WARNING")
             return []
         except requests.exceptions.RequestException as e:
+            if hasattr(e.response, 'status_code') and e.response.status_code == 429:
+                solana_log("Pump.fun rate limited (429), backing off", "WARNING")
+                # Increase scan interval temporarily
+                self._scan_interval = min(self._scan_interval * 2, 300)  # Max 5 minutes
+                return []
             solana_log(f"Pump.fun monitoring network error: {e}", "ERROR")
             return []
         except Exception as e:
