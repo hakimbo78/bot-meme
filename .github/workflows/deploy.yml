@@ -29,21 +29,10 @@ jobs:
       - name: Add VPS host key
         run: ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts 2>&1
 
-      - name: Install rsync
+      - name: Sync files to VPS (git pull)
         run: |
-          which rsync || (sudo apt-get update && sudo apt-get install -y rsync)
-          rsync --version | head -1
-
-      - name: Sync files to VPS
-        run: |
-          # Use tar+ssh if rsync not available
-          tar --exclude='.git' \
-              --exclude='.github' \
-              --exclude='.venv' \
-              --exclude='__pycache__' \
-              --exclude='*.log' \
-              --exclude='.env' \
-              -czf - . | ssh ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && tar -xzf -"
+          ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} \
+            "cd ${VPS_PATH} && git pull origin main"
 
       - name: Install deps and restart service
         run: |
