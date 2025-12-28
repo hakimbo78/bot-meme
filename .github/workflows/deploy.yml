@@ -29,10 +29,37 @@ jobs:
       - name: Add VPS host key
         run: ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts 2>&1
 
-      - name: Sync files to VPS (git pull)
+      - name: Deploy to VPS
         run: |
-          ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} \
-            "cd ${VPS_PATH} && git pull origin main"
+          ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} bash << 'DEPLOY_EOF'
+          set -e
+          VPS_PATH="/home/hakim/bot-meme"
+          REPO="https://github.com/hakimbo78/bot-meme.git"
+          
+          # Clone if not exists, pull if exists
+          if [ ! -d "$VPS_PATH/.git" ]; then
+            echo "🔄 Cloning repo..."
+            git clone $REPO $VPS_PATH
+          else
+            echo "🔄 Pulling latest..."
+            cd $VPS_PATH
+            git pull origin main
+          fi
+          
+          # Install/update dependencies
+          cd $VPS_PATH
+          if [ ! -d ".venv" ]; then
+            echo "📦 Creating venv..."
+            python3 -m venv .venv
+          fi
+          echo "📥 Installing packages..."
+          .venv/bin/pip install -q -r requirements.txt
+          
+          # Restart service
+          echo "🚀 Restarting meme-bot service..."
+          sudo systemctl restart meme-bot
+          echo "✅ Deploy complete!"
+          DEPLOY_EOF
 
       - name: Install deps and restart service
         run: |
