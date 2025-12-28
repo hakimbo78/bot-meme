@@ -166,17 +166,6 @@ class SolanaScanner:
                     }
                 ]
             }
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getSignaturesForAddress",
-                "params": [
-                    raydium_program_id,
-                    {
-                        "limit": 5,  # Only check last 5 transactions
-                        "commitment": "confirmed"
-                    }
-                ]
-            }
             
             response = requests.post(self.rpc_url, json=payload, timeout=15)
             response.raise_for_status()
@@ -221,17 +210,6 @@ class SolanaScanner:
             
             # Use getSignaturesForAddress to get recent transactions
             payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getSignaturesForAddress",
-                "params": [
-                    pumpfun_program_id,
-                    {
-                        "limit": 5,  # Only check last 5 transactions
-                        "commitment": "confirmed"
-                    }
-                ]
-            }
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getSignaturesForAddress",
