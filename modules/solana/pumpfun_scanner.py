@@ -526,7 +526,10 @@ class PumpfunScanner:
                 account_keys = getattr(message, 'account_keys', []) if message else []
             
             if not account_keys:
+                solana_log(f"TX {signature[:8]}... no account_keys found", "DEBUG")
                 return None
+            
+            solana_log(f"TX {signature[:8]}... found {len(account_keys)} account keys, extracting...", "DEBUG")
             
             # Creator is usually the first account
             creator = str(account_keys[0])
@@ -550,7 +553,9 @@ class PumpfunScanner:
                 # Fallback to account index 1 if balances empty
                 if len(account_keys) > 1:
                     token_address = str(account_keys[1])
+                    solana_log(f"TX {signature[:8]}... using account[1] as token: {token_address[:8]}", "DEBUG")
                 else:
+                    solana_log(f"TX {signature[:8]}... no token address found and only {len(account_keys)} accounts", "DEBUG")
                     return None
 
             
@@ -587,10 +592,11 @@ class PumpfunScanner:
             out = token.to_dict()
             out['tx_signature'] = signature
             out['metadata_status'] = 'present' if meta else 'missing'
+            solana_log(f"✅ Extracted token: {token_address[:8]}... ({token.symbol})", "DEBUG")
             return out
             
         except Exception as e:
-            solana_log(f"Token creation parse error: {e}", "WARN")
+            solana_log(f"TX {signature[:8]}... extraction error: {type(e).__name__}: {e}", "DEBUG")
         
         return None
     
