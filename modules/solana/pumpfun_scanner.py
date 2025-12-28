@@ -297,9 +297,13 @@ class PumpfunScanner:
                 tx_data = tx.transaction if hasattr(tx, 'transaction') else tx
                 solana_log(f"TX {signature[:8]}... Object format, has meta: {meta is not None}", "DEBUG")
             
-            # Metadata may be missing on very early transactions; continue with minimal parsing
+            # Metadata may be missing on very early transactions; skip if missing
+            if not meta:
+                solana_log(f"TX {signature[:8]}... skipping candidate due to missing metadata", "DEBUG")
+                return None
+
             metadata_status = 'present' if meta else 'missing'
-            
+
             # Debug: log transaction structure
             is_creation_check = self._is_token_creation(tx_data, meta)
             is_buy_check = self._is_buy_transaction(tx_data, meta)
@@ -331,10 +335,10 @@ class PumpfunScanner:
             # CRITICAL: We got these signatures from getSignaturesForAddress(PUMPFUN_PROGRAM_ID)
             # So they're DEFINITELY Pump.fun transactions - no need to verify program
             # Just extract token data directly
-            
-            if is_creation_check or (meta is None):
+
+            if is_creation_check and meta and meta.get('postTokenBalances'):
                 res = self._extract_token_creation(tx_data, meta, signature)
-                if res: 
+                if res:
                     # annotate tx signature and metadata status
                     res['tx_signature'] = signature
                     res['metadata_status'] = metadata_status
@@ -573,25 +577,11 @@ class PumpfunScanner:
                     if mint:
                         token_address = str(mint)
                         break
-            
+
             if not token_address:
-                # Fallback to account index 1 if balances empty
-                if len(account_keys) > 1:
-                    account_key = account_keys[1]
-                    # Handle both string and dict formats
-                    if isinstance(account_key, dict):
-                        token_address = str(account_key.get('pubkey', ''))
-                    else:
-                        token_address = str(account_key)
-                    
-                    if token_address:
-                        solana_log(f"TX {signature[:8]}... using account[1] as token: {token_address[:8]}", "DEBUG")
-                    else:
-                        solana_log(f"TX {signature[:8]}... account[1] has no valid pubkey", "DEBUG")
-                        return None
-                else:
-                    solana_log(f"TX {signature[:8]}... no token address found and only {len(account_keys)} accounts", "DEBUG")
-                    return None
+                # No valid token address found in transaction meta
+                solana_log(f"TX {signature[:8]}... no valid token address found, skipping", "DEBUG")
+                return None
 
             
             # Calculate initial SOL inflow (may be 0 if meta missing)
