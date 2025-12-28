@@ -41,7 +41,7 @@ except ImportError as e:
 # Secondary Market Scanner (optional)
 SECONDARY_MODULE_AVAILABLE = False
 try:
-    from scanner.secondary_market import SecondaryScanner
+    from secondary_scanner.secondary_market import SecondaryScanner
     SECONDARY_MODULE_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️  Secondary market scanner not available: {e}")
