@@ -24,7 +24,8 @@ jobs:
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          # Remove CR to avoid libcrypto errors on Windows-style secrets
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${VPS_HOST} >> ~/.ssh/known_hosts
         env:
@@ -33,6 +34,7 @@ jobs:
       - name: Sync files to VPS
         run: |
           rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes" \
             --exclude '.git' \
             --exclude '.github' \
             --exclude '.venv' \
