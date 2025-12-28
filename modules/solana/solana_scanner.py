@@ -59,7 +59,7 @@ class SolanaScanner:
         # State
         self._connected = True  # Always connected for raw RPC
         self._last_scan_time = 0
-        self._scan_interval = 30  # seconds between scans (reduced frequency to avoid rate limits)
+        self._scan_interval = 5  # seconds between scans
 
         # Token cache for unified events
         self._token_cache: Dict[str, Dict] = {}
