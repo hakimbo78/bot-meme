@@ -1,73 +1,82 @@
 # Secondary Scanner RPC Fix - 2025-12-29
 
-## Problem
-Secondary scanner mengalami error RPC `-32602 Invalid params`:
-```
-⚠️  [SECONDARY] Error scanning uniswap_v2 factory: {'code': -32602, 'message': 'Invalid params', 
-'data': 'invalid type: string "0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612", 
-expected a sequence at line 1 column 136'}
-```
+## Problem 1: Invalid Topics Type (FIXED)
+Secondary scanner mengalami error RPC `-32602 Invalid params` karena topics dikirim sebagai string.
 
-## Root Cause
-Parameter `topics` di `eth_getLogs` RPC call dikirim sebagai **string**, padahal seharusnya **array**.
-
-### Error Detail:
-- Message: `expected a sequence` → RPC mengharapkan array
-- Current: `topics = "0x0d3648..."` → String
-- Expected: `topics = ["0x0d3648..."]` → Array
-
-## Solution
-Mengubah format `topics` dari string ke array di 2 lokasi:
-
-### 1. Method `discover_pairs()` (Line 135-150)
-**Before:**
+### Solution ✅
+Mengubah `topics` dari string ke array:
 ```python
-# Set topics based on dex type
-if dex_type == 'uniswap_v2':
-    topics = pair_created_sig  # ❌ String
-elif dex_type == 'uniswap_v3':
-    topics = pair_created_sig  # ❌ String
-
-# Enforce topics string guard
-assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
+# Before: topics = signature  (❌ String)
+# After:  topics = [signature] (✅ Array)
 ```
 
-**After:**
+## Problem 2: Invalid Event Signatures (FIXED)
+Setelah fix Problem 1, masih error dengan message berbeda:
+```
+'Invalid variadic value or array type: data did not match any variant of untagged enum Variadic'
+```
+
+### Root Cause
+Event signatures memiliki **karakter ekstra** di akhir:
+- Seharusnya: 32 bytes = 64 hex chars (+ `0x` = 66 total)
+- Actual: 65-67 hex chars (+ `0x` = 67-69 total)
+
+### Solution ✅
+Menghapus karakter ekstra dari semua event signatures:
+
+**BEFORE (WRONG - Extra Characters):**
 ```python
-# Set topics based on dex type (must be array for eth_getLogs)
-if dex_type == 'uniswap_v2':
-    topics = [pair_created_sig]  # ✅ Array
-elif dex_type == 'uniswap_v3':
-    topics = [pair_created_sig]  # ✅ Array
+self.swap_signatures = {
+    'uniswap_v2': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822e',  # 67 chars
+    'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67b'   # 67 chars
+}
 
-# Enforce topics array guard
-assert isinstance(topics, list), f"Topics must be list, got {type(topics)}"
+self.pair_created_sigs = {
+    'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612',  # 67 chars
+    'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee871103'   # 67 chars
+}
 ```
 
-### 2. Method `scan_pair_events()` (Line 280-294)
-**Before:**
+**AFTER (CORRECT - Proper Keccak-256 Hashes):**
 ```python
-# Enforce topics string
-topics = signature  # ❌ String
-assert isinstance(topics, str)
+self.swap_signatures = {
+    'uniswap_v2': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',  # 66 chars ✅
+    'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'   # 66 chars ✅
+}
+
+self.pair_created_sigs = {
+    'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9',  # 66 chars ✅
+    'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee71718'   # 66 chars ✅
+}
 ```
 
-**After:**
-```python
-# Enforce topics array (must be array for eth_getLogs)
-topics = [signature]  # ✅ Array
-assert isinstance(topics, list)
-```
+## Event Signature Reference
 
-## Expected Result
-Setelah fix:
+### Uniswap V2
+| Event | Signature String | Keccak-256 Hash |
+|-------|------------------|-----------------|
+| PairCreated | `PairCreated(address,address,address,uint256)` | `0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9` |
+| Swap | `Swap(address,uint256,uint256,uint256,uint256,address)` | `0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822` |
+
+### Uniswap V3
+| Event | Signature String | Keccak-256 Hash |
+|-------|------------------|-----------------|
+| PoolCreated | `PoolCreated(address,address,uint24,int24,address)` | `0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee71718` |
+| Swap | `Swap(address,address,int256,int256,uint160,uint128,int24)` | `0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67` |
+
+## Files Modified
+- `secondary_scanner/secondary_market/secondary_scanner.py`
+  - Line 137-139: Fixed topics to be array
+  - Line 284: Fixed topics to be array  
+  - Line 50-51: Fixed Swap event signatures
+  - Line 56-57: Fixed PairCreated/PoolCreated event signatures
+
+## Expected Results
+Setelah deploy fix:
 - ✅ No more `-32602 Invalid params` errors
 - ✅ Secondary scanner dapat query `PairCreated`/`PoolCreated` events
 - ✅ BASE dan ETHEREUM chains dapat menemukan pairs
 - ✅ Status berubah dari `0 pairs` menjadi `Monitoring N pairs`
-
-## Files Modified
-- `secondary_scanner/secondary_market/secondary_scanner.py`
 
 ## Testing
 ```bash
@@ -88,12 +97,18 @@ Expected log output:
     - ETHEREUM: Monitoring Z pairs
 ```
 
-## Technical Notes
-- `eth_getLogs` RPC method requires `topics` parameter as **array** type
-- Single topic masih harus wrapped dalam array: `[topic]`
-- Multiple topics: `[topic1, topic2, ...]`
-- Null topics untuk any: `[null, topic2, ...]`
+## How to Generate Event Signatures
+```python
+from web3 import Web3
+
+# Format: EventName(type1,type2,...)
+signature_string = "PairCreated(address,address,address,uint256)"
+hash = Web3.keccak(text=signature_string).hex()
+print(hash)  # Should be 66 chars (0x + 64 hex)
+```
 
 ## References
 - Ethereum JSON-RPC Specification: `eth_getLogs`
 - Web3.py documentation: `web3.eth.get_logs()`
+- Uniswap V2 Docs: https://docs.uniswap.org/contracts/v2/reference/smart-contracts/factory
+- Uniswap V3 Docs: https://docs.uniswap.org/contracts/v3/reference/core/interfaces/IUniswapV3Factory

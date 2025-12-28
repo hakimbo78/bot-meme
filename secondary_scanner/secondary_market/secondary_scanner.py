@@ -45,16 +45,16 @@ class SecondaryScanner:
         # Known pairs to monitor: {pair_address: {'token_address': str, 'dex_type': str, 'last_scan': float}}
         self.monitored_pairs = {}
 
-        # Swap event signatures
+        # Swap event signatures (Keccak-256 hash)
         self.swap_signatures = {
-            'uniswap_v2': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822e',
-            'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67b'
+            'uniswap_v2': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',
+            'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'
         }
 
-        # Pair/Pool created event signatures
+        # Pair/Pool created event signatures (Keccak-256 hash)
         self.pair_created_sigs = {
-            'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612',
-            'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee871103'
+            'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9',
+            'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee71718'
         }
 
         # Uniswap V2 Factory ABI (minimal for events)
