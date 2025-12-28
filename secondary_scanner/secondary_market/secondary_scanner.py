@@ -152,6 +152,15 @@ class SecondaryScanner:
                         'toBlock': hex(latest_block)
                     }
                     
+                    # Debug V3 queries
+                    if dex_type == 'uniswap_v3':
+                        print(f"🔍 [V3 DEBUG] {self.chain_name.upper()}: Querying V3 factory")
+                        print(f"   Factory: {factory_address}")
+                        print(f"   Signature: {pair_created_sig}")
+                        print(f"   Topics: {topics}")
+                        print(f"   From block: {from_block} ({hex(from_block)})")
+                        print(f"   To block: {latest_block} ({hex(latest_block)})")
+                    
                     try:
                         # Query PairCreated/PoolCreated events
                         logs = self.web3.eth.get_logs(payload)
