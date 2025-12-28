@@ -517,10 +517,14 @@ class PumpfunScanner:
         try:
             # Handle both object and dict formats for tx_data
             if isinstance(tx_data, dict):
+                solana_log(f"TX {signature[:8]}... dict keys: {list(tx_data.keys())}", "DEBUG")
                 block_time = tx_data.get('blockTime') or time.time()
                 message = tx_data.get('message', {})
                 account_keys = message.get('accountKeys', [])
             else:
+                # Log what attributes this object has
+                attrs = [a for a in dir(tx_data) if not a.startswith('_')][:10]
+                solana_log(f"TX {signature[:8]}... object attrs: {attrs}", "DEBUG")
                 block_time = getattr(tx_data, 'block_time', None) or time.time()
                 message = getattr(tx_data, 'message', None)
                 account_keys = getattr(message, 'account_keys', []) if message else []
