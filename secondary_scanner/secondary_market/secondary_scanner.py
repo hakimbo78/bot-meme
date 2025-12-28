@@ -82,7 +82,7 @@ class SecondaryScanner:
                     # Query PairCreated/PoolCreated events
                     logs = self.web3.eth.get_logs({
                         'address': [factory_address],
-                        'topics': [pair_created_sig],
+                        'topics': [[pair_created_sig]],
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
                     })
@@ -196,7 +196,7 @@ class SecondaryScanner:
             # Query events
             logs = self.web3.eth.get_logs({
                 'address': [pair_address],
-                'topics': [signature],
+                'topics': [[signature]],
                 'fromBlock': hex(from_block),
                 'toBlock': hex(latest_block)
             })
