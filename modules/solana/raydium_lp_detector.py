@@ -135,7 +135,15 @@ class RaydiumLPDetector:
         
         try:
             rate_limit_rpc()
-            tx = self.client.get_transaction(txid)
+            tx_response = await asyncio.to_thread(
+                self.client.get_transaction,
+                txid,
+                encoding="jsonParsed",
+                max_supported_transaction_version=0
+            )
+            if not tx_response.value:
+                return None
+            tx = tx_response.value
             
             if not tx.value:
                 return None

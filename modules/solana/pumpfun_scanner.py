@@ -267,6 +267,7 @@ class PumpfunScanner:
                 return self.client.get_transaction(
                     sig_obj,
                     encoding="jsonParsed",
+                    max_supported_transaction_version=0,
                     commitment=Finalized
                 )
             
@@ -315,8 +316,14 @@ class PumpfunScanner:
             if not tx_response.value:
                 solana_log(f"TX {signature[:8]}... returned None", "DEBUG")
                 return None
-                
+
             tx = tx_response.value
+
+            # Debug: Confirm meta availability
+            meta = tx.meta if hasattr(tx, 'meta') else None
+            solana_log(f"TX {signature[:8]}... Meta available: {meta is not None}", "DEBUG")
+            if meta:
+                solana_log(f"TX {signature[:8]}... Meta keys: {list(meta.__dict__.keys()) if hasattr(meta, '__dict__') else 'N/A'}", "DEBUG")
             
             # DEBUG: Add comprehensive logging for transaction structure
             solana_log(f"TX {signature[:8]}... Response type: {type(tx_response)}", "DEBUG")
@@ -536,6 +543,9 @@ class PumpfunScanner:
                 
                 if response.value:
                     tx = response.value
+                    # Debug: Confirm meta availability
+                    meta = tx.meta if hasattr(tx, 'meta') else None
+                    solana_log(f"TX {str(sig_obj)[:8]}... Meta available: {meta is not None}", "DEBUG")
                     # Return even if meta is missing; downstream will handle gracefully
                     return tx
                     
