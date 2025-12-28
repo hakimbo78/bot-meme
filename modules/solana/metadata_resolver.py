@@ -15,6 +15,8 @@ from typing import Dict, Optional
 from dataclasses import dataclass
 from functools import lru_cache
 
+from solders.pubkey import Pubkey
+
 from .solana_utils import (
     TOKEN_PROGRAM_ID,
     solana_log,
@@ -169,7 +171,7 @@ class MetadataResolver:
         try:
             # Step 1: Get mint account info
             rate_limit_rpc()
-            mint_pubkey = PublicKey(mint)  # Convert string to PublicKey
+            mint_pubkey = Pubkey(mint)  # Convert string to Pubkey
             mint_info = self.client.get_account_info(mint_pubkey)
             
             if not mint_info.value or not mint_info.value.data:
@@ -185,7 +187,7 @@ class MetadataResolver:
             
             # Step 3: Get metadata account
             rate_limit_rpc()
-            metadata_pubkey = PublicKey(metadata_pda)  # Convert to PublicKey
+            metadata_pubkey = Pubkey(metadata_pda)  # Convert to Pubkey
             metadata_info = self.client.get_account_info(metadata_pubkey)
             
             if not metadata_info.value or not metadata_info.value.data:
@@ -223,14 +225,11 @@ class MetadataResolver:
             Metadata PDA address or None
         """
         try:
-            from solana.publickey import PublicKey
-            from solana.spl.token.core import find_program_address
-            
-            mint_pubkey = PublicKey(mint)
-            metaplex_pubkey = PublicKey(METAPLEX_PROGRAM_ID)
+            mint_pubkey = Pubkey(mint)
+            metaplex_pubkey = Pubkey(METAPLEX_PROGRAM_ID)
             
             # Find PDA
-            pda, bump = find_program_address(
+            pda, bump = Pubkey.find_program_address(
                 [METADATA_SEED, metaplex_pubkey.encode(), mint_pubkey.encode()],
                 metaplex_pubkey
             )
