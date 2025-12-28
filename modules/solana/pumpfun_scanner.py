@@ -12,6 +12,7 @@ Output: Normalized token events for scoring
 CRITICAL: READ-ONLY - No execution, no wallets
 """
 import time
+import json
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
 
@@ -515,8 +516,9 @@ class PumpfunScanner:
     def _extract_token_creation(self, tx_data, meta, signature: str) -> Optional[Dict]:
         """Extract token creation details."""
         try:
-            # tx_data is the .transaction object from response
-            # It has a .message attribute that contains account_keys
+            # tx_data is EncodedTransactionWithStatusMeta object
+            # Structure via to_json(): {'transaction': {...}, 'meta': {...}, 'version': X}
+            # The actual message is in transaction['message']
             
             block_time = getattr(tx_data, 'block_time', None) or time.time()
             
@@ -529,24 +531,24 @@ class PumpfunScanner:
                 message = tx_data.get('message', {})
                 account_keys = message.get('accountKeys', [])
             else:
-                # Object format - inspect structure and try to get message
-                # Log the actual type to understand it better
-                tx_type = type(tx_data).__name__
-                solana_log(f"TX {signature[:8]}... type={tx_type}", "DEBUG")
-                
-                # Try to convert to JSON to understand structure
+                # Object format - convert to JSON to extract nested message
                 try:
-                    tx_json = tx_data.to_json()
-                    import json
-                    tx_dict = json.loads(tx_json)
-                    if 'message' in tx_dict:
-                        message = tx_dict['message']
+                    tx_json = json.loads(tx_data.to_json())
+                    
+                    # Extract message from nested structure
+                    tx_obj = tx_json.get('transaction', {})
+                    if isinstance(tx_obj, dict):
+                        message = tx_obj.get('message', {})
                         account_keys = message.get('accountKeys', [])
-                        solana_log(f"TX {signature[:8]}... found message in to_json() with {len(account_keys)} accounts", "DEBUG")
+                        if account_keys:
+                            solana_log(f"TX {signature[:8]}... found message with {len(account_keys)} accounts", "DEBUG")
+                        else:
+                            solana_log(f"TX {signature[:8]}... message exists but no accountKeys", "DEBUG")
                     else:
-                        solana_log(f"TX {signature[:8]}... to_json() has no message, keys: {list(tx_dict.keys())}", "DEBUG")
+                        solana_log(f"TX {signature[:8]}... transaction in JSON is not dict", "DEBUG")
+                        
                 except Exception as e:
-                    solana_log(f"TX {signature[:8]}... to_json() failed: {e}", "DEBUG")
+                    solana_log(f"TX {signature[:8]}... JSON parsing failed: {e}", "DEBUG")
             
             if not account_keys:
                 solana_log(f"TX {signature[:8]}... no account_keys found", "DEBUG")
@@ -631,8 +633,14 @@ class PumpfunScanner:
                 message = tx_data.get('message', {})
                 account_keys = message.get('accountKeys', [])
             else:
-                message = getattr(tx_data, 'message', None)
-                account_keys = getattr(message, 'account_keys', []) if message else []
+                # Object format - convert to JSON to extract nested message
+                try:
+                    tx_json = json.loads(tx_data.to_json())
+                    tx_obj = tx_json.get('transaction', {})
+                    message = tx_obj.get('message', {}) if isinstance(tx_obj, dict) else {}
+                    account_keys = message.get('accountKeys', [])
+                except Exception:
+                    account_keys = []
 
             # Find buyer (first account usually)
             buyer = str(account_keys[0]) if account_keys else None
