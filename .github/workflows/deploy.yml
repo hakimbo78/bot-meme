@@ -53,7 +53,7 @@ jobs:
       - name: Sync files to VPS
         run: |
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes" \
+            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts" \
             --exclude '.git' \
             --exclude '.github' \
             --exclude '.venv' \
@@ -64,7 +64,7 @@ jobs:
 
       - name: Install deps and restart service
         run: |
-          ssh ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && \
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=accept-new ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && \
             python3 -m venv .venv || true && \
             source .venv/bin/activate && \
             pip install --upgrade pip && \
