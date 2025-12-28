@@ -98,8 +98,8 @@ class SecondaryScanner:
                     continue
                     
                 try:
-                    # Checksum the factory address
-                    factory_address = Web3.to_checksum_address(factory_address)
+                    # Use lowercase address for RPC compatibility
+                    factory_address = factory_address.lower()
                     
                     # Get recent blocks (last 10 blocks ~ 3 minutes)
                     latest_block = self.web3.eth.block_number
@@ -115,7 +115,7 @@ class SecondaryScanner:
                         'address': factory_address,
                         'topics': [pair_created_sig],
                         'fromBlock': hex(from_block),
-                        'toBlock': 'latest'
+                        'toBlock': hex(latest_block)
                     })
                     
                     print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last 10 blocks")
