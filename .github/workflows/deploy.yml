@@ -36,14 +36,14 @@ jobs:
 
       - name: Sync files to VPS
         run: |
-          rsync -az --delete \
-            --exclude '.git' \
-            --exclude '.github' \
-            --exclude '.venv' \
-            --exclude '__pycache__' \
-            --exclude '*.log' \
-            --exclude '.env' \
-            ./ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}
+          # Use tar+ssh if rsync not available
+          tar --exclude='.git' \
+              --exclude='.github' \
+              --exclude='.venv' \
+              --exclude='__pycache__' \
+              --exclude='*.log' \
+              --exclude='.env' \
+              -czf - . | ssh ${VPS_USER}@${VPS_HOST} "cd ${VPS_PATH} && tar -xzf -"
 
       - name: Install deps and restart service
         run: |
