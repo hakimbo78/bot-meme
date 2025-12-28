@@ -38,6 +38,14 @@ try:
 except ImportError as e:
     print(f"⚠️  Solana module not available: {e}")
 
+# Secondary Market Scanner (optional)
+SECONDARY_MODULE_AVAILABLE = False
+try:
+    from scanner.secondary_market import SecondaryScanner
+    SECONDARY_MODULE_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Secondary market scanner not available: {e}")
+
 init(autoreset=True)
 
 def print_alert(token_data, score_data):
@@ -162,6 +170,7 @@ async def main():
         startup_features = {
             'Market Intelligence': MARKET_INTEL_AVAILABLE,
             'Solana Module': SOLANA_MODULE_AVAILABLE,
+            'Secondary Market Scanner': SECONDARY_MODULE_AVAILABLE,
             'Trade-Early': is_trade_early_enabled(),
             'Auto-Upgrade (Early)': AUTO_UPGRADE_ENABLED,
             'Sniper Upgrade': upgrade_integration.enabled
@@ -288,6 +297,39 @@ async def main():
                 traceback.print_exc()
                 running_mode_enabled = False
         
+        # SECONDARY MARKET SCANNER - Existing pair breakout detection
+        secondary_scanner = None
+        secondary_enabled = False
+        
+        if SECONDARY_MODULE_AVAILABLE:
+            try:
+                # Initialize secondary scanner for each enabled EVM chain
+                secondary_scanners = {}
+                for chain_name in evm_chains:
+                    chain_config = CHAIN_CONFIGS.get('chains', {}).get(chain_name, {})
+                    if chain_config.get('enabled', False):
+                        # Get web3 provider from adapter
+                        adapter = scanner.get_adapter(chain_name)
+                        if adapter and hasattr(adapter, 'web3'):
+                            secondary_scanners[chain_name] = SecondaryScanner(
+                                adapter.web3, 
+                                {**chain_config, 'chain_name': chain_name}
+                            )
+                
+                if secondary_scanners:
+                    secondary_enabled = True
+                    print(f"{Fore.GREEN}🚀 SECONDARY MARKET SCANNER: ENABLED")
+                    for chain_name, sec_scanner in secondary_scanners.items():
+                        stats = sec_scanner.get_stats()
+                        print(f"{Fore.GREEN}    - {chain_name.upper()}: Monitoring {stats.get('monitored_pairs', 0)} pairs")
+                    print()
+                    
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  Secondary scanner failed to initialize: {e}")
+                import traceback
+                traceback.print_exc()
+                secondary_enabled = False
+        
         # SOLANA MODULE - Isolated Solana chain handling
         solana_enabled = False
         solana_scanner = None
@@ -413,6 +455,45 @@ async def main():
             if solana_enabled:
                 tasks.append(asyncio.create_task(run_solana_producer(), name="solana-producer"))
 
+            # 2.5. Secondary Market Scanner Producer Task
+            async def run_secondary_producer():
+                if not secondary_enabled: return
+                print(f"{Fore.BLUE}🔍 Secondary market scanner task started")
+                
+                while True:
+                    try:
+                        await asyncio.sleep(30)  # Scan every 30 seconds
+                        
+                        for chain_name, sec_scanner in secondary_scanners.items():
+                            if not sec_scanner.is_enabled():
+                                continue
+                                
+                            try:
+                                signals = await sec_scanner.scan_all_pairs()
+                                
+                                if signals:
+                                    print(f"{Fore.BLUE}🎯 [SECONDARY] {chain_name.upper()}: {len(signals)} breakout signals detected")
+                                    
+                                    for signal in signals:
+                                        # Add chain info and put in main queue for processing
+                                        signal['chain'] = chain_name
+                                        signal['signal_type'] = 'secondary_market'
+                                        await queue.put(signal)
+                                        
+                                        # Send secondary alert
+                                        if telegram.enabled:
+                                            telegram.send_secondary_alert(signal)
+                                                
+                            except Exception as e:
+                                print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
+                                
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
+                        await asyncio.sleep(30)
+
+            if secondary_enabled:
+                tasks.append(asyncio.create_task(run_secondary_producer(), name="secondary-producer"))
+
             # 3. Upgrade Monitor Task (Periodic)
             async def run_upgrade_monitor():
                 if not upgrade_integration.enabled: return
@@ -492,8 +573,27 @@ async def main():
                                                 solana_running.mark_alerted(token_address)
                                                 print(f"{Fore.MAGENTA}🏃 {sol_prefix} RUNNING ALERT SENT! Phase: {running_result.get('phase')}")
                                 
+                                print(f"{Fore.MAGENTA}🏃 {sol_prefix} RUNNING ALERT SENT! Phase: {running_result.get('phase')}")
+                                
                             except Exception as sol_token_e:
                                 print(f"{Fore.YELLOW}⚠️  [SOL] Token processing error: {sol_token_e}")
+                        
+                        # ================================================
+                        # SECONDARY MARKET PROCESSING
+                        # ================================================
+                        elif pair_data.get('signal_type') == 'secondary_market':
+                            try:
+                                signal = pair_data
+                                chain_name = signal.get('chain', 'unknown')
+                                chain_prefix = f"[{chain_name.upper()}]"
+                                
+                                print(f"{Fore.BLUE}🎯 {chain_prefix} Secondary signal: {signal.get('token_address', 'UNKNOWN')[:8]}... - {signal.get('state', 'UNKNOWN')}")
+                                
+                                # The signal has already been alerted in the producer task
+                                # Here we could add additional processing if needed
+                                
+                            except Exception as sec_e:
+                                print(f"{Fore.YELLOW}⚠️  [SECONDARY] Signal processing error: {sec_e}")
                                 
                         # ================================================
                         # EVM PROCESSING

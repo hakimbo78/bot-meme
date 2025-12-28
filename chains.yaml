@@ -130,6 +130,89 @@ chains:
       tier2_min_success: 0.50       # 50% win rate = good
       tier2_min_trades: 5
     
+    goplus_chain_id: "81457"
+    eth_price_usd: 3500
+  # SOLANA - Full Implementation (2025-12-27)
+  solana:
+    enabled: false
+    rpc_url: "https://mainnet.helius-rpc.com/?api-key=e06bc5e1-0e03-41e4-b354-2a78cbd121bc"
+    
+    # Program IDs
+    programs:
+      pumpfun: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+      raydium: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+      jupiter: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    
+    # ========== UPGRADE 2025-12-28: METADATA + LP DETECTION ==========
+    # Metadata Resolution (Metaplex)
+    metadata_cache_ttl: 1800  # 30 minutes cache
+    
+    # Raydium LP Detection + Validation
+    min_lp_sol: 10.0  # Minimum SOL liquidity required
+    
+    # State Machine + Sniper Arming
+    sniper_score_threshold: 70  # Score to arm sniper
+    safe_mode: true  # Enforce strict validation rules
+    
+    # HARD RULES (NON-NEGOTIABLE):
+    # - NO BUY without metadata resolved
+    # - NO BUY without LP detected & valid
+    # - NO BUY if LP < min_lp_sol
+    # - NO BUY if score < sniper_score_threshold
+    # - State machine enforces: DETECTED → METADATA_OK → LP_DETECTED → SNIPER_ARMED
+    
+    # ====== END UPGRADE ======
+    
+    # Alert thresholds
+    min_liquidity_usd: 20000
+    alert_thresholds:
+      INFO: 30
+      WATCH: 50
+      TRADE: 70
+    
+    # Debug Mode (Production Safe)
+    debug:
+      enabled: true
+      log_top_n: 3
+      log_interval_seconds: 30
+      show_score_breakdown: true
+    
+    # Sniper mode - HIGH RISK early detection
+    sniper:
+      enabled: true
+      max_age_seconds: 120        # 2 minutes
+      min_sol_inflow: 10          # 10 SOL minimum
+      min_buy_velocity: 15        # 15 buys/min
+      min_sniper_score: 70
+      cooldown_minutes: 30
+      max_alerts_per_hour: 10
+    
+    # Running mode - Post-launch momentum
+    running:
+      enabled: true
+      min_age_minutes: 30         # 30 min minimum
+      max_age_days: 14            # 14 days maximum
+      min_liquidity_usd: 50000    # $50k minimum
+      volume_spike_multiplier: 2.0
+      min_running_score: 60
+      cooldown_minutes: 60
+    
+    # Priority detector - TX priority signals
+    priority_detector:
+      enabled: true
+      compute_threshold: 200000     # 200k compute units
+      priority_fee_threshold: 10000  # 0.00001 SOL (lamports)
+      min_jito_tip: 10000           # Minimum Jito tip
+    
+    # Smart wallet detector - Track profitable wallets
+    smart_wallet_detector:
+      enabled: true
+      db_path: "data/smart_wallets.json"
+      tier1_min_success: 0.70       # 70% win rate = elite
+      tier1_min_trades: 10
+      tier2_min_success: 0.50       # 50% win rate = good
+      tier2_min_trades: 5
+    
     # Auto-upgrade engine - TRADE → SNIPER
     auto_upgrade:
       enabled: true
@@ -139,5 +222,13 @@ chains:
       base_weight: 1.0
       priority_weight: 1.0
       smart_wallet_weight: 1.0
+
+# Secondary Market Scanner Configuration
+secondary_scanner:
+  enabled: true
+  min_volume_5m: 10000
+  min_liquidity: 30000
+  min_holders: 100
+  min_risk_score: 70
 
 

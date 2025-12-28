@@ -450,9 +450,29 @@ def render_token_card(token: dict):
                     
                     source_html = f" | **Source:** {source_badge}" if source_badge else ""
                     
+                    # Secondary market badge
+                    secondary_badge = ""
+                    if token.get('signal_type') == 'secondary_market':
+                        secondary_badge = " | **Secondary**"
+                        # Add trigger icons
+                        triggers = token.get('triggers', {}).get('active_triggers', [])
+                        if triggers:
+                            trigger_icons = []
+                            for trigger in triggers:
+                                if trigger == 'volume_spike':
+                                    trigger_icons.append('📈')
+                                elif trigger == 'liquidity_growth':
+                                    trigger_icons.append('💰')
+                                elif trigger == 'price_breakout':
+                                    trigger_icons.append('🚀')
+                                elif trigger == 'holder_acceleration':
+                                    trigger_icons.append('👥')
+                            if trigger_icons:
+                                secondary_badge += f" {' '.join(trigger_icons)}"
+                    
                     st.markdown(f"""
                     **Address:** `{token.get('address', 'N/A')[:20]}...`  
-                    **Chain:** {token.get('chain', 'Unknown').upper()}{source_html}{dex_badge}  
+                    **Chain:** {token.get('chain', 'Unknown').upper()}{source_html}{dex_badge}{secondary_badge}  
                     **Mode:** <span class="mode-badge {mode}">{mode.upper()}</span>  
                     **Age:** {token.get('age_display', 'N/A')}  
                     **Alert Time:** {token.get('alert_time', 'N/A')}

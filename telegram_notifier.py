@@ -319,7 +319,100 @@ class TelegramNotifier:
             print(f"Telegram send error: {e}")
             return False
     
-    def send_alert(self, token_data, score_data):
+    async def send_secondary_alert_async(self, signal_data: dict):
+        """Send secondary market breakout alert to Telegram."""
+        if not self.enabled:
+            return False
+        
+        token_address = signal_data.get('token_address')
+        metrics = signal_data.get('metrics', {})
+        triggers = signal_data.get('triggers', {})
+        state = signal_data.get('state')
+        
+        # Get chain prefix
+        chain_name = signal_data.get('chain', 'UNKNOWN').upper()
+        chain_prefix = f"[{chain_name}]"
+        
+        # DEX info
+        dex_type = signal_data.get('dex_type', 'uniswap_v2')
+        dex_name = "Uniswap V3" if dex_type == "uniswap_v3" else "Uniswap V2"
+        
+        # Age calculation
+        age_minutes = metrics.get('token_age_minutes', 0)
+        if age_minutes < 60:
+            age_str = f"{age_minutes:.0f} min"
+        else:
+            age_hours = age_minutes / 60
+            age_str = f"{age_hours:.1f} hours"
+        
+        # Volume and changes
+        volume_5m = metrics.get('volume_5m', 0)
+        price_change_1h = metrics.get('price_change_1h', 0)
+        liquidity_now = metrics.get('liquidity_now', 0)
+        liquidity_delta = metrics.get('liquidity_delta_1h', 0)
+        holders_now = metrics.get('holders_now', 0)
+        holder_growth = metrics.get('holder_growth_rate', 0)
+        
+        # Triggers
+        active_triggers = triggers.get('active_triggers', [])
+        trigger_list = ', '.join(active_triggers) if active_triggers else 'None'
+        
+        # Momentum type
+        momentum_type = triggers.get('momentum_type', 'normal')
+        
+        # Risk score (placeholder - would come from main scorer)
+        risk_score = triggers.get('risk_score_threshold', 70)
+        
+        # State
+        state_str = state.value.upper() if hasattr(state, 'value') else str(state).upper()
+        
+        message = f"""🚀 *SECONDARY MARKET BREAKOUT*
+
+*Token:* `{signal_data.get('token_symbol', 'UNKNOWN')}`
+*Chain:* {chain_name}
+*DEX:* {dex_name}
+*Age:* {age_str}
+*Volume 5m:* ${volume_5m:,.0f} (+{price_change_1h:.1f}%)
+*Liquidity:* ${liquidity_now:,.0f} (+{liquidity_delta:.1f}%)
+*Holders:* {holders_now:.0f} (+{holder_growth:.1f}/min)
+*Triggers:* {trigger_list}
+*Momentum:* {momentum_type}
+*Risk Score:* {risk_score}
+
+*Status:* {state_str}
+
+⚠️ _Secondary market signal. Monitor closely._"""
+        
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=message,
+                parse_mode='Markdown'
+            )
+            return True
+        except TelegramError as e:
+            print(f"Telegram secondary alert error: {e}")
+            return False
+    
+    def send_secondary_alert(self, signal_data: dict):
+        """Sync wrapper for secondary market alerts."""
+        if not self.enabled:
+            return False
+            
+        try:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            
+            if loop and loop.is_running():
+                loop.create_task(self.send_secondary_alert_async(signal_data))
+                return True
+            else:
+                return asyncio.run(self.send_secondary_alert_async(signal_data))
+        except Exception as e:
+            print(f"Error sending secondary alert: {e}")
+            return False
         """
         Wrapper for send_alert_async.
         Handles both sync and async contexts (though usually called from async context now).
