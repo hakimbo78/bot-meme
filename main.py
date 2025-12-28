@@ -303,6 +303,9 @@ async def main():
         
         if SECONDARY_MODULE_AVAILABLE:
             try:
+                # Get global secondary scanner config
+                secondary_config = CHAIN_CONFIGS.get('secondary_scanner', {})
+                
                 # Initialize secondary scanner for each enabled EVM chain
                 secondary_scanners = {}
                 for chain_name in evm_chains:
@@ -311,9 +314,16 @@ async def main():
                         # Get web3 provider from adapter
                         adapter = scanner.get_adapter(chain_name)
                         if adapter and hasattr(adapter, 'web3'):
+                            # Merge chain config with global secondary config
+                            full_config = {
+                                **chain_config, 
+                                'chain_name': chain_name,
+                                'secondary_scanner': secondary_config
+                            }
+                            
                             sec_scanner = SecondaryScanner(
                                 adapter.web3, 
-                                {**chain_config, 'chain_name': chain_name}
+                                full_config
                             )
                             
                             # Discover and add pairs to monitor
