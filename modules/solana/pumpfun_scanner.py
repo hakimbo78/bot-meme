@@ -327,6 +327,10 @@ class PumpfunScanner:
             
             solana_log(f"TX {signature[:8]}... | Creation={is_creation_check}, Buy={is_buy_check}, Meta={metadata_status}", "DEBUG")
             
+            # CRITICAL: We got these signatures from getSignaturesForAddress(PUMPFUN_PROGRAM_ID)
+            # So they're DEFINITELY Pump.fun transactions - no need to verify program
+            # Just extract token data directly
+            
             if is_creation_check or (meta is None):
                 res = self._extract_token_creation(tx_data, meta, signature)
                 if res: 
@@ -336,7 +340,9 @@ class PumpfunScanner:
                     solana_log(f"✅ Creation: {res.get('symbol')} ({signature[:8]})", "DEBUG")
                     return res
                 else:
-                    solana_log(f"❌ Creation extraction failed for {signature[:8]}... (meta={metadata_status})", "DEBUG")
+                    # For Pump.fun transactions, we should always try to extract
+                    # If extraction fails, log why
+                    solana_log(f"❌ Creation extraction failed for {signature[:8]}... - likely not a token creation", "DEBUG")
                 
             if is_buy_check:
                 res = self._extract_buy_event(tx_data, meta, signature)
@@ -476,48 +482,14 @@ class PumpfunScanner:
         return None
     
     def _is_token_creation(self, tx_data, meta) -> bool:
-        """Check if transaction is a token creation - works with or without metadata."""
-        try:
-            # Method 1: Check logs if available
-            logs = []
-            if isinstance(meta, dict):
-                logs = meta.get('logMessages', [])
-            else:
-                logs = getattr(meta, 'log_messages', []) if meta else []
-            
-            if logs:
-                for log in logs:
-                    if 'Create' in log and self.program_id in log:
-                        return True
-                    if 'InitializeMint' in log:
-                        return True
-            
-            # Method 2: Fallback - check if this transaction touches Pump.fun program
-            # (if no logs, assume it might be a creation based on program interaction)
-            if not logs and meta is None:
-                # When no metadata, check tx_data for pumpfun program
-                instructions = []
-                if isinstance(tx_data, dict):
-                    msg = tx_data.get('message', {})
-                    instructions = msg.get('instructions', [])
-                else:
-                    msg = getattr(tx_data, 'message', None)
-                    instructions = getattr(msg, 'instructions', []) if msg else []
-                
-                # If transaction calls pumpfun program, assume it could be creation
-                # (more aggressive detection without metadata)
-                for instr in instructions:
-                    if isinstance(instr, dict):
-                        program_id = instr.get('programId')
-                    else:
-                        program_id = getattr(instr, 'program_id', None)
-                    
-                    if program_id and str(program_id) == self.program_id:
-                        return True  # Pumpfun program called - likely creation
-                
-        except Exception:
-            pass
-        return False
+        """
+        Check if transaction is a token creation.
+        
+        NOTE: We've already filtered by Pump.fun program via getSignaturesForAddress,
+        so ANY transaction here is on Pump.fun. Just attempt extraction.
+        """
+        # Always return True - let _extract_token_creation handle the actual logic
+        return True
     
     def _is_buy_transaction(self, tx_data, meta) -> bool:
         """Check if transaction is a buy (SOL in, tokens out)."""
