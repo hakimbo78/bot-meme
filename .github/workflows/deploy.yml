@@ -45,20 +45,27 @@ jobs:
             git remote add origin $REPO
             git branch -M main
             git pull origin main
+            FIRST_DEPLOY=true
           else
             echo "🔄 Pulling latest code..."
             cd $VPS_PATH
             git pull origin main
+            FIRST_DEPLOY=false
           fi
           
-          # Install/update dependencies
           cd $VPS_PATH
-          if [ ! -d ".venv" ]; then
-            echo "📦 Creating venv..."
-            python3 -m venv .venv
+          
+          # Install/update dependencies only if requirements changed or first deploy
+          if [ "$FIRST_DEPLOY" = true ] || git diff HEAD~1 requirements.txt | grep -q .; then
+            echo "📥 Installing/updating packages..."
+            if [ ! -d ".venv" ]; then
+              python3 -m venv .venv
+            fi
+            .venv/bin/pip install -q -r requirements.txt
+            echo "✅ Packages installed"
+          else
+            echo "⏭️  requirements.txt unchanged, skipping pip install"
           fi
-          echo "📥 Installing packages..."
-          .venv/bin/pip install -q -r requirements.txt
           
           # Restart service
           echo "🚀 Restarting meme-bot service..."
