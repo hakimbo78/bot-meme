@@ -169,7 +169,8 @@ class MetadataResolver:
         try:
             # Step 1: Get mint account info
             rate_limit_rpc()
-            mint_info = self.client.get_account_info(mint)
+            mint_pubkey = PublicKey(mint)  # Convert string to PublicKey
+            mint_info = self.client.get_account_info(mint_pubkey)
             
             if not mint_info.value or not mint_info.value.data:
                 return None
@@ -184,7 +185,8 @@ class MetadataResolver:
             
             # Step 3: Get metadata account
             rate_limit_rpc()
-            metadata_info = self.client.get_account_info(metadata_pda)
+            metadata_pubkey = PublicKey(metadata_pda)  # Convert to PublicKey
+            metadata_info = self.client.get_account_info(metadata_pubkey)
             
             if not metadata_info.value or not metadata_info.value.data:
                 return None
