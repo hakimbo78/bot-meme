@@ -132,16 +132,16 @@ class SecondaryScanner:
                     if not pair_created_sig:
                         continue
                     
-                    # Set topics based on dex type
+                    # Set topics based on dex type (must be array for eth_getLogs)
                     if dex_type == 'uniswap_v2':
-                        topics = pair_created_sig  # Single topic as string
+                        topics = [pair_created_sig]  # Array with single topic
                     elif dex_type == 'uniswap_v3':
-                        topics = pair_created_sig  # Single topic as string, fee from data
+                        topics = [pair_created_sig]  # Array with single topic
                     else:
                         continue
                     
-                    # Enforce topics string guard
-                    assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
+                    # Enforce topics array guard
+                    assert isinstance(topics, list), f"Topics must be list, got {type(topics)}"
                     assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
                     
                     # Build valid eth_getLogs payload
@@ -280,9 +280,9 @@ class SecondaryScanner:
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
 
-            # Enforce topics string
-            topics = signature
-            assert isinstance(topics, str)
+            # Enforce topics array (must be array for eth_getLogs)
+            topics = [signature]
+            assert isinstance(topics, list)
             assert isinstance(from_block, int)
 
             # Build valid payload
