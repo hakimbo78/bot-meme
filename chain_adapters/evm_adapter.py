@@ -205,7 +205,7 @@ class EVMAdapter(ChainAdapter):
             
             # If fast forwarding or startup, scan more blocks to catch up
             if self.last_block == 0:
-                self.last_block = max(0, current_block - 100)  # Scan last 100 blocks on startup
+                self.last_block = max(0, current_block - 500)  # Scan last 500 blocks on startup
             
             # 2. Slice blocks (Max 5 blocks per scan)
             # We want to scan forward from last_block
@@ -213,8 +213,8 @@ class EVMAdapter(ChainAdapter):
             if start_block > current_block:
                 return new_pairs
                 
-            # Limit range to 50 blocks per scan (more aggressive for active chains)
-            end_block = min(current_block, start_block + 49) # Inclusive range [start, start+49] = 50 blocks
+            # Limit range to 200 blocks per scan (increased for low-activity chains like BASE/ETH)
+            end_block = min(current_block, start_block + 199) # Inclusive range [start, start+199] = 200 blocks
             
             # Yield to event loop
             await asyncio.sleep(0)
