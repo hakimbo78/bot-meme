@@ -98,8 +98,8 @@ class SecondaryScanner:
                     continue
                     
                 try:
-                    # Use lowercase address for RPC compatibility
-                    factory_address = factory_address.lower()
+                    # Checksum the factory address
+                    factory_address = Web3.to_checksum_address(factory_address)
                     
                     # Get recent blocks (last 10 blocks ~ 3 minutes)
                     latest_block = self.web3.eth.block_number
