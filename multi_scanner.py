@@ -145,24 +145,34 @@ class MultiChainScanner:
                 await asyncio.sleep(5)
 
     async def _health_monitor(self):
-        """Monitor chain heartbeats and flag stalls"""
-        print("❤️  Health monitor active")
+        """Monitor chain heartbeats and flag stalls - CU-AWARE"""
+        print("❤️  Health monitor active (CU-optimized)")
         while self.is_running:
-            await asyncio.sleep(10) # Check every 10s
+            await asyncio.sleep(30) # Check every 30s (less frequent for CU optimization)
             
             now = time.time()
             for chain_name, last_beat in self.heartbeats.items():
                 diff = now - last_beat
-                if diff > 30:
-                    msg = f"CHAIN STALLED: No activity for {int(diff)}s"
+                
+                # Get chain-specific scan interval for stall threshold
+                scan_interval = self.chain_configs.get(chain_name, {}).get('scan_interval', 30)
+                stall_threshold = scan_interval + 30  # Allow scan_interval + 30s buffer
+                
+                if diff > stall_threshold:
+                    msg = f"CHAIN STALLED: No activity for {int(diff)}s (expected every {scan_interval}s)"
                     print(f"🔴 [{chain_name.upper()}] {msg}")
                     
                     if self.error_monitor:
-                     await self.error_monitor.send_error_alert(
-                            error_type="CHAIN_STALLED",
-                            error_message=msg,
-                            chain=chain_name
-                        )
+                        try:
+                            # Clean message for Telegram (avoid special chars that might break parsing)
+                            clean_msg = f"No activity for {int(diff)}s, expected every {scan_interval}s"
+                            await self.error_monitor.send_error_alert(
+                                error_type="CHAIN_STALLED",
+                                error_message=clean_msg,
+                                chain=chain_name
+                            )
+                        except Exception as e:
+                            print(f"⚠️  Failed to send error alert: {e}")
     
     def get_adapter(self, chain_name: str):
         """Get adapter for a specific chain"""
