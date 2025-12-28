@@ -48,7 +48,8 @@ jobs:
 
       - name: Smoke test SSH connectivity (verbose)
         run: |
-          ssh -vvv -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "echo 'ssh ok'" 2>&1 | head -50
+          echo "Testing SSH with explicit key..."
+          ssh -vvv -i ~/.ssh/id_rsa -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts ${VPS_USER}@${VPS_HOST} "whoami" 2>&1 | grep -E "(Offering|debug|permission|SUCCESS|authenticated)"
 
       - name: Sync files to VPS
         run: |
