@@ -32,6 +32,16 @@ class SecondaryScanner:
         self.max_pairs_per_scan = 100
         self.min_liquidity_threshold = chain_config.get('secondary_scanner', {}).get('min_liquidity', 50000)
 
+        # Block range configuration (6 hours worth)
+        self.lookback_blocks = {
+            'ethereum': 1800,  # ~6 hours at 12s blocks
+            'base': 3000,      # ~6 hours at 7.2s blocks
+        }.get(self.chain_name, 1800)
+
+        # Status tracking
+        self.secondary_status = "ACTIVE"
+        self.last_scanned_block = {}  # {dex_type: last_block}
+
         # Known pairs to monitor: {pair_address: {'token_address': str, 'dex_type': str, 'last_scan': float}}
         self.monitored_pairs = {}
 
@@ -82,6 +92,12 @@ class SecondaryScanner:
         """Check if secondary scanner is enabled"""
         return self.config.get('secondary_scanner', {}).get('enabled', False)
 
+    def resolve_secondary_block_range(self, lookback_blocks: int):
+        """Resolve block range for secondary scanning"""
+        latest = self.web3.eth.block_number
+        from_block = max(latest - lookback_blocks, 0)
+        return from_block, latest
+
     def discover_pairs(self) -> List[Dict]:
         """
         Discover existing pairs to monitor by scanning recent PairCreated events.
@@ -101,9 +117,15 @@ class SecondaryScanner:
                     # Checksum the factory address
                     factory_address = Web3.to_checksum_address(factory_address)
                     
-                    # Get recent blocks (last 10 blocks ~ 3 minutes)
-                    latest_block = self.web3.eth.block_number
-                    from_block = max(1, latest_block - 10)
+                    # Resolve block range using configured lookback
+                    from_block, latest_block = self.resolve_secondary_block_range(self.lookback_blocks)
+                    
+                    # Use cached last scanned block to avoid re-scanning
+                    last_scanned = self.last_scanned_block.get(dex_type, 0)
+                    from_block = max(from_block, last_scanned + 1)
+                    
+                    if from_block >= latest_block:
+                        continue  # No new blocks to scan
                     
                     # PairCreated/PoolCreated event signature
                     pair_created_sig = self.pair_created_sigs.get(dex_type)
@@ -114,19 +136,43 @@ class SecondaryScanner:
                     if dex_type == 'uniswap_v2':
                         topics = [pair_created_sig, None, None]
                     elif dex_type == 'uniswap_v3':
-                        topics = [pair_created_sig, None, None, None]
+                        topics = [pair_created_sig]  # Just the signature, fee from data
                     else:
                         continue
                     
-                    # Query PairCreated/PoolCreated events
-                    logs = self.web3.eth.get_logs({
+                    # Enforce topics array guard
+                    if not isinstance(topics, list):
+                        topics = [topics]
+                    assert isinstance(topics, list), f"Topics must be list, got {type(topics)}"
+                    assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
+                    
+                    # Build valid eth_getLogs payload
+                    payload = {
                         'address': factory_address,
                         'topics': topics,
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
-                    })
+                    }
                     
-                    print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last 10 blocks")
+                    try:
+                        # Query PairCreated/PoolCreated events
+                        logs = self.web3.eth.get_logs(payload)
+                        
+                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
+                        
+                        # Update last scanned block
+                        self.last_scanned_block[dex_type] = latest_block
+                        
+                    except Exception as e:
+                        # Handle RPC payload errors
+                        if hasattr(e, 'args') and len(e.args) > 0:
+                            error_data = e.args[0]
+                            if isinstance(error_data, dict) and error_data.get('code') == -32602:
+                                print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {payload}")
+                                self.secondary_status = "DEGRADED"
+                                continue
+                        # Re-raise other errors
+                        raise e
                     
                     # Process last 100 pairs (most recent)
                     for log in logs[-100:]:
@@ -195,7 +241,11 @@ class SecondaryScanner:
             unique_pairs.sort(key=lambda x: x['block_number'], reverse=True)
             final_pairs = unique_pairs[:50]
             
-            print(f"✅ [SECONDARY] {self.chain_name.upper()}: Monitoring {len(final_pairs)} pairs")
+            if final_pairs:
+                self.secondary_status = "ACTIVE"
+                print(f"✅ [SECONDARY] {self.chain_name.upper()}: Monitoring {len(final_pairs)} pairs")
+            else:
+                print(f"⚠️  [SECONDARY] {self.chain_name.upper()}: No pairs found")
             
             return final_pairs
             
@@ -232,13 +282,32 @@ class SecondaryScanner:
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
 
-            # Query events
-            logs = self.web3.eth.get_logs({
+            # Enforce topics array
+            topics = [signature]
+            if not isinstance(topics, list):
+                topics = [topics]
+            assert isinstance(topics, list)
+            assert isinstance(from_block, int)
+
+            # Build valid payload
+            payload = {
                 'address': pair_address,
-                'topics': [signature],
+                'topics': topics,
                 'fromBlock': hex(from_block),
                 'toBlock': hex(latest_block)
-            })
+            }
+
+            try:
+                # Query events
+                logs = self.web3.eth.get_logs(payload)
+            except Exception as e:
+                if hasattr(e, 'args') and len(e.args) > 0:
+                    error_data = e.args[0]
+                    if isinstance(error_data, dict) and error_data.get('code') == -32602:
+                        print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {payload}")
+                        self.secondary_status = "DEGRADED"
+                        return []
+                raise e
 
             events = []
             for log in logs:
@@ -397,5 +466,7 @@ class SecondaryScanner:
         return {
             'monitored_pairs': len(self.monitored_pairs),
             'state_stats': self.state_manager.get_stats(),
-            'chain': self.chain_name
+            'chain': self.chain_name,
+            'status': self.secondary_status,
+            'last_scanned_blocks': self.last_scanned_block
         }
