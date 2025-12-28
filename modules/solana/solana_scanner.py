@@ -8,9 +8,16 @@ Coordinates all Solana sub-scanners:
 
 Produces unified token events for scoring and alerting.
 
+UPGRADE: With metadata resolution and LP detection:
+- Token metadata resolved via Metaplex
+- Raydium LP detection + validation
+- Auto state machine: DETECTED → METADATA_OK → LP_DETECTED → SNIPER_ARMED
+- Safe mode: No blind buys without LP + metadata
+
 CRITICAL: READ-ONLY - No execution, no wallets
 """
 import time
+import asyncio
 from typing import Dict, List, Optional
 
 from .solana_utils import (
@@ -21,6 +28,9 @@ from .solana_utils import (
 from .pumpfun_scanner import PumpfunScanner
 from .raydium_scanner import RaydiumScanner
 from .jupiter_scanner import JupiterScanner
+from .metadata_resolver import MetadataResolver
+from .raydium_lp_detector import RaydiumLPDetector
+from .token_state import TokenStateMachine, TokenState
 
 
 class SolanaScanner:
@@ -51,6 +61,30 @@ class SolanaScanner:
         self.raydium = RaydiumScanner(config)
         self.jupiter = JupiterScanner(config)
         
+        # ====== NEW: Metadata Resolution & LP Detection ======
+        # Metadata resolver
+        metadata_cache_ttl = self.config.get('metadata_cache_ttl', 1800)
+        self.metadata_resolver = MetadataResolver(
+            client=self.client,
+            cache_ttl=metadata_cache_ttl
+        )
+        
+        # Raydium LP detector
+        min_lp_sol = self.config.get('min_lp_sol', 10.0)
+        self.lp_detector = RaydiumLPDetector(
+            client=self.client,
+            min_liquidity_sol=min_lp_sol
+        )
+        
+        # Token state machine
+        sniper_score_threshold = self.config.get('sniper_score_threshold', 70)
+        safe_mode = self.config.get('safe_mode', True)
+        self.state_machine = TokenStateMachine(
+            min_lp_sol=min_lp_sol,
+            sniper_score_threshold=sniper_score_threshold,
+            safe_mode=safe_mode
+        )
+        
         # State
         self._connected = False
         self._last_scan_time = 0
@@ -76,10 +110,14 @@ class SolanaScanner:
         raydium_ok = self.raydium.connect(self.client)
         jupiter_ok = self.jupiter.connect(self.client)
         
+        # Connect metadata resolver and LP detector
+        self.metadata_resolver.set_client(self.client)
+        self.lp_detector.set_client(self.client)
+        
         self._connected = pumpfun_ok  # Pump.fun is required
         
         if self._connected:
-            solana_log(f"✅ Connected to Solana (Pump.fun: {pumpfun_ok}, Raydium: {raydium_ok}, Jupiter: {jupiter_ok})")
+            solana_log(f"✅ Connected to Solana (Pump.fun: {pumpfun_ok}, Raydium: {raydium_ok}, Jupiter: {jupiter_ok}, Metadata: OK, LP Detector: OK)")
         else:
             solana_log("Failed to connect Pump.fun scanner", "ERROR")
         
@@ -158,6 +196,8 @@ class SolanaScanner:
         """
         Create unified token event from Pump.fun data.
         
+        NOW WITH METADATA RESOLUTION + STATE MACHINE!
+        
         Args:
             pumpfun_token: Token data from Pump.fun scanner
             
@@ -171,6 +211,10 @@ class SolanaScanner:
         # Get additional data from other scanners
         raydium_data = self.raydium.get_liquidity_data(token_address)
         jupiter_data = self.jupiter.get_momentum_data(token_address)
+        
+        # Get or create state record
+        symbol = pumpfun_token.get('symbol', '???')
+        state_record = self.state_machine.create_token(token_address, symbol)
         
         # Build unified event
         unified = {
@@ -207,6 +251,13 @@ class SolanaScanner:
             'jupiter_volume_24h': jupiter_data.get('volume_24h_usd', 0),
             'routing_trend': jupiter_data.get('routing_trend', 'unknown'),
             'jupiter_active': jupiter_data.get('is_active', False),
+            
+            # ====== NEW: Metadata + State Machine ======
+            'state': state_record.current_state.value,
+            'metadata_resolved': state_record.metadata_resolved,
+            'lp_detected': state_record.lp_detected,
+            'lp_valid': state_record.lp_valid,
+            'token_state_record': state_record.to_dict(),
             
             # Computed fields
             'timestamp': time.time()
@@ -296,5 +347,124 @@ class SolanaScanner:
             "cached_tokens": len(self._token_cache),
             "pumpfun": self.pumpfun.get_stats(),
             "raydium": self.raydium.get_stats(),
-            "jupiter": self.jupiter.get_stats()
+            "jupiter": self.jupiter.get_stats(),
+            "metadata_resolver": self.metadata_resolver.get_cache_stats(),
+            "lp_detector": self.lp_detector.get_cache_stats(),
+            "state_machine": self.state_machine.get_stats()
         }
+    
+    async def resolve_token_metadata(self, token_mint: str) -> Optional[Dict]:
+        """
+        Resolve token metadata via Metaplex.
+        
+        ASYNC method for resolving metadata.
+        Automatically updates state machine.
+        
+        Args:
+            token_mint: Token mint address
+            
+        Returns:
+            Metadata dict or None
+        """
+        if not is_valid_solana_address(token_mint):
+            return None
+        
+        # Resolve metadata
+        metadata = await self.metadata_resolver.resolve(token_mint)
+        
+        if metadata:
+            # Update state machine
+            state_record = self.state_machine.set_metadata(
+                mint=token_mint,
+                name=metadata.name,
+                symbol=metadata.symbol,
+                decimals=metadata.decimals,
+                supply=metadata.supply
+            )
+            return metadata.to_dict()
+        
+        return None
+    
+    async def detect_token_lp(
+        self,
+        token_mint: str,
+        txid: Optional[str] = None
+    ) -> Optional[Dict]:
+        """
+        Detect Raydium LP for a token.
+        
+        ASYNC method for LP detection.
+        Automatically updates state machine.
+        
+        Args:
+            token_mint: Token mint address
+            txid: Optional transaction to scan for LP
+            
+        Returns:
+            LP info dict or None if not found/valid
+        """
+        if not is_valid_solana_address(token_mint):
+            return None
+        
+        # Detect LP
+        if txid:
+            lp_info = await self.lp_detector.detect_from_transaction(txid, token_mint)
+        else:
+            lp_info = await self.lp_detector.detect_for_token(token_mint)
+        
+        if lp_info:
+            # Update state machine
+            state_record = self.state_machine.set_lp_detected(
+                mint=token_mint,
+                pool_address=lp_info.pool_address,
+                base_liquidity=lp_info.base_liquidity,
+                quote_liquidity=lp_info.quote_liquidity,
+                quote_liquidity_usd=lp_info.quote_liquidity_usd,
+                lp_mint=lp_info.lp_mint
+            )
+            
+            return lp_info.to_dict() if state_record and state_record.lp_valid else None
+        
+        return None
+    
+    def update_token_score(self, token_mint: str, score: float) -> Optional[Dict]:
+        """
+        Update token score and check if ready for sniper.
+        
+        Args:
+            token_mint: Token mint address
+            score: New score
+            
+        Returns:
+            Updated state record or None
+        """
+        state_record = self.state_machine.update_score(token_mint, score)
+        
+        if state_record:
+            return state_record.to_dict()
+        
+        return None
+    
+    def can_execute_sniper(self, token_mint: str) -> tuple:
+        """
+        Check if token is ready for sniper execution.
+        
+        Args:
+            token_mint: Token mint address
+            
+        Returns:
+            (can_execute, reason) tuple
+        """
+        return self.state_machine.can_execute(token_mint)
+    
+    def get_armed_tokens(self) -> List[Dict]:
+        """
+        Get all tokens ready for sniper execution.
+        
+        Returns:
+            List of armed token state records
+        """
+        return [
+            record.to_dict()
+            for record in self.state_machine.get_armed_tokens()
+        ]

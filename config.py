@@ -151,6 +151,34 @@ SMART_WALLET_CONFIG = {
 }
 
 # ================================================
+# SOLANA SNIPER UPGRADE (METADATA + LP + STATE MACHINE)
+# ================================================
+SOLANA_SNIPER_CONFIG = {
+    # ====== METADATA RESOLUTION ======
+    'metadata_cache_ttl': 1800,  # 30 minutes
+    
+    # ====== LIQUIDITY POOL DETECTION ======
+    'min_lp_sol': 10.0,  # Minimum SOL liquidity for LP validation
+    
+    # ====== STATE MACHINE + EXECUTION ======
+    'sniper_score_threshold': 70,  # Minimum score to arm sniper
+    'safe_mode': True,  # Enforce strict validation (no blind buys)
+    
+    # ====== RULES (NON-NEGOTIABLE) ======
+    # These are hardcoded in state machine:
+    # - NO BUY without metadata resolved
+    # - NO BUY without LP detected
+    # - NO BUY if LP < min_lp_sol
+    # - NO BUY if score < sniper_score_threshold
+    # 
+    # Log format:
+    # [SOLANA][META] Resolved token DOGEAI (DGAI) decimals=9 supply=1B
+    # [SOLANA][LP] Raydium LP detected | SOL=12.4 | LP=OK
+    # [SOLANA][STATE] DOGEAI → SNIPER_ARMED
+    # [SOLANA][SNIPER] BUY EXECUTED | amount=0.5 SOL
+}
+
+# ================================================
 # AUTO-UPGRADE ENGINE (TRADE → SNIPER)
 # ================================================
 AUTO_UPGRADE_ENGINE_CONFIG = {

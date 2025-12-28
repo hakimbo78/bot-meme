@@ -56,6 +56,26 @@ chains:
       raydium: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
       jupiter: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
     
+    # ========== UPGRADE 2025-12-28: METADATA + LP DETECTION ==========
+    # Metadata Resolution (Metaplex)
+    metadata_cache_ttl: 1800  # 30 minutes cache
+    
+    # Raydium LP Detection + Validation
+    min_lp_sol: 10.0  # Minimum SOL liquidity required
+    
+    # State Machine + Sniper Arming
+    sniper_score_threshold: 70  # Score to arm sniper
+    safe_mode: true  # Enforce strict validation rules
+    
+    # HARD RULES (NON-NEGOTIABLE):
+    # - NO BUY without metadata resolved
+    # - NO BUY without LP detected & valid
+    # - NO BUY if LP < min_lp_sol
+    # - NO BUY if score < sniper_score_threshold
+    # - State machine enforces: DETECTED → METADATA_OK → LP_DETECTED → SNIPER_ARMED
+    
+    # ====== END UPGRADE ======
+    
     # Alert thresholds
     min_liquidity_usd: 20000
     alert_thresholds:
