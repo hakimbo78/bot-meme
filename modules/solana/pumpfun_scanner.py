@@ -529,13 +529,37 @@ class PumpfunScanner:
                 message = tx_data.get('message', {})
                 account_keys = message.get('accountKeys', [])
             else:
-                # Object format - has message attribute
-                message = getattr(tx_data, 'message', None)
+                # Object format - inspect actual structure
+                # Log all attributes to understand structure
+                all_attrs = dir(tx_data)
+                data_attrs = [a for a in all_attrs if not a.startswith('_')]
+                solana_log(f"TX {signature[:8]}... object attrs (first 10): {data_attrs[:10]}", "DEBUG")
+                
+                # Try multiple possible paths for message
+                message = None
+                
+                # Path 1: Direct message attribute
+                if hasattr(tx_data, 'message'):
+                    message = getattr(tx_data, 'message', None)
+                    solana_log(f"TX {signature[:8]}... found .message attribute", "DEBUG")
+                
+                # Path 2: Check if tx_data itself is the message
+                if not message and hasattr(tx_data, 'account_keys'):
+                    message = tx_data
+                    solana_log(f"TX {signature[:8]}... tx_data itself has account_keys", "DEBUG")
+                
+                # Path 3: Inspect value if it exists
+                if not message and hasattr(tx_data, 'value'):
+                    value = getattr(tx_data, 'value', None)
+                    if hasattr(value, 'message'):
+                        message = value.message
+                        solana_log(f"TX {signature[:8]}... found message in .value.message", "DEBUG")
+                
                 if message:
                     account_keys = getattr(message, 'account_keys', [])
                     solana_log(f"TX {signature[:8]}... found message with {len(account_keys)} accounts", "DEBUG")
                 else:
-                    solana_log(f"TX {signature[:8]}... no message attribute", "DEBUG")
+                    solana_log(f"TX {signature[:8]}... could not find message in any path", "DEBUG")
             
             if not account_keys:
                 solana_log(f"TX {signature[:8]}... no account_keys found", "DEBUG")
