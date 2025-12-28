@@ -267,7 +267,6 @@ class PumpfunScanner:
                 return self.client.get_transaction(
                     sig_obj,
                     encoding="jsonParsed",
-                    max_supported_transaction_version=0,
                     commitment=Finalized
                 )
             
@@ -335,7 +334,7 @@ class PumpfunScanner:
                 solana_log(f"TX {signature[:8]}... tx object is None", "DEBUG")
                 return None
             
-            # Check for dict vs object (Alchemy can vary)
+            # Extract meta and tx_data
             if isinstance(tx, dict):
                 meta = tx.get('meta')
                 tx_data = tx.get('transaction')
@@ -345,7 +344,7 @@ class PumpfunScanner:
                 solana_log(f"TX {signature[:8]}... Object type: {type(tx)}", "DEBUG")
                 solana_log(f"TX {signature[:8]}... Object attributes: {dir(tx)}", "DEBUG")
                 meta = tx.meta if hasattr(tx, 'meta') else None
-                tx_data = tx.transaction if hasattr(tx, 'transaction') else tx
+                tx_data = tx
                 solana_log(f"TX {signature[:8]}... Object format, has meta: {meta is not None}", "DEBUG")
             
             # Metadata may be missing on very early transactions; continue with missing status
