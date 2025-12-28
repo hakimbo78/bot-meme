@@ -134,7 +134,7 @@ class SecondaryScanner:
                     
                     # Set topics based on dex type
                     if dex_type == 'uniswap_v2':
-                        topics = [pair_created_sig, None, None]
+                        topics = [pair_created_sig]  # Just the signature for filtering
                     elif dex_type == 'uniswap_v3':
                         topics = [pair_created_sig]  # Just the signature, fee from data
                     else:
