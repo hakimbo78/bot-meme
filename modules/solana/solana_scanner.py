@@ -121,11 +121,11 @@ class SolanaScanner:
 
         try:
             # Monitor Raydium program for recent LP creation transactions
-            lp_events = await self._monitor_raydium_lp_events()
+            lp_events = self._monitor_raydium_lp_events()
             events.extend(lp_events)
 
             # Monitor Pump.fun for new token creations
-            pump_events = await self._monitor_pumpfun_tokens()
+            pump_events = self._monitor_pumpfun_tokens()
             events.extend(pump_events)
 
             if events:
@@ -140,56 +140,14 @@ class SolanaScanner:
         """
         Monitor Raydium AMM program for recent LP creation transactions.
 
-        Uses getConfirmedSignaturesForAddress to find recent transactions
-        and parse them for LP creation events.
+        Placeholder - LP detection happens via instruction parsing when transactions are fed to parse_transaction().
 
         Returns:
-            List of LP creation events
+            Empty list (monitoring disabled for now)
         """
-        import aiohttp
-        import json
-
-        events = []
-        raydium_program_id = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
-
-        try:
-            # Get recent confirmed signatures for Raydium program
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getConfirmedSignaturesForAddress",
-                "params": [
-                    raydium_program_id,
-                    {
-                        "limit": 10,  # Check last 10 transactions
-                        "commitment": "confirmed"
-                    }
-                ]
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.rpc_url,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=10.0)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        signatures = data.get('result', [])
-
-                        # Parse each transaction for LP events
-                        for sig_info in signatures:
-                            signature = sig_info.get('signature')
-                            if signature:
-                                # Parse this transaction for LP events
-                                event = await self.parse_transaction(signature)
-                                if event and 'base_mint' in event:
-                                    events.append(event)
-
-        except Exception as e:
-            solana_log(f"Error monitoring Raydium LP events: {e}", "ERROR")
-
-        return events
+        # LP detection via instruction parsing happens in RawSolanaParser.parse_transaction()
+        # when transactions are provided externally
+        return []
 
     def _monitor_pumpfun_tokens(self) -> List[Dict]:
         """
