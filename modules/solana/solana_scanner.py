@@ -163,7 +163,18 @@ class SolanaScanner:
             
             response = requests.post(self.rpc_url, json=payload, timeout=10)
             response.raise_for_status()
-            recent_blockhash = response.json()['result']['value']['blockhash']
+            
+            json_response = response.json()
+            if 'error' in json_response:
+                solana_log(f"Raydium blockhash RPC error: {json_response['error']}", "ERROR")
+                return []
+            
+            result = json_response.get('result', {})
+            value = result.get('value', {})
+            recent_blockhash = value.get('blockhash')
+            if not recent_blockhash:
+                solana_log("Raydium: Failed to get recent blockhash", "ERROR")
+                return []
             
             # Use getSignaturesForAddress instead of getProgramAccounts (lighter)
             payload = {
@@ -182,7 +193,17 @@ class SolanaScanner:
             response = requests.post(self.rpc_url, json=payload, timeout=15)
             response.raise_for_status()
             
-            signatures = response.json().get('result', [])
+            try:
+                json_response = response.json()
+            except ValueError as e:
+                solana_log(f"Raydium: Invalid JSON response: {e}", "ERROR")
+                return []
+            
+            if 'error' in json_response:
+                solana_log(f"Raydium RPC error: {json_response['error']}", "ERROR")
+                return []
+            
+            signatures = json_response.get('result', [])
             solana_log(f"[RAYDIUM] Found {len(signatures)} recent signatures", "INFO")
             
             # For now, return empty - LP detection via transaction parsing
@@ -220,7 +241,18 @@ class SolanaScanner:
             
             response = requests.post(self.rpc_url, json=payload, timeout=10)
             response.raise_for_status()
-            recent_blockhash = response.json()['result']['value']['blockhash']
+            
+            json_response = response.json()
+            if 'error' in json_response:
+                solana_log(f"Pump.fun blockhash RPC error: {json_response['error']}", "ERROR")
+                return []
+            
+            result = json_response.get('result', {})
+            value = result.get('value', {})
+            recent_blockhash = value.get('blockhash')
+            if not recent_blockhash:
+                solana_log("Pump.fun: Failed to get recent blockhash", "ERROR")
+                return []
             
             # Use getSignaturesForAddress instead of getProgramAccounts (lighter)
             payload = {
@@ -239,7 +271,17 @@ class SolanaScanner:
             response = requests.post(self.rpc_url, json=payload, timeout=15)
             response.raise_for_status()
             
-            signatures = response.json().get('result', [])
+            try:
+                json_response = response.json()
+            except ValueError as e:
+                solana_log(f"Pump.fun: Invalid JSON response: {e}", "ERROR")
+                return []
+            
+            if 'error' in json_response:
+                solana_log(f"Pump.fun RPC error: {json_response['error']}", "ERROR")
+                return []
+            
+            signatures = json_response.get('result', [])
             solana_log(f"[PUMP] Found {len(signatures)} recent signatures", "INFO")
             
             # For now, return empty - need transaction parsing for actual detection
