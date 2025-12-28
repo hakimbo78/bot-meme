@@ -319,9 +319,9 @@ async def main():
                         # Get web3 provider from adapter
                         adapter = scanner.get_adapter(chain_name)
                         print(f"{Fore.BLUE}  - Adapter found: {adapter is not None}")
-                        print(f"{Fore.BLUE}  - Adapter has web3: {hasattr(adapter, 'web3') if adapter else False}")
+                        print(f"{Fore.BLUE}  - Adapter has w3: {hasattr(adapter, 'w3') if adapter else False}")
                         
-                        if adapter and hasattr(adapter, 'web3'):
+                        if adapter and hasattr(adapter, 'w3'):
                             # Merge chain config with global secondary config
                             full_config = {
                                 **chain_config, 
@@ -331,7 +331,7 @@ async def main():
                             
                             print(f"{Fore.BLUE}  - Creating SecondaryScanner for {chain_name}")
                             sec_scanner = SecondaryScanner(
-                                adapter.web3, 
+                                adapter.w3, 
                                 full_config
                             )
                             
