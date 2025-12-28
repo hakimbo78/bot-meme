@@ -36,14 +36,15 @@ jobs:
           VPS_PATH="/home/hakim/bot-meme"
           REPO="https://github.com/hakimbo78/bot-meme.git"
           
-          # Clone if not exists, pull if exists
-          if [ ! -d "$VPS_PATH/.git" ]; then
-            echo "🔄 Cloning repo..."
-            git clone $REPO $VPS_PATH
-          else
-            echo "🔄 Pulling latest..."
+          # Handle existing directory
+          if [ -d "$VPS_PATH/.git" ]; then
+            echo "🔄 Pulling latest code..."
             cd $VPS_PATH
             git pull origin main
+          else
+            echo "🔄 Cleaning old directory and cloning repo..."
+            rm -rf $VPS_PATH
+            git clone $REPO $VPS_PATH
           fi
           
           # Install/update dependencies
