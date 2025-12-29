@@ -186,13 +186,25 @@ class OffChainFilter:
         volume_1h = pair.get('volume_1h', 0) or 0
         volume_24h = pair.get('volume_24h', 0) or 0
         
-        # Calculate volume spike ratio (5m vs hourly average)
-        if volume_1h > 0:
-            volume_spike_ratio = (volume_5m * 12) / volume_1h  # Extrapolate 5m to hourly
-        elif volume_24h > 0:
-            volume_spike_ratio = (volume_5m * 288) / volume_24h  # Extrapolate 5m to daily
-        else:
-            volume_spike_ratio = 0
+        # FIX: vol_5m is often $0 (API doesn't provide it)
+        # Use vol_1h vs 24h average instead
+        volume_spike_ratio = 0
+        
+        if volume_24h > 0 and volume_1h > 0:
+            # Calculate average hourly volume from 24h data
+            avg_hourly_volume = volume_24h / 24
+            
+            # Compare current hour to average
+            # If vol_1h > 1.5x average hourly → spike!
+            volume_spike_ratio = volume_1h / avg_hourly_volume
+            
+        elif volume_5m > 0 and volume_1h > 0:
+            # Fallback: If vol_5m actually exists, use it
+            volume_spike_ratio = (volume_5m * 12) / volume_1h
+            
+        elif volume_5m > 0 and volume_24h > 0:
+            # Last resort: vol_5m vs daily average
+            volume_spike_ratio = (volume_5m * 288) / volume_24h
         
         has_volume_spike = volume_spike_ratio >= self.min_volume_spike_ratio
         
