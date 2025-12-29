@@ -259,7 +259,7 @@ class OffChainScreenerIntegration:
         passed, reason = self.filter.apply_filters(normalized)
         if not passed:
             self.stats['filtered_out'] += 1
-            # print(f"[OFFCHAIN] Filtered: {pair_address[:10]}... - {reason}")
+            print(f"[OFFCHAIN FILTER] {pair_address[:10]}... - {reason}")  # Enable logging
             return None
         
         # 4. CACHE (for future lookups)

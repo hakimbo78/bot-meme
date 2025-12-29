@@ -28,16 +28,16 @@ OFFCHAIN_SCREENER_CONFIG = {
     
     # Filters
     'filters': {
-        # Level-0 thresholds
-        'min_liquidity': 5000,  # $5k minimum liquidity
-        'min_volume_5m': 1000,  # $1k volume in 5 minutes
-        'min_tx_5m': 5,  # Minimum 5 transactions
-        'max_age_hours': 24,  # Only pairs < 24 hours old
+        # Level-0 thresholds (RELAXED FOR DEBUGGING)
+        'min_liquidity': 1000,  # $1k minimum liquidity (was 5000)
+        'min_volume_5m': 100,  # $100 volume in 5 minutes (was 1000)
+        'min_tx_5m': 2,  # Minimum 2 transactions (was 5)
+        'max_age_hours': 48,  # Only pairs < 48 hours old (was 24)
         
-        # Level-1 thresholds
-        'min_price_change_5m': 20.0,  # 20% price gain in 5m
-        'min_price_change_1h': 50.0,  # 50% price gain in 1h
-        'min_volume_spike_ratio': 2.0,  # 2x volume spike
+        # Level-1 thresholds (RELAXED FOR DEBUGGING)
+        'min_price_change_5m': 5.0,  # 5% price gain in 5m (was 20.0)
+        'min_price_change_1h': 10.0,  # 10% price gain in 1h (was 50.0)
+        'min_volume_spike_ratio': 1.5,  # 1.5x volume spike (was 2.0)
         
         # DEXTools guarantee
         'dextools_top_rank': 50,  # Top 50 ranks bypass filters
