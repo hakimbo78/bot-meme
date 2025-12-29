@@ -171,11 +171,19 @@ class OffChainScreenerIntegration:
                 
                 # Process each pair
                 processed = 0
-                for raw_pair in unique_pairs:
-                    passed_pair = await self._process_pair(raw_pair, 'dexscreener', chain)
-                    if passed_pair:
-                        all_passed_pairs.append(passed_pair)
-                        processed += 1
+                for idx, raw_pair in enumerate(unique_pairs, 1):
+                    try:
+                        pair_addr = raw_pair.get('pairAddress', 'UNKNOWN')
+                        print(f"[OFFCHAIN DEBUG] [{idx}/{len(unique_pairs)}] Processing raw pair: {pair_addr[:10]}...")
+                        
+                        passed_pair = await self._process_pair(raw_pair, 'dexscreener', chain)
+                        if passed_pair:
+                            all_passed_pairs.append(passed_pair)
+                            processed += 1
+                    except Exception as e:
+                        print(f"[OFFCHAIN ERROR] Failed to process pair {idx}: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 print(f"[OFFCHAIN DEBUG] Processed {processed} pairs that passed filters")
                 
