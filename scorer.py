@@ -72,11 +72,22 @@ class TokenScorer:
         thresholds = chain_config.get('alert_thresholds', ALERT_THRESHOLDS) if chain_config else ALERT_THRESHOLDS
         
         # =========================================
+        # ACTIVITY OVERRIDE DETECTION (2025-12-29)
+        # =========================================
+        
+        # Check if this is an activity-detected token
+        activity_override = data.get("activity_override", False)
+        activity_score_bonus = data.get("activity_score", 0)
+        
+        # =========================================
         # ORIGINAL SCORING RULES
         # =========================================
         
         # Rule: Liquidity >= $20k -> +30
-        if data.get("liquidity_usd", 0) >= 20000:
+        # OVERRIDE: For activity-detected tokens, use $1k threshold instead
+        min_liquidity_threshold = 1000 if activity_override else 20000
+        
+        if data.get("liquidity_usd", 0) >= min_liquidity_threshold:
             score += SCORE_RULES["LIQUIDITY_GT_20K"]
         else:
             risk_flags.append(f"Low Liquidity (${data.get('liquidity_usd', 0):,.0f})")
@@ -173,6 +184,23 @@ class TokenScorer:
             # Volume bonus (simplified - based on liquidity proxy)
             if data.get("liquidity_usd", 0) > 50000:
                 score += phase_weights.get("volume_bonus", 0)
+        
+        # =========================================
+        # ACTIVITY OVERRIDE BONUS (PART 7)
+        # =========================================
+        
+        # Apply activity bonus score if detected via activity scanner
+        if activity_override:
+            score += 20  # Base score bonus for activity-detected tokens
+            risk_flags.append(f"🔥 ACTIVITY DETECTED: Score +20 (swap activity: {data.get('swap_count', 0)} swaps, {data.get('unique_traders', 0)} traders)")
+            
+            # Add activity signal breakdown if available
+            activity_signals = data.get('activity_signals', {})
+            if activity_signals:
+                active_count = sum(activity_signals.values())
+                signals_str = ', '.join([k.replace('_', ' ').title() for k, v in activity_signals.items() if v])
+                risk_flags.append(f"   🎯 Signals ({active_count}/4): {signals_str if signals_str else 'None'}")
+        
         
         # =========================================
         # MOMENTUM CAP ENFORCEMENT

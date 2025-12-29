@@ -397,6 +397,104 @@ class TelegramNotifier:
             print(f"Telegram secondary alert error: {e}")
             return False
     
+    async def send_activity_alert_async(self, signal_data: dict, score_data: dict = None):
+        """
+        Send activity scanner alert to Telegram (PART 10).
+        
+        Adds [ACTIVITY] or [V3 ACTIVITY] tags and shows:
+        - Swap burst count
+        - Unique traders
+        - Chain + DEX
+        - Activity signal breakdown
+        
+        Args:
+            signal_data: Activity signal from SecondaryActivityScanner
+            score_data: Optional score data if already analyzed
+        """
+        if not self.enabled:
+            return False
+        
+        # Determine tag
+        dex_type = signal_data.get('dex', 'uniswap_v2')
+        alert_tag = '[V3 ACTIVITY]' if dex_type == 'uniswap_v3' else '[ACTIVITY]'
+        
+        # Chain info
+        chain_name = signal_data.get('chain', 'UNKNOWN').upper()
+        
+        # Activity metrics
+        swap_count = signal_data.get('swap_count', 0)
+        unique_traders = signal_data.get('unique_traders', 0)
+        activity_score = signal_data.get('activity_score', 0)
+        active_signals_count = signal_data.get('active_signals', 0)
+        
+        # Signal breakdown
+        signals = signal_data.get('signals', {})
+        signal_list = []
+        if signals.get('swap_burst'):
+            signal_list.append('📈 Swap Burst')
+        if signals.get('weth_flow_spike'):
+            signal_list.append('💰 WETH Flow Spike')
+        if signals.get('trader_growth'):
+            signal_list.append('👥 Trader Growth')
+        if signals.get('v3_intensity'):
+            signal_list.append('⚡ V3 Intensity')
+        
+        signals_str = '\n'.join(signal_list) if signal_list else '   None'
+        
+        # Token info (may be partial)
+        token_address = signal_data.get('token_address', 'UNKNOWN')
+        pool_address = signal_data.get('pool_address', 'UNKNOWN')
+        
+        # Score info (if available)
+        score_str = ''
+        if score_data:
+            score = score_data.get('score', 0)
+            verdict = score_data.get('verdict', 'UNKNOWN')
+            score_str = f"\n*Score:* {score} | *Verdict:* {verdict}"
+        
+        message = f"""🔥 *{alert_tag} ACTIVITY DETECTED*
+
+*Chain:* {chain_name}
+*DEX:* {"Uniswap V3" if dex_type == "uniswap_v3" else "Uniswap V2"}
+*Pool:* `{pool_address[:10]}...{pool_address[-8:]}`
+
+📊 *Activity Metrics:*
+*Swap Count:* {swap_count} swaps
+*Unique Traders:* {unique_traders} traders
+*Activity Score:* {activity_score}/100
+
+🎯 *Signals ({active_signals_count}/4):*
+{signals_str}{score_str}
+
+⚠️ _DEXTools-style momentum detected. Secondary market opportunity._"""
+        
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=message,
+                parse_mode='Markdown'
+            )
+            print(f"📨 {alert_tag} Alert sent for {chain_name}")
+            return True
+        except TelegramError as e:
+            print(f"Telegram activity alert error: {e}")
+            return False
+
+    def send_activity_alert(self, signal_data: dict, score_data: dict = None):
+        """Synchronous wrapper for send_activity_alert_async"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If event loop running, schedule task
+                asyncio.create_task(self.send_activity_alert_async(signal_data, score_data))
+            else:
+                # Otherwise, run it
+                loop.run_until_complete(self.send_activity_alert_async(signal_data, score_data))
+            return True
+        except Exception as e:
+            print(f"Error sending activity alert: {e}")
+            return False
+    
     def send_secondary_alert(self, signal_data: dict):
         """Sync wrapper for secondary market alerts."""
         if not self.enabled:
