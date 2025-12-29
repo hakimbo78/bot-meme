@@ -48,19 +48,22 @@ class Deduplicator:
         self.momentum_reeval = 0  # Count of momentum-triggered re-evaluations
     
     def is_duplicate(self, pair_address: str, chain: str = "base", 
-                    volume_1h: float = None, price_change_1h: float = None) -> bool:
+                    volume_1h: float = None, price_change_1h: float = None, 
+                    tx_1h: int = None) -> bool:
         """
         Check if pair was recently seen (with momentum-based re-evaluation).
         
-        Re-evaluation triggers:
+        Re-evaluation triggers (ANY of these):
         - volume_1h increased by >= 50% since last seen
-        - price_change_1h increased by >= 3% since last seen
+        - tx_1h increased (any increase)
+        - priceChange.h1 changed significantly (>= 3% delta)
         
         Args:
             pair_address: Pair contract address
             chain: Chain identifier
             volume_1h: Current h1 volume (for momentum check)
             price_change_1h: Current h1 price change (for momentum check)
+            tx_1h: Current h1 transaction count (for momentum check)
             
         Returns:
             True if duplicate (seen within cooldown AND no momentum increase), False if unique or momentum increased
@@ -85,29 +88,39 @@ class Deduplicator:
                     # Check for momentum increase (allows re-evaluation)
                     prev_volume = pair_data.get('volume_1h', 0)
                     prev_price_change = pair_data.get('price_change_1h', 0)
+                    prev_tx = pair_data.get('tx_1h', 0)
                     
                     # Calculate momentum increases
                     volume_increase = False
                     price_increase = False
+                    tx_increase = False
                     
+                    # Volume check
                     if volume_1h is not None and prev_volume and prev_volume > 0:
                         volume_ratio = volume_1h / prev_volume
                         if volume_ratio >= 1.5:  # 50% increase
                             volume_increase = True
                     
+                    # Price change delta check
                     if price_change_1h is not None and prev_price_change is not None:
-                        price_delta = price_change_1h - prev_price_change
-                        if price_delta >= 3.0:  # 3% increase in price change
+                        price_delta = abs(price_change_1h - prev_price_change)
+                        if price_delta >= 3.0:  # 3% change in price movement
                             price_increase = True
                     
+                    # Transaction count check (any increase)
+                    if tx_1h is not None and prev_tx is not None:
+                        if tx_1h > prev_tx:
+                            tx_increase = True
+                    
                     # If momentum increased significantly, allow re-evaluation
-                    if volume_increase or price_increase:
+                    if volume_increase or price_increase or tx_increase:
                         self.momentum_reeval += 1
                         # Update metrics but don't block
                         chain_seen[pair_address] = {
                             'timestamp': datetime.now(),
                             'volume_1h': volume_1h,
-                            'price_change_1h': price_change_1h
+                            'price_change_1h': price_change_1h,
+                            'tx_1h': tx_1h
                         }
                         self.unique_passed += 1
                         return False  # Allow re-evaluation
@@ -120,13 +133,15 @@ class Deduplicator:
             chain_seen[pair_address] = {
                 'timestamp': datetime.now(),
                 'volume_1h': volume_1h,
-                'price_change_1h': price_change_1h
+                'price_change_1h': price_change_1h,
+                'tx_1h': tx_1h
             }
             self.unique_passed += 1
             return False
     
     def mark_seen(self, pair_address: str, chain: str = "base", 
-                 volume_1h: float = None, price_change_1h: float = None):
+                 volume_1h: float = None, price_change_1h: float = None,
+                 tx_1h: int = None):
         """
         Manually mark pair as seen (with metrics).
         
@@ -135,6 +150,7 @@ class Deduplicator:
             chain: Chain identifier
             volume_1h: Current h1 volume
             price_change_1h: Current h1 price change
+            tx_1h: Current h1 transaction count
         """
         with self._lock:
             if chain not in self._seen:
@@ -143,7 +159,8 @@ class Deduplicator:
             self._seen[chain][pair_address] = {
                 'timestamp': datetime.now(),
                 'volume_1h': volume_1h,
-                'price_change_1h': price_change_1h
+                'price_change_1h': price_change_1h,
+                'tx_1h': tx_1h
             }
     
     def cleanup_expired(self):

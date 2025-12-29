@@ -26,22 +26,41 @@ OFFCHAIN_SCREENER_CONFIG = {
         'min_request_interval_seconds': 0.2,
     },
     
-    # Filters (PRODUCTION - H1-BASED ONLY)
+    # Filters (AGGRESSIVE MODE - REALISTIC)
     # DexScreener PUBLIC API provides ONLY h1 and h24 metrics
     'filters': {
-        # Level-0 thresholds (Quality Gate)
-        'min_liquidity': 1000,  # $1,000 minimum liquidity
-        'min_volume_1h': 300,  # $300 minimum hourly volume
-        'min_tx_1h': 10,  # 10 minimum hourly transactions
+        # ================================================================
+        # LEVEL-0: BASIC VIABILITY (LONGGAR TAPI MASUK AKAL)
+        # ================================================================
+        # Purpose: Hindari dead/honeypot, bukan cari pump
+        'min_liquidity': 10000,  # $10k minimum liquidity (viability check)
         
-        'max_age_hours': None,  # DISABLED - Allow old pair revivals (momentum-based)
+        # REMOVED hard gates for volume_1h and tx_1h
+        # Pairs can pass Level-0 even with volume_1h = 0 or tx_1h = 0
+        # as long as they show ANY activity in 24h
         
-        # Level-1 thresholds (Momentum Detection)
-        # Use h1 metrics ONLY - no 5m data available from DexScreener API
-        'min_price_change_1h': 5.0,  # 5% price gain in 1h
-        'min_volume_spike_ratio': 2.0,  # 2.0x hourly volume spike (h1 vs h24 avg)
+        'max_age_hours': None,  # DISABLED - Allow old pair revivals
         
-        # DEXTools guarantee
+        # ================================================================
+        # LEVEL-1: AGGRESSIVE MOMENTUM SCORING
+        # ================================================================
+        # Momentum score thresholds (NOT hard gates)
+        'momentum_score_threshold': 3,  # Need >= 3 points to pass
+        
+        # Scoring weights:
+        # volume.h1 >= 50: +2, >= 20: +1
+        # txns.h1 >= 3: +2, >= 1: +1
+        # priceChange.h1 > 0: +1
+        # priceChange.h24 > 5%: +1
+        
+        # ================================================================
+        # LEVEL-2: FAKE LIQUIDITY CHECK
+        # ================================================================
+        'fake_liq_threshold': 500000,  # $500k liquidity threshold
+        'fake_liq_min_volume_24h': 200,  # Require >= $200 vol if liq > 500k
+        'fake_liq_min_tx_24h': 10,  # Require >= 10 tx if liq > 500k
+        
+        # DEXTools guarantee (unchanged)
         'dextools_top_rank': 50,  # Top 50 ranks bypass filters
     },
     

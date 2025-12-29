@@ -270,8 +270,9 @@ class OffChainScreenerIntegration:
         # 2. DEDUPLICATION (with momentum-based re-evaluation)
         volume_1h = normalized.get('volume_1h')
         price_change_1h = normalized.get('price_change_1h')
+        tx_1h = normalized.get('tx_1h')
         
-        if self.deduplicator.is_duplicate(pair_address, chain, volume_1h, price_change_1h):
+        if self.deduplicator.is_duplicate(pair_address, chain, volume_1h, price_change_1h, tx_1h):
             self.stats['deduplicated'] += 1
             print(f"[OFFCHAIN DEBUG] {pair_address[:10]}... - DUPLICATE (cooldown active, no momentum increase)")
             return None
@@ -280,15 +281,20 @@ class OffChainScreenerIntegration:
         # DEBUG: Log pair data before filter (use h1 metrics)
         vol_1h = normalized.get('volume_1h', 0) or 0
         vol_24h = normalized.get('volume_24h', 0) or 0
-        tx_1h = normalized.get('tx_1h', 0) or 0
+        tx_1h_val = normalized.get('tx_1h', 0) or 0
         price_1h = normalized.get('price_change_1h', 0) or 0
-        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol1h: ${vol_1h:,.0f} | Tx1h: {tx_1h:.0f} | Δ1h: {price_1h:+.1f}%")
+        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol1h: ${vol_1h:,.0f} | Tx1h: {tx_1h_val:.0f} | Δ1h: {price_1h:+.1f}%")
         
-        passed, reason = self.filter.apply_filters(normalized)
+        passed, reason, metadata = self.filter.apply_filters(normalized)
         if not passed:
             self.stats['filtered_out'] += 1
-            print(f"[OFFCHAIN FILTER] {pair_address[:10]}... - {reason}")  # Enable logging
+            # Logging is already done in filter, no need to duplicate
             return None
+        
+        # Store filter metadata in normalized pair
+        if metadata:
+            normalized['filter_metadata'] = metadata
+
         
         # 4. CACHE (for future lookups)
         self.cache.set(pair_address, normalized)
@@ -492,6 +498,7 @@ class OffChainScreenerIntegration:
         print(f"  Filter rate:         {filter_stats['filter_rate_pct']:.1f}%")
         print(f"  Level-0 filtered:    {filter_stats['level0_filtered']}")
         print(f"  Level-1 filtered:    {filter_stats['level1_filtered']}")
+        print(f"  Level-2 filtered:    {filter_stats['level2_filtered']}")
         print(f"  DEXTools forced:     {filter_stats['dextools_forced']}")
         
         cache_stats = stats['cache']
