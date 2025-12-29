@@ -31,7 +31,7 @@ OFFCHAIN_SCREENER_CONFIG = {
     'filters': {
         # Level-0 thresholds (basic quality gates)
         'min_liquidity': 500,  # $500 (API already filters <$500)
-        'min_volume_5m': 50,  # $50 volume in 5 minutes
+        'min_volume_5m': 10,  # $10 volume (TESTING - was $50, lowered for quiet market)
         'min_tx_5m': 2,  # Minimum 2 transactions
         'max_age_hours': 48,  # Only pairs < 48 hours old
         
