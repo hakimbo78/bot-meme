@@ -514,6 +514,7 @@ class TelegramNotifier:
         except Exception as e:
             print(f"Error sending secondary alert: {e}")
             return False
+    def send_alert(self, token_data, score_data):
         """
         Wrapper for send_alert_async.
         Handles both sync and async contexts (though usually called from async context now).
