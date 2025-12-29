@@ -529,7 +529,7 @@ async def main():
                 print(f"{Fore.BLUE}🔍 Secondary market scanner task started (Event-Driven)")
                 
                 try:
-                    from modules.block_listener import GlobalBlockFeed
+                    from modules.global_block_events import EventBus, BlockSnapshot
                     from modules.market_heat import MarketHeatEngine
                     
                     active_chains = 0
@@ -539,11 +539,11 @@ async def main():
                             adapter = scanner.get_adapter(chain_name)
                             w3 = adapter.w3 if adapter else sec_scanner.web3
                             
-                            feed = GlobalBlockFeed.get_instance(chain_name, w3)
+                            # Note: GlobalBlockService is already started by MultiChainScanner
                             heat_engine = MarketHeatEngine.get_instance(chain_name)
                             
                             # FIX: Capture loop variables in default args to avoid closure bug
-                            async def on_secondary_block(block_number, c_name=chain_name, s_scanner=sec_scanner, h_engine=heat_engine):
+                            async def on_secondary_block(snapshot: BlockSnapshot, c_name=chain_name, s_scanner=sec_scanner, h_engine=heat_engine):
                                 try:
                                     # MARKET HEAT GATE
                                     if h_engine.is_cold():
@@ -553,7 +553,7 @@ async def main():
                                         return
                                         
                                     try:
-                                        signals = await s_scanner.scan_all_pairs(target_block=block_number)
+                                        signals = await s_scanner.scan_all_pairs(target_block=snapshot.block_number)
                                         
                                         if signals:
                                             print(f"{Fore.BLUE}🎯 [SECONDARY][{c_name.upper()}] {len(signals)} breakout signals detected")
@@ -576,7 +576,7 @@ async def main():
                                 except Exception as e:
                                     print(f"{Fore.YELLOW}⚠️  [SECONDARY] Handler error: {e}")
                             
-                            feed.subscribe(on_secondary_block)
+                            EventBus.subscribe(f"NEW_BLOCK_{chain_name.upper()}", on_secondary_block)
                             active_chains += 1
                             print(f"{Fore.BLUE}✅ [SECONDARY] Subscribed to {chain_name.upper()}")
                         
@@ -607,7 +607,7 @@ async def main():
                 print(f"{Fore.CYAN}🔥 Activity scanner task started (Event-Driven)")
                 
                 try:
-                    from modules.block_listener import GlobalBlockFeed
+                    from modules.global_block_events import EventBus, BlockSnapshot
                     from modules.market_heat import MarketHeatEngine
                     
                     # Setup listeners for each chain
@@ -618,12 +618,12 @@ async def main():
                             if not adapter: 
                                 continue
                                 
-                            feed = GlobalBlockFeed.get_instance(chain_name, adapter.w3)
+                            # Note: GlobalBlockService is already started by MultiChainScanner
                             heat_engine = MarketHeatEngine.get_instance(chain_name)
                             
                             # Define handler
                             # FIX: Capture loop variables in default args
-                            async def on_activity_block(block_number, c_name=chain_name, h_engine=heat_engine):
+                            async def on_activity_block(snapshot: BlockSnapshot, c_name=chain_name, h_engine=heat_engine):
                                 try:
                                     # MARKET HEAT GATE (Rule #6)
                                     # If COLD -> DISABLED, unless Smart Wallet activity is being tracked
@@ -634,13 +634,13 @@ async def main():
                                         return # Skip scan if market is cold and no priority targets
                                     
                                     # Scan specific chain on this block
-                                    signals = activity_integration.scan_chain_activity(c_name, block_number)
+                                    signals = activity_integration.scan_chain_activity(c_name, snapshot.block_number)
                                     
                                     if signals:
                                         # Record activity (Heat Up)
                                         h_engine.record_activity(weight=5)
                                         
-                                        print(f"{Fore.CYAN}🎯 [ACTIVITY][{c_name.upper()}] {len(signals)} signals detected in block {block_number}")
+                                        print(f"{Fore.CYAN}🎯 [ACTIVITY][{c_name.upper()}] {len(signals)} signals detected in block {snapshot.block_number}")
                                         
                                         for signal in signals:
                                             should_force = activity_integration.should_force_enqueue(signal)
@@ -659,7 +659,7 @@ async def main():
                                     print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Handler error: {e}")
 
                             # Subscribe
-                            feed.subscribe(on_activity_block)
+                            EventBus.subscribe(f"NEW_BLOCK_{chain_name.upper()}", on_activity_block)
                             active_chains += 1
                             print(f"{Fore.CYAN}✅ [ACTIVITY] Subscribed to {chain_name.upper()} block feed")
                             
