@@ -265,8 +265,11 @@ class OffChainScreenerIntegration:
             return None
         
         # 3. FILTERING
-        # DEBUG: Log pair data before filter
-        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol5m: ${normalized.get('volume_5m', 0) or 0:,.0f}")
+        # DEBUG: Log pair data before filter (show ALL volume values)
+        vol_5m = normalized.get('volume_5m', 0) or 0
+        vol_1h = normalized.get('volume_1h', 0) or 0
+        vol_24h = normalized.get('volume_24h', 0) or 0
+        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol5m: ${vol_5m:,.0f} | Vol1h: ${vol_1h:,.0f} | Vol24h: ${vol_24h:,.0f}")
         
         passed, reason = self.filter.apply_filters(normalized)
         if not passed:
