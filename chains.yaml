@@ -55,7 +55,7 @@ chains:
   # Supports: Pump.fun, Raydium, Jupiter
   # Modes: SNIPER, RUNNING
   solana:
-    enabled: false
+    enabled: true
     rpc_url: "https://mainnet.helius-rpc.com/?api-key=e06bc5e1-0e03-41e4-b354-2a78cbd121bc"
     
     # Program IDs

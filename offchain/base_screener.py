@@ -107,6 +107,8 @@ class BaseScreener(ABC):
             'op': 'optimism',
             'polygon': 'polygon',
             'matic': 'polygon',
+            'solana': 'solana',
+            'sol': 'solana',
         }
         return chain_map.get(chain.lower(), chain.lower())
     
