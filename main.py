@@ -542,26 +542,27 @@ async def main():
                             feed = GlobalBlockFeed.get_instance(chain_name, w3)
                             heat_engine = MarketHeatEngine.get_instance(chain_name)
                             
-                            async def on_secondary_block(block_number):
+                            # FIX: Capture loop variables in default args to avoid closure bug
+                            async def on_secondary_block(block_number, c_name=chain_name, s_scanner=sec_scanner, h_engine=heat_engine):
                                 try:
                                     # MARKET HEAT GATE
-                                    if heat_engine.is_cold():
+                                    if h_engine.is_cold():
                                         return
                                     
-                                    if not sec_scanner.is_enabled():
+                                    if not s_scanner.is_enabled():
                                         return
                                         
                                     try:
-                                        signals = await sec_scanner.scan_all_pairs(target_block=block_number)
+                                        signals = await s_scanner.scan_all_pairs(target_block=block_number)
                                         
                                         if signals:
-                                            print(f"{Fore.BLUE}🎯 [SECONDARY][{chain_name.upper()}] {len(signals)} breakout signals detected")
+                                            print(f"{Fore.BLUE}🎯 [SECONDARY][{c_name.upper()}] {len(signals)} breakout signals detected")
                                             # Record activity (lower weight for secondary)
-                                            heat_engine.record_activity(weight=2)
+                                            h_engine.record_activity(weight=2)
                                             
                                             for signal in signals:
                                                 # Add chain info and put in main queue for processing
-                                                signal['chain'] = chain_name
+                                                signal['chain'] = c_name
                                                 signal['signal_type'] = 'secondary_market'
                                                 await queue.put(signal)
                                                 
@@ -570,7 +571,7 @@ async def main():
                                                     telegram.send_secondary_alert(signal)
                                                     
                                     except Exception as scan_e:
-                                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {scan_e}")
+                                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] {c_name.upper()} scan error: {scan_e}")
 
                                 except Exception as e:
                                     print(f"{Fore.YELLOW}⚠️  [SECONDARY] Handler error: {e}")
@@ -621,20 +622,21 @@ async def main():
                             heat_engine = MarketHeatEngine.get_instance(chain_name)
                             
                             # Define handler
-                            async def on_activity_block(block_number):
+                            # FIX: Capture loop variables in default args
+                            async def on_activity_block(block_number, c_name=chain_name, h_engine=heat_engine):
                                 try:
                                     # MARKET HEAT GATE
-                                    if heat_engine.is_cold():
+                                    if h_engine.is_cold():
                                         return # Skip scan if market is cold
                                     
                                     # Scan specific chain on this block
-                                    signals = activity_integration.scan_chain_activity(chain_name, block_number)
+                                    signals = activity_integration.scan_chain_activity(c_name, block_number)
                                     
                                     if signals:
                                         # Record activity (Heat Up)
-                                        heat_engine.record_activity(weight=5)
+                                        h_engine.record_activity(weight=5)
                                         
-                                        print(f"{Fore.CYAN}🎯 [ACTIVITY] {len(signals)} signals detected in block {block_number}")
+                                        print(f"{Fore.CYAN}🎯 [ACTIVITY][{c_name.upper()}] {len(signals)} signals detected in block {block_number}")
                                         
                                         for signal in signals:
                                             should_force = activity_integration.should_force_enqueue(signal)
