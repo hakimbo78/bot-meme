@@ -54,25 +54,36 @@ class PairNormalizer:
         price_change_6h = self._safe_float(price_change.get('h6', 0))
         price_change_24h = self._safe_float(price_change.get('h24', 0))
         
-        # Extract volume (preserve None if not available - enables fallback)
+        # Extract volume (preserve None if not available OR if 0 - enables fallback)
         volume = raw_pair.get('volume', {})
-        volume_5m = self._safe_float(volume.get('m5')) if volume.get('m5') is not None else None
-        volume_1h = self._safe_float(volume.get('h1')) if volume.get('h1') is not None else None
-        volume_24h = self._safe_float(volume.get('h24', 0))  # Always use 24h as final fallback
+        
+        # Treat 0 as None (no meaningful volume data)
+        vol_5m_raw = volume.get('m5')
+        vol_1h_raw = volume.get('h1')
+        vol_24h_raw = volume.get('h24', 0)
+        
+        volume_5m = self._safe_float(vol_5m_raw) if vol_5m_raw and vol_5m_raw > 0 else None
+        volume_1h = self._safe_float(vol_1h_raw) if vol_1h_raw and vol_1h_raw > 0 else None
+        volume_24h = self._safe_float(vol_24h_raw, 0)  # Always use 24h as final fallback
         
         # Extract liquidity
         liquidity_obj = raw_pair.get('liquidity', {})
         liquidity = self._safe_float(liquidity_obj.get('usd', 0))
         
-        # Extract transaction counts (preserve None if not available)
+        # Extract transaction counts (preserve None if not available OR if 0)
         tx_obj = raw_pair.get('txns', {})
         m5_txns = tx_obj.get('m5', {})
         h1_txns = tx_obj.get('h1', {})
         h24_txns = tx_obj.get('h24', {})
         
-        tx_5m = self._safe_int(m5_txns.get('buys', 0) + m5_txns.get('sells', 0)) if m5_txns else None
-        tx_1h = self._safe_int(h1_txns.get('buys', 0) + h1_txns.get('sells', 0)) if h1_txns else None
-        tx_24h = self._safe_int(h24_txns.get('buys', 0) + h24_txns.get('sells', 0))  # Always use 24h as fallback
+        # Treat 0 as None (no activity)
+        tx_5m_raw = m5_txns.get('buys', 0) + m5_txns.get('sells', 0) if m5_txns else 0
+        tx_1h_raw = h1_txns.get('buys', 0) + h1_txns.get('sells', 0) if h1_txns else 0
+        tx_24h_raw = h24_txns.get('buys', 0) + h24_txns.get('sells', 0) if h24_txns else 0
+        
+        tx_5m = tx_5m_raw if tx_5m_raw > 0 else None
+        tx_1h = tx_1h_raw if tx_1h_raw > 0 else None
+        tx_24h = tx_24h_raw  # Always use 24h as fallback
         
         # Extract addresses
         pair_address = raw_pair.get('pairAddress', '')
