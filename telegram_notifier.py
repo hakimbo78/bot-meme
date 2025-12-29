@@ -42,8 +42,9 @@ class TelegramNotifier:
         self.alert_history = {}
         
         if self.enabled:
-            # Increase timeout to prevent 'Timed out' error
-            self.bot = Bot(token=self.bot_token, request_kwargs={'read_timeout': 20, 'connect_timeout': 10})
+            from telegram.request import HTTPXRequest
+            trequest = HTTPXRequest(connection_pool_size=8, read_timeout=20.0, connect_timeout=10.0)
+            self.bot = Bot(token=self.bot_token, request=trequest)
         else:
             self.bot = None
     
