@@ -47,43 +47,65 @@ class PairNormalizer:
         Returns:
             Normalized pair event dict
         """
-        # Extract price changes
+        # ================================================================
+        # PRICE CHANGE EXTRACTION
+        # ================================================================
+        # DexScreener provides: m5, h1, h6, h24
+        # NOTE: m5 (5-minute) data is often missing/unreliable
+        # We use h1 (1-hour) as the primary momentum indicator
         price_change = raw_pair.get('priceChange', {})
         price_change_5m = self._safe_float(price_change.get('m5', 0))
         price_change_1h = self._safe_float(price_change.get('h1', 0))
         price_change_6h = self._safe_float(price_change.get('h6', 0))
         price_change_24h = self._safe_float(price_change.get('h24', 0))
         
-        # Extract volume (preserve None if not available OR if 0 - enables fallback)
+        # ================================================================
+        # VOLUME EXTRACTION + VIRTUAL 5m CALCULATION
+        # ================================================================
+        # DexScreener API does NOT provide reliable m5 volume
+        # We derive VIRTUAL 5m volume from h1: virtual_5m = h1 / 12
         volume = raw_pair.get('volume', {})
         
-        # Treat 0 as None (no meaningful volume data)
-        vol_5m_raw = volume.get('m5')
         vol_1h_raw = volume.get('h1')
         vol_24h_raw = volume.get('h24', 0)
         
-        volume_5m = self._safe_float(vol_5m_raw) if vol_5m_raw and vol_5m_raw > 0 else None
+        # Extract h1 and h24 volumes
         volume_1h = self._safe_float(vol_1h_raw) if vol_1h_raw and vol_1h_raw > 0 else None
         volume_24h = self._safe_float(vol_24h_raw, 0)  # Always use 24h as final fallback
+        
+        # CALCULATE VIRTUAL 5m VOLUME from h1
+        # Assumption: h1 volume is evenly distributed across 12 five-minute periods
+        if volume_1h is not None and volume_1h > 0:
+            volume_5m = volume_1h / 12.0  # Virtual 5m volume
+        else:
+            volume_5m = None
         
         # Extract liquidity
         liquidity_obj = raw_pair.get('liquidity', {})
         liquidity = self._safe_float(liquidity_obj.get('usd', 0))
         
-        # Extract transaction counts (preserve None if not available OR if 0)
+        # ================================================================
+        # TRANSACTION COUNT EXTRACTION + VIRTUAL 5m CALCULATION
+        # ================================================================
+        # DexScreener API does NOT provide reliable m5 txn counts
+        # We derive VIRTUAL 5m tx count from h1: virtual_5m = h1 / 12
         tx_obj = raw_pair.get('txns', {})
-        m5_txns = tx_obj.get('m5', {})
         h1_txns = tx_obj.get('h1', {})
         h24_txns = tx_obj.get('h24', {})
         
-        # Treat 0 as None (no activity)
-        tx_5m_raw = m5_txns.get('buys', 0) + m5_txns.get('sells', 0) if m5_txns else 0
+        # Extract h1 and h24 transaction counts (buys + sells)
         tx_1h_raw = h1_txns.get('buys', 0) + h1_txns.get('sells', 0) if h1_txns else 0
         tx_24h_raw = h24_txns.get('buys', 0) + h24_txns.get('sells', 0) if h24_txns else 0
         
-        tx_5m = tx_5m_raw if tx_5m_raw > 0 else None
         tx_1h = tx_1h_raw if tx_1h_raw > 0 else None
         tx_24h = tx_24h_raw  # Always use 24h as fallback
+        
+        # CALCULATE VIRTUAL 5m TX COUNT from h1
+        # Assumption: h1 transactions are evenly distributed across 12 five-minute periods
+        if tx_1h is not None and tx_1h > 0:
+            tx_5m = tx_1h / 12.0  # Virtual 5m tx count (can be fractional)
+        else:
+            tx_5m = None
         
         # Extract addresses
         pair_address = raw_pair.get('pairAddress', '')

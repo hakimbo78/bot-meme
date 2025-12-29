@@ -37,16 +37,25 @@ class OffChainFilter:
         """
         self.config = config or {}
         
-        # Level-0 thresholds (basic filters)
-        self.min_liquidity = self.config.get('min_liquidity', 5000)  # $5k minimum
-        self.min_volume_5m = self.config.get('min_volume_5m', 1000)  # $1k in 5 min
-        self.min_tx_5m = self.config.get('min_tx_5m', 5)  # At least 5 transactions
-        self.max_age_hours = self.config.get('max_age_hours', 24)  # < 24 hours old
+        # ================================================================
+        # LEVEL-0 THRESHOLDS (Activity Gate)
+        # ================================================================
+        # DexScreener API provides h1 data, NOT m5
+        # We use VIRTUAL 5m metrics derived from h1: virtual_5m = h1 / 12
+        self.min_liquidity = self.config.get('min_liquidity', 500)  # $500 minimum
         
-        # Level-1 thresholds (momentum filters)
-        self.min_price_change_5m = self.config.get('min_price_change_5m', 20.0)  # 20% gain in 5m
-        self.min_price_change_1h = self.config.get('min_price_change_1h', 50.0)  # 50% gain in 1h
-        self.min_volume_spike_ratio = self.config.get('min_volume_spike_ratio', 2.0)  # 2x volume spike
+        # VIRTUAL 5m thresholds (applied to h1/12 values)
+        self.min_volume_5m_virtual = self.config.get('min_volume_5m_virtual', 50)  # $50 virtual 5m volume
+        self.min_tx_5m_virtual = self.config.get('min_tx_5m_virtual', 2)  # 2 virtual 5m transactions
+        
+        self.max_age_hours = self.config.get('max_age_hours', None)  # None = disabled
+        
+        # ================================================================
+        # LEVEL-1 THRESHOLDS (Momentum Gate)
+        # ================================================================
+        # Use h1 price change directly (DexScreener provides this natively)
+        self.min_price_change_1h = self.config.get('min_price_change_1h', 15.0)  # 15% gain in 1h
+        self.min_volume_spike_ratio = self.config.get('min_volume_spike_ratio', 1.3)  # 1.3x volume spike
         
         # DEXTools guarantee rule
         self.dextools_top_rank = self.config.get('dextools_top_rank', 50)  # Top 50 = force pass
@@ -118,45 +127,54 @@ class OffChainFilter:
         """
         Apply Level-0 filters (basic criteria).
         
+        Checks:
+        - Liquidity >= min_liquidity
+        - Virtual volume_5m >= min_volume_5m_virtual
+        - Virtual tx_5m >= min_tx_5m_virtual
+        - Age <= max_age_hours (if enabled)
+        
         Returns:
             (passed: bool, reason: str or None)
         """
-        # Check liquidity
+        # ================================================================
+        # CHECK 1: Liquidity
+        # ================================================================
         liquidity = pair.get('liquidity', 0)
         if liquidity < self.min_liquidity:
             return False, f"Low liquidity (${liquidity:,.0f} < ${self.min_liquidity:,})"
         
-        # Check volume (use 5m if available AND meaningful, else 1h, else 24h)
+        # ================================================================
+        # CHECK 2: Virtual 5m Volume (from h1/12)
+        # ================================================================
+        # The normalizer calculates: volume_5m = volume_1h / 12
         volume_5m = pair.get('volume_5m')
-        volume_1h = pair.get('volume_1h')
-        volume_24h = pair.get('volume_24h', 0)
         
-        # Treat very low vol_5m (<$5) as None to enable fallback
-        # API sometimes returns $1-2 which is not meaningful
-        if volume_5m is not None and volume_5m < 5:
-            volume_5m = None
+        # If volume_5m is None, the pair has no h1 volume data → reject
+        if volume_5m is None or volume_5m < self.min_volume_5m_virtual:
+            vol_display = f"${volume_5m:,.0f}" if volume_5m else "N/A"
+            return False, f"Low virtual 5m volume ({vol_display} < ${self.min_volume_5m_virtual:,})"
         
-        volume_to_check = volume_5m if volume_5m is not None else (volume_1h if volume_1h is not None else volume_24h)
-        
-        if volume_to_check < self.min_volume_5m:
-            return False, f"Low volume (${volume_to_check:,.0f} < ${self.min_volume_5m:,})"
-        
-        # Check transaction count
+        # ================================================================
+        # CHECK 3: Virtual 5m Transaction Count (from h1/12)
+        # ================================================================
+        # The normalizer calculates: tx_5m = tx_1h / 12
         tx_5m = pair.get('tx_5m')
-        tx_1h = pair.get('tx_1h')
-        tx_24h = pair.get('tx_24h', 0)
         
-        tx_to_check = tx_5m if tx_5m is not None else (tx_1h if tx_1h is not None else tx_24h)
+        # If tx_5m is None, the pair has no h1 tx data → reject
+        if tx_5m is None or tx_5m < self.min_tx_5m_virtual:
+            tx_display = f"{tx_5m:.1f}" if tx_5m else "N/A"
+            return False, f"Low virtual 5m transactions ({tx_display} < {self.min_tx_5m_virtual})"
         
-        if tx_to_check < self.min_tx_5m:
-            return False, f"Low transactions ({tx_to_check} < {self.min_tx_5m})"
-        
-        # Check age (if available)
-        age_minutes = pair.get('age_minutes')
-        if age_minutes is not None:
-            max_age_minutes = self.max_age_hours * 60
-            if age_minutes > max_age_minutes:
-                return False, f"Too old ({age_minutes:.0f} min > {max_age_minutes} min)"
+        # ================================================================
+        # CHECK 4: Age (if enabled)
+        # ================================================================
+        # If max_age_hours is None → disabled (allow all ages)
+        if self.max_age_hours is not None:
+            age_minutes = pair.get('age_minutes')
+            if age_minutes is not None:
+                max_age_minutes = self.max_age_hours * 60
+                if age_minutes > max_age_minutes:
+                    return False, f"Too old ({age_minutes:.0f} min > {max_age_minutes} min)"
         
         return True, None
     
@@ -165,34 +183,34 @@ class OffChainFilter:
         Apply Level-1 filters (momentum criteria).
         
         At least ONE of these must be true:
-        - Strong price change in short timeframe
-        - Volume spike
-        - High transaction acceleration
+        - Strong price change in 1h
+        - Volume spike (h1 vs h24 average)
         
         Returns:
             (passed: bool, reason: str or None)
         """
         reasons = []
         
-        # Check price momentum
-        price_change_5m = pair.get('price_change_5m', 0) or 0
+        # ================================================================
+        # CHECK 1: Price Momentum (h1 only - DexScreener native)
+        # ================================================================
+        # DexScreener provides h1 price change, which is reliable
+        # m5 price change is often missing/unreliable, so we don't use it
         price_change_1h = pair.get('price_change_1h', 0) or 0
         
-        has_price_momentum = (
-            price_change_5m >= self.min_price_change_5m or
-            price_change_1h >= self.min_price_change_1h
-        )
+        has_price_momentum = price_change_1h >= self.min_price_change_1h
         
         if not has_price_momentum:
-            reasons.append(f"Weak price momentum (5m: {price_change_5m:.1f}%, 1h: {price_change_1h:.1f}%)")
+            reasons.append(f"Weak price momentum (1h: {price_change_1h:.1f}% < {self.min_price_change_1h:.1f}%)")
         
-        # Check volume spike
-        volume_5m = pair.get('volume_5m', 0) or 0
+        # ================================================================
+        # CHECK 2: Volume Spike (h1 vs h24 average)
+        # ================================================================
+        # Compare h1 volume to average hourly volume from h24
+        # If h1 > 1.3x average hourly → spike!
         volume_1h = pair.get('volume_1h', 0) or 0
         volume_24h = pair.get('volume_24h', 0) or 0
         
-        # FIX: vol_5m is often $0 (API doesn't provide it)
-        # Use vol_1h vs 24h average instead
         volume_spike_ratio = 0
         
         if volume_24h > 0 and volume_1h > 0:
@@ -200,38 +218,17 @@ class OffChainFilter:
             avg_hourly_volume = volume_24h / 24
             
             # Compare current hour to average
-            # If vol_1h > 1.5x average hourly → spike!
             volume_spike_ratio = volume_1h / avg_hourly_volume
-            
-        elif volume_5m > 0 and volume_1h > 0:
-            # Fallback: If vol_5m actually exists, use it
-            volume_spike_ratio = (volume_5m * 12) / volume_1h
-            
-        elif volume_5m > 0 and volume_24h > 0:
-            # Last resort: vol_5m vs daily average
-            volume_spike_ratio = (volume_5m * 288) / volume_24h
         
         has_volume_spike = volume_spike_ratio >= self.min_volume_spike_ratio
         
         if not has_volume_spike:
-            reasons.append(f"No volume spike (ratio: {volume_spike_ratio:.2f}x)")
+            reasons.append(f"No volume spike (h1/avg: {volume_spike_ratio:.2f}x < {self.min_volume_spike_ratio:.2f}x)")
         
-        # Check transaction acceleration
-        tx_5m = pair.get('tx_5m', 0) or 0
-        tx_1h = pair.get('tx_1h', 0) or 0
-        
-        if tx_1h > 0:
-            tx_acceleration = (tx_5m * 12) / tx_1h  # Tx rate vs hourly average
-        else:
-            tx_acceleration = 0
-        
-        has_tx_acceleration = tx_acceleration >= 1.5  # 50% faster than average
-        
-        if not has_tx_acceleration:
-            reasons.append(f"No TX acceleration (ratio: {tx_acceleration:.2f}x)")
-        
-        # Pass if ANY momentum signal is present
-        if has_price_momentum or has_volume_spike or has_tx_acceleration:
+        # ================================================================
+        # PASS CRITERIA: At least ONE momentum signal
+        # ================================================================
+        if has_price_momentum or has_volume_spike:
             return True, None
         
         # No momentum signals

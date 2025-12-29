@@ -26,19 +26,24 @@ OFFCHAIN_SCREENER_CONFIG = {
         'min_request_interval_seconds': 0.2,
     },
     
-    # Filters (PRODUCTION - Restored after successful testing)
-    # Note: API now pre-filters $0 volume and <$500 liquidity
+    # Filters (PRODUCTION - FIXED: DexScreener API provides h1 only, NOT 5m)
+    # Virtual 5m metrics are derived from h1 using: virtual_5m = h1 / 12
     'filters': {
         # Level-0 thresholds (basic quality gates)
         'min_liquidity': 500,  # $500 (API already filters <$500)
-        'min_volume_5m': 50,  # $50 volume (PRODUCTION)
-        'min_tx_5m': 2,  # Minimum 2 transactions
-        'max_age_hours': 999999,  # DISABLED - Allow old pair revivals (DexScreener detects activity)
+        
+        # VIRTUAL 5m metrics (derived from h1 data)
+        # DexScreener API does NOT provide real m5 data
+        # These thresholds apply to: h1 / 12
+        'min_volume_5m_virtual': 50,  # $50 virtual 5m volume (from h1/12)
+        'min_tx_5m_virtual': 2,  # Minimum 2 virtual 5m transactions (from h1/12)
+        
+        'max_age_hours': None,  # DISABLED - Allow old pair revivals (momentum-based)
         
         # Level-1 thresholds (momentum detection - PRODUCTION)
-        'min_price_change_5m': 10.0,  # 10% price gain in 5m
-        'min_price_change_1h': 20.0,  # 20% price gain in 1h
-        'min_volume_spike_ratio': 1.5,  # 1.5x volume spike
+        # DexScreener provides h1 price change natively
+        'min_price_change_1h': 15.0,  # 15% price gain in 1h (was 20%)
+        'min_volume_spike_ratio': 1.3,  # 1.3x volume spike (was 1.5x)
         
         # DEXTools guarantee
         'dextools_top_rank': 50,  # Top 50 ranks bypass filters
