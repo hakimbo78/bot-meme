@@ -579,25 +579,25 @@ class OffChainScreenerIntegration:
             message += f"• Off-chain Score: {offchain_score:.1f}/100\n\n"
             
             if offchain_score < 60:
-                message += "⏭️ **Skipped** (score < 60)\n"
+                message += "⏭️ SKIPPED (score < 60)\n"
                 message += "✅ RPC calls SAVED - No on-chain verification triggered\n\n"
                 message += "💡 Note: Score too low for on-chain verification\n"
             else:
-                message += "🔍 **Triggering on-chain verification...**\n"
+                message += "🔍 TRIGGERING ON-CHAIN VERIFICATION\n"
                 message += "⏳ Full analysis in progress\n\n"
             
-            # Add links
+            # Add links (use plain text URLs, no markdown)
             message += f"\n🔗 Links:\n"
             if chain.lower() == 'base':
-                message += f"• [BaseScan](https://basescan.org/address/{token0})\n"
-                message += f"• [DexScreener](https://dexscreener.com/base/{pair_address})\n"
+                message += f"BaseScan: https://basescan.org/address/{token0}\n"
+                message += f"DexScreener: https://dexscreener.com/base/{pair_address}\n"
             elif chain.lower() == 'ethereum':
-                message += f"• [Etherscan](https://etherscan.io/address/{token0})\n"
-                message += f"• [DexScreener](https://dexscreener.com/ethereum/{pair_address})\n"
+                message += f"Etherscan: https://etherscan.io/address/{token0}\n"
+                message += f"DexScreener: https://dexscreener.com/ethereum/{pair_address}\n"
             
             message += f"\nVerdict: {'⏭️ SKIP' if offchain_score < 60 else '🔍 VERIFY'}"
             
-            # Send alert
+            # Send alert (NO parse_mode to avoid markdown issues)
             await self.telegram_notifier.send_message_async(message)
             print(f"[OFFCHAIN] 📱 Telegram alert sent for {pair_address[:10]}...")
             
