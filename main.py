@@ -413,16 +413,20 @@ async def main():
         if OFFCHAIN_SCREENER_AVAILABLE and is_offchain_enabled():
             try:
                 offchain_config = get_offchain_config()
-                # Use enabled_chains from command line args
-                offchain_config['enabled_chains'] = enabled_chains
                 
+                # IMPORTANT: Off-chain screener has its own enabled_chains
+                # It's independent from on-chain scanner (chains.yaml)
+                # This allows Solana off-chain scanning even when on-chain is disabled
+                offchain_enabled_chains = offchain_config.get('enabled_chains', ['base', 'ethereum', 'solana'])
+                
+                # Initialize off-chain screener with its own enabled_chains
                 offchain_screener = OffChainScreenerIntegration(offchain_config)
                 
                 print(f"\n{Fore.GREEN}🌐 OFF-CHAIN SCREENER: ENABLED")
                 print(f"{Fore.GREEN}    - Primary: DexScreener (FREE)")
                 if offchain_config.get('dextools_enabled'):
                     print(f"{Fore.GREEN}    - Secondary: DEXTools (API key required)")
-                print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in enabled_chains])}")
+                print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in offchain_enabled_chains])}")
                 print(f"{Fore.GREEN}    - Target: ~95% noise reduction")
                 print(f"{Fore.GREEN}    - RPC savings: < 5k calls/day\n")
                 
