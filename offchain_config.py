@@ -156,6 +156,28 @@ DEGEN_SNIPER_CONFIG = {
 }
 
 
+# --- COMPATIBILITY LAYER ---
+# Expose standard functions expected by main.py and other modules
+# These map directly to the DEGEN_SNIPER config above
+
+def get_offchain_config():
+    """
+    Get off-chain screener configuration.
+    (Aliased to DEGEN SNIPER config for Mode C compatibility)
+    """
+    return DEGEN_SNIPER_CONFIG
+
+
+def is_offchain_enabled():
+    """
+    Check if off-chain screener is enabled.
+    (Aliased to DEGEN SNIPER config)
+    """
+    return DEGEN_SNIPER_CONFIG.get('enabled', False)
+
+
+# --- MODE-SPECIFIC FUNCTIONS ---
+
 def get_degen_sniper_config():
     """Get DEGEN SNIPER mode configuration."""
     return DEGEN_SNIPER_CONFIG
@@ -163,4 +185,4 @@ def get_degen_sniper_config():
 
 def is_degen_sniper_enabled():
     """Check if DEGEN SNIPER mode is enabled."""
-    return DEGEN_SNIPER_CONFIG.get('enabled', False)
+    return is_offchain_enabled()
