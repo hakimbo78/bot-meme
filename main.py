@@ -46,6 +46,15 @@ try:
 except ImportError as e:
     print(f"⚠️  Secondary market scanner not available: {e}")
 
+# Activity Scanner (2025-12-29) - CU-Efficient Secondary Activity Detection
+ACTIVITY_SCANNER_AVAILABLE = False
+try:
+    from secondary_activity_scanner import SecondaryActivityScanner
+    from activity_integration import ActivityIntegration
+    ACTIVITY_SCANNER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Activity scanner not available: {e}")
+
 init(autoreset=True)
 
 def print_alert(token_data, score_data):
@@ -347,6 +356,48 @@ async def main():
                 traceback.print_exc()
                 secondary_enabled = False
         
+        # ================================================
+        # ACTIVITY SCANNER SETUP (2025-12-29)
+        # ================================================
+        activity_integration = None
+        if ACTIVITY_SCANNER_AVAILABLE:
+            try:
+                activity_integration = ActivityIntegration(enabled=True)
+                
+                # Register scanner for each enabled EVM chain
+                for chain_name in evm_chains:
+                    chain_config = CHAIN_CONFIGS.get('chains', {}).get(chain_name, {})
+                    
+                    # Check if secondary scanner enabled for this chain (activity scanner piggybacks on this setting)
+                    if chain_config.get('secondary_scanner', {}).get('enabled', False):
+                        # Get web3 provider from adapter
+                        adapter = scanner.get_adapter(chain_name)
+                        if adapter and hasattr(adapter, 'w3'):
+                            scanner_instance = SecondaryActivityScanner(
+                                web3=adapter.w3,
+                                chain_name=chain_name,
+                                chain_config=chain_config
+                            )
+                            activity_integration.register_scanner(chain_name, scanner_instance)
+                            print(f"{Fore.CYAN}✅ [ACTIVITY] Registered scanner for {chain_name.upper()}")
+                
+                # Print status
+                if activity_integration and len(activity_integration.scanners) > 0:
+                    print(f"\n{Fore.CYAN}🔥 ACTIVITY SCANNER: ENABLED")
+                    activity_integration.print_status()
+                else:
+                    print(f"{Fore.YELLOW}⚠️  [ACTIVITY] No scanners registered")
+                    activity_integration = None
+                    
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  Activity scanner failed to initialize: {e}")
+                import traceback
+                traceback.print_exc()
+                activity_integration = None
+        else:
+            print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Activity scanner module not available")
+        
+        
         # SOLANA MODULE - Isolated Solana chain handling
         solana_enabled = False
         solana_scanner = None
@@ -511,6 +562,53 @@ async def main():
             if secondary_enabled:
                 tasks.append(asyncio.create_task(run_secondary_producer(), name="secondary-producer"))
 
+            # 2.75. Activity Scanner Producer Task (2025-12-29)
+            async def run_activity_producer():
+                """Scan for activity signals across all chains"""
+                if not ACTIVITY_SCANNER_AVAILABLE or not activity_integration:
+                    return
+                
+                print(f"{Fore.CYAN}🔥 Activity scanner task started")
+                
+                while True:
+                    try:
+                        await asyncio.sleep(30)  # Scan every 30 seconds
+                        
+                        # Scan all registered chains
+                        signals = activity_integration.scan_all_chains()
+                        
+                        if signals:
+                            print(f"{Fore.CYAN}🎯 [ACTIVITY] {len(signals)} signals detected")
+                            
+                            for signal in signals:
+                                # Check DEXTools guarantee rule
+                                should_force = activity_integration.should_force_enqueue(signal)
+                                
+                                if should_force or signal.get('activity_score', 0) >= 60:
+                                    # Enrich signal with activity context
+                                    enriched_data = activity_integration.process_activity_signal(signal)
+                                    
+                                    # Add to main queue for processing
+                                    await queue.put(enriched_data)
+                                    
+                                    pool_addr = signal.get('pool_address', 'UNKNOWN')
+                                    print(f"{Fore.CYAN}🔥 [ACTIVITY] Enqueued: {pool_addr[:10]}... (score: {signal.get('activity_score', 0)})")
+                                    
+                                    # Send immediate activity alert if force enqueue (high confidence)
+                                    if telegram.enabled and should_force:
+                                        telegram.send_activity_alert(signal)
+                    
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Producer error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        await asyncio.sleep(30)
+            
+            if ACTIVITY_SCANNER_AVAILABLE and activity_integration:
+                tasks.append(asyncio.create_task(run_activity_producer(), name="activity-producer"))
+                print(f"{Fore.GREEN}✅ Activity scanner producer added to task list")
+
+
             # 3. Upgrade Monitor Task (Periodic)
             async def run_upgrade_monitor():
                 if not upgrade_integration.enabled: return
@@ -611,6 +709,73 @@ async def main():
                                 
                             except Exception as sec_e:
                                 print(f"{Fore.YELLOW}⚠️  [SECONDARY] Signal processing error: {sec_e}")
+                        
+                        # ================================================
+                        # ACTIVITY-DETECTED TOKEN PROCESSING (2025-12-29)
+                        # ================================================
+                        elif pair_data.get('activity_override') or pair_data.get('source') == 'secondary_activity':
+                            try:
+                                chain_name = pair_data.get('chain', 'unknown')
+                                chain_prefix = f"[{chain_name.upper()}]"
+                                pool_address = pair_data.get('pool_address', pair_data.get('pair_address', 'UNKNOWN'))
+                                
+                                print(f"{Fore.CYAN}🔥 {chain_prefix} [ACTIVITY] Processing pool {pool_address[:10]}...")
+                                
+                                # Get chain config
+                                chain_config = scanner.get_chain_config(chain_name)
+                                
+                                # Import activity integration helpers
+                                from activity_integration import apply_activity_context_to_analysis
+                                
+                                # Get token address (may be empty initially)
+                                token_address = pair_data.get('token_address')
+                                
+                                if token_address:
+                                    # Run full analysis
+                                    try:
+                                        # Get adapter
+                                        adapter = scanner.get_adapter(chain_name)
+                                        if not adapter:
+                                            print(f"{Fore.YELLOW}   ⚠️  No adapter for {chain_name}")
+                                            continue
+                                        
+                                        # Analyze token
+                                        analyzer = TokenAnalyzer(adapter=adapter)
+                                        analysis = analyzer.analyze_token({'address': token_address, 'pair_address': pool_address})
+                                        
+                                        if analysis:
+                                            # Apply activity context
+                                            enriched_analysis = apply_activity_context_to_analysis(
+                                                analysis,
+                                                pair_data
+                                            )
+                                            
+                                            # Score with activity overrides
+                                            score_data = scorer.score_token(enriched_analysis, chain_config)
+                                            
+                                            # Log result
+                                            print(f"{Fore.CYAN}   Score: {score_data.get('score', 0)} | Verdict: {score_data.get('verdict', 'UNKNOWN')}")
+                                            
+                                            # Send activity alert if qualifies
+                                            if score_data.get('alert_level'):
+                                                telegram.send_activity_alert(pair_data, score_data)
+                                                print(f"{Fore.GREEN}📨 {chain_prefix} [ACTIVITY] Alert sent!")
+                                        else:
+                                            print(f"{Fore.YELLOW}   ⚠️  Analysis failed")
+                                    
+                                    except Exception as analyze_e:
+                                        print(f"{Fore.YELLOW}⚠️  {chain_prefix} [ACTIVITY] Analysis error: {analyze_e}")
+                                
+                                else:
+                                    # No token address yet - send initial activity alert
+                                    print(f"{Fore.YELLOW}   Token address not resolved - sending initial alert")
+                                    telegram.send_activity_alert(pair_data)
+                            
+                            except Exception as act_e:
+                                print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Processing error: {act_e}")
+                                import traceback
+                                traceback.print_exc()
+                                
                                 
                         # ================================================
                         # EVM PROCESSING
