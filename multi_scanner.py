@@ -205,8 +205,8 @@ class MultiChainScanner:
                 if adapter:
                     scan_interval = getattr(adapter, 'scan_interval', 30)
                 else:
-                    scan_interval = 30
-                stall_threshold = scan_interval + 30  # Allow scan_interval + 30s buffer
+                    scan_interval = 180
+                stall_threshold = scan_interval + 120  # Allow scan_interval + 120s buffer
                 
                 if diff > stall_threshold:
                     msg = f"CHAIN STALLED: No activity for {int(diff)}s (expected every {scan_interval}s)"
