@@ -114,11 +114,16 @@ class SecondaryScanner:
             pairs = []
             chain_config = self.config
             
-            # Get factory addresses
+            # Get factory addresses and disabled dexes
             factories = chain_config.get('factories', {})
+            disabled_dexes = chain_config.get('secondary_scanner', {}).get('disabled_dexes', [])
             
             for dex_type, factory_address in factories.items():
                 if dex_type not in ['uniswap_v2', 'uniswap_v3']:
+                    continue
+                
+                if dex_type in disabled_dexes:
+                    # Silently skip disabled dexes
                     continue
                     
                 try:

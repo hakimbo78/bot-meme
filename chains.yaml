@@ -140,6 +140,7 @@ chains:
 # Secondary Market Scanner Configuration
 secondary_scanner:
   enabled: true
+  disabled_dexes: ["uniswap_v3"]
   min_volume_5m: 10000
   min_liquidity: 30000
   min_holders: 100
