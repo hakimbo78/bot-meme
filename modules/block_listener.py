@@ -18,6 +18,36 @@ class SharedBlockCache:
     def get(cls, chain: str) -> int:
         return cls._cache.get(chain, 0)
 
+class TimestampCache:
+    """
+    Global cache for block timestamps to prevent redundant RPC calls.
+    Block timestamps are immutable, so we can cache them forever (until restart).
+    """
+    _cache: Dict[str, Dict[int, int]] = {} # {chain_name: {block_number: timestamp}}
+    
+    @classmethod
+    def get_timestamp(cls, chain: str, block_number: int, w3: Web3 = None) -> int:
+        if chain not in cls._cache:
+            cls._cache[chain] = {}
+            
+        if block_number in cls._cache[chain]:
+            return cls._cache[chain][block_number]
+            
+        if w3:
+            try:
+                # Optimized: fetching only the header is enough for timestamp
+                # But typical get_block is fine if full_transactions=False (default)
+                block = w3.eth.get_block(block_number)
+                timestamp = block['timestamp']
+                cls._cache[chain][block_number] = timestamp
+                return timestamp
+            except Exception as e:
+                print(f"⚠️  [{chain.upper()}] Failed to fetch timestamp for {block_number}: {e}")
+                return int(time.time()) # Fallback
+        
+        return 0
+
+
 class GlobalBlockFeed:
     """
     Singleton-like block listener per chain.

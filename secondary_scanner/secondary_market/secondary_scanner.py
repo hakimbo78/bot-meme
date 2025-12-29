@@ -9,6 +9,7 @@ from web3 import Web3
 from .market_metrics import MarketMetrics
 from .triggers import TriggerEngine
 from .secondary_state import SecondaryStateManager, SecondaryState
+from modules.block_listener import TimestampCache
 
 
 class SecondaryScanner:
@@ -345,6 +346,7 @@ class SecondaryScanner:
         """
         Scan recent events for a pair to update metrics.
         Returns list of swap events with volume data.
+        Uses DELTA SCANNING (last_block to current) for RPC efficiency correctness.
         """
         try:
             dex_type = pair_data['dex_type']
@@ -358,7 +360,18 @@ class SecondaryScanner:
             else:
                 latest_block = self.web3.eth.block_number
                 
-            from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
+            # Delta Scan Logic
+            last_scanned = pair_data.get('last_block', 0)
+            if last_scanned == 0:
+                # First scan: look back 100 blocks
+                from_block = max(0, latest_block - 100)
+            else:
+                # Subsequent scans: continue from last
+                from_block = last_scanned + 1
+                
+            # Optimization: If no new blocks, skip
+            if from_block > latest_block:
+                return []
 
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
@@ -379,7 +392,12 @@ class SecondaryScanner:
             try:
                 # Query events
                 logs = self.web3.eth.get_logs(payload)
+                
+                # Update last scanned block on success
+                pair_data['last_block'] = latest_block
+                
             except Exception as e:
+                # RPC error handling
                 if hasattr(e, 'args') and len(e.args) > 0:
                     error_data = e.args[0]
                     if isinstance(error_data, dict) and error_data.get('code') == -32602:
@@ -395,7 +413,7 @@ class SecondaryScanner:
                 events.append({
                     'block_number': log['blockNumber'],
                     'transaction_hash': log['transactionHash'].hex(),
-                    'timestamp': self.web3.eth.get_block(log['blockNumber'])['timestamp'],
+                    'timestamp': TimestampCache.get_timestamp(self.chain_name, log['blockNumber'], self.web3),
                     'volume_usd': 0  # Would calculate from event data
                 })
 
