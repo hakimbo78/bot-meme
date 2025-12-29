@@ -255,11 +255,20 @@ class InstructionFlattener:
             solana_log(f"[SOLANA][RAW] instruction accounts: {len(instr_accounts)}", "DEBUG")
             
             for acc_idx in instr_accounts:
-                if isinstance(acc_idx, int) and acc_idx < len(account_keys):
-                    accounts.append(account_keys[acc_idx])
-                    solana_log(f"[SOLANA][RAW] resolved account {acc_idx}: {account_keys[acc_idx][:8]}...", "DEBUG")
+                # Handle both formats:
+                # 1. Integer indices (old format or non-versioned tx)
+                # 2. Already-resolved string addresses (versioned tx with lookup tables)
+                if isinstance(acc_idx, int):
+                    # Integer index - resolve from account_keys
+                    if acc_idx < len(account_keys):
+                        accounts.append(account_keys[acc_idx])
+                    else:
+                        solana_log(f"[SOLANA][RAW] account index {acc_idx} out of range (max: {len(account_keys)-1})", "DEBUG")
+                elif isinstance(acc_idx, str):
+                    # Already resolved address (versioned tx)
+                    accounts.append(acc_idx)
                 else:
-                    solana_log(f"[SOLANA][RAW] invalid account index {acc_idx} or not integer", "DEBUG")
+                    solana_log(f"[SOLANA][RAW] unknown account format: {type(acc_idx)}", "DEBUG")
 
             # Get data and parsed info
             data = instr.get('data', '')
