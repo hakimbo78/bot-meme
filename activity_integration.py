@@ -28,6 +28,7 @@ class ActivityIntegration:
     2. Inject activity context into token data
     3. Apply activity override rules to scoring
     4. Generate activity-aware alerts
+    5. GATEKEEPER: Route high-value pools to scanners
     """
     
     def __init__(self, enabled: bool = True):
@@ -44,12 +45,55 @@ class ActivityIntegration:
         self.scanners[chain_name] = scanner
         self.signals_by_chain[chain_name] = 0
         print(f"✅ [ACTIVITY INT] Registered scanner for {chain_name.upper()}")
+
+    def track_new_pool(self, token_data: Dict, score_data: Dict) -> bool:
+        """
+        ADMISSION GATE (Rule #1 Intermediary)
+        Routes analyzed pools to the appropriate activity scanner.
+        """
+        if not self.enabled:
+            return False
+
+        chain = token_data.get('chain', 'base').lower()
+        if chain == 'unknown':
+             # Try to guess from prefix or config, but safest to skip
+             return False
+             
+        scanner = self.scanners.get(chain)
+        if not scanner:
+            # Maybe it's an EVM chain that isn't registered yet or solana?
+            return False
+
+        # Prepare Pool Data for Admission
+        pool_data = {
+            'pool_address': token_data.get('address'),
+            'token_address': token_data.get('address'),  # or token address if separated
+            'dex': token_data.get('dex', 'uniswap_v2'),
+            'score': score_data.get('score', 0),
+            'liquidity_usd': token_data.get('liquidity_usd', 0),
+            'is_trade': score_data.get('verdict') == 'TRADE',
+            'is_smart_wallet': 'Smart Wallet' in str(score_data.get('risk_flags', [])),
+            'is_trending': False, # Can be passed if available
+            'current_block': 0 # Scanner will fetch if 0, or we can pass if known
+        }
+        
+        # Try to fetch block number if possible (optimization)
+        try:
+            if hasattr(scanner.web3.eth, 'block_number'):
+                pool_data['current_block'] = scanner.web3.eth.block_number
+        except:
+            pass
+
+        return scanner.track_pool(pool_data)
     
+    def has_smart_wallet_targets(self, chain_name: str) -> bool:
+        """Check if chain has active smart wallet targets (Heat Gate Override)"""
+        scanner = self.scanners.get(chain_name)
+        return scanner.has_smart_wallet_targets() if scanner else False
+
     def scan_all_chains(self) -> List[Dict]:
         """
         Scan all registered chains for activity signals
-        
-        Returns: List of activity signals from all chains
         """
         if not self.enabled:
             return []
@@ -84,12 +128,16 @@ class ActivityIntegration:
             return []
             
         try:
+            # Perform delta-scan on tracked pools
             signals = scanner.scan_recent_activity(target_block=target_block)
             
             if signals:
                 self.signals_by_chain[chain_name] = len(signals)
                 self.total_signals += len(signals)
                 print(f"🔥 [ACTIVITY INT] {chain_name.upper()}: {len(signals)} signals in block {target_block}")
+            else:
+                 # Clean logging for heartbeat if needed (optional via rule 7)
+                 pass
                 
             return signals
         except Exception as e:
@@ -99,13 +147,6 @@ class ActivityIntegration:
     def process_activity_signal(self, signal: Dict, token_data: Optional[Dict] = None) -> Dict:
         """
         Process an activity signal and prepare for pipeline injection
-        
-        Args:
-            signal: Activity signal from scanner
-            token_data: Optional existing token data to enrich
-        
-        Returns:
-            Enriched token data ready for analyzer/scorer
         """
         if token_data is None:
             # Create minimal token data from signal
@@ -123,50 +164,25 @@ class ActivityIntegration:
     
     def should_force_enqueue(self, signal: Dict) -> bool:
         """
-        DEXTOOLS TOP GAINER GUARANTEE RULE (PART 8)
-        
         Determine if signal should force bypass and enqueue for deep analysis
-        
-        Condition:
-            IF activity_score >= 70 AND momentum_confirmed == True
-            THEN FORCE enqueue for deep analysis, BYPASS age & factory filters
-        
-        Returns: True if should force enqueue
         """
         activity_score = signal.get('activity_score', 0)
         
-        # For activity signals, we ALWAYS force enqueue if score >= 70
-        # Momentum will be checked during scoring phase
-        if activity_score >= 70:
+        # Consistent Rule: High activity -> Re-analyze
+        if activity_score >= 15:  # Lower threshold for re-check, but criticals need higher
             return True
         
         return False
     
     def apply_scoring_override(self, score_data: Dict, activity_signal: Dict) -> Dict:
         """
-        Apply activity override rules to score data (PART 7)
-        
-        ACTIVITY OVERRIDE RULES:
-        - Min liquidity: $3k -> $1k
-        - Pair age limit: BYPASSED
-        - Base score: +20
-        - Momentum: REQUIRED
-        - Factory origin: BYPASSED
-        
-        Args:
-            score_data: Original score data from scorer
-            activity_signal: Activity signal context
-        
-        Returns:
-            Modified score data with overrides applied
+        Apply activity override rules to score data
         """
         return apply_activity_override_to_score(score_data, activity_signal)
     
     def generate_activity_alert_tag(self, signal: Dict) -> str:
         """
-        Generate alert tag for Telegram/Dashboard (PART 10)
-        
-        Returns: '[ACTIVITY]' or '[V3 ACTIVITY]'
+        Generate alert tag for Telegram/Dashboard
         """
         dex = signal.get('dex', '')
         
@@ -178,55 +194,35 @@ class ActivityIntegration:
     def get_activity_badge_data(self, signal: Dict) -> Dict:
         """
         Get dashboard badge data (PART 10)
-        
-        Returns: Dict with badge info for UI
         """
-        signals = signal.get('signals', {})
-        
         return {
             'badge': '🔥 ACTIVITY',
-            'swap_burst_count': 1 if signals.get('swap_burst') else 0,
+            'swap_burst_count': 0, # Deprecated metric
             'unique_traders': signal.get('unique_traders', 0),
             'chain': signal.get('chain', ''),
             'dex': signal.get('dex', ''),
             'activity_score': signal.get('activity_score', 0),
-            'signals_active': f"{signal.get('active_signals', 0)}/4"
+            'signals_active': f"Score {signal.get('activity_score', 0):.0f}"
         }
     
     def calculate_market_heat_contribution(self) -> Dict:
         """
         Calculate activity contribution to market heat (PART 9)
-        
-        Returns: Dict with heat components
         """
         total_activity_signals = sum(self.signals_by_chain.values())
         
-        # Count specific signal types across all chains
-        swap_burst_count = 0
-        trader_growth_count = 0
-        
+        # Count monitored pools across all chains
+        total_monitored = 0
         for scanner in self.scanners.values():
-            for candidate in scanner.activity_candidates.values():
-                # Approximate signal counting (would need full signal detection)
-                if candidate.swap_count >= 3:
-                    swap_burst_count += 1
-                if len(candidate.trader_history_5m) >= 10:
-                    trader_growth_count += 1
+            total_monitored += len(scanner.tracked_pools)
         
-        # Calculate heat contribution
-        from secondary_activity_scanner import calculate_market_heat_with_activity
-        activity_heat = calculate_market_heat_with_activity(
-            primary_heat=0,  # Will be added by caller
-            activity_signals=total_activity_signals,
-            swap_burst_count=swap_burst_count,
-            trader_growth_count=trader_growth_count
-        )
+        # Calculate heat contribution (Generic)
+        activity_heat = total_activity_signals * 2 + total_monitored * 0.5
         
         return {
             'activity_heat': activity_heat,
             'total_signals': total_activity_signals,
-            'swap_bursts': swap_burst_count,
-            'trader_growth': trader_growth_count
+            'monitored_pools': total_monitored
         }
     
     def get_integration_stats(self) -> Dict:
@@ -256,7 +252,7 @@ class ActivityIntegration:
         for chain_name, count in self.signals_by_chain.items():
             scanner = self.scanners.get(chain_name)
             if scanner:
-                pools = len(scanner.activity_candidates)
+                pools = len(scanner.tracked_pools)
                 print(f"   ├─ {chain_name.upper()}: {count} signals, {pools} pools monitored")
         
         print(f"   └─ Integration: ACTIVE ✅")
@@ -269,23 +265,14 @@ class ActivityIntegration:
 def apply_activity_context_to_analysis(analysis_data: Dict, activity_signal: Dict) -> Dict:
     """
     Apply activity context to analysis data before scoring
-    
-    This modifies analyzer output to account for activity override rules.
     """
     modified_analysis = analysis_data.copy()
     
-    # Override min liquidity check
-    if activity_signal.get('activity_override'):
-        # Lower liquidity requirement for activity-detected tokens
+    # Activity Override Rules
+    if activity_signal.get('activity_override') or activity_signal.get('source') == 'secondary_activity':
         modified_analysis['min_liquidity_override'] = 1000
-        
-        # Bypass age limit
         modified_analysis['bypass_age_limit'] = True
-        
-        # Bypass factory origin requirement
         modified_analysis['bypass_factory'] = True
-        
-        # Add activity context
         modified_analysis['activity_detected'] = True
         modified_analysis['activity_score'] = activity_signal.get('activity_score', 0)
     
@@ -294,21 +281,13 @@ def apply_activity_context_to_analysis(analysis_data: Dict, activity_signal: Dic
 
 def should_require_momentum_for_activity(score_data: Dict, activity_signal: Dict) -> bool:
     """
-    Check if momentum is required for activity-detected tokens (PART 7)
-    
-    Activity override rules state: Momentum = REQUIRED
-    
-    Returns: True if momentum should be required
+    Activity-detected tokens require momentum validation
     """
-    if activity_signal.get('activity_override'):
+    if activity_signal.get('activity_override') or activity_signal.get('source') == 'secondary_activity':
         return True
     
     return False
 
-
-# ================================================
-# EXPORT
-# ================================================
 
 __all__ = [
     'ActivityIntegration',

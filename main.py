@@ -625,9 +625,13 @@ async def main():
                             # FIX: Capture loop variables in default args
                             async def on_activity_block(block_number, c_name=chain_name, h_engine=heat_engine):
                                 try:
-                                    # MARKET HEAT GATE
-                                    if h_engine.is_cold():
-                                        return # Skip scan if market is cold
+                                    # MARKET HEAT GATE (Rule #6)
+                                    # If COLD -> DISABLED, unless Smart Wallet activity is being tracked
+                                    has_priority = activity_integration.has_smart_wallet_targets(c_name)
+                                    
+                                    if h_engine.is_cold() and not has_priority:
+                                        target_block = 0 # Dummy usage to avoid lint error if needed
+                                        return # Skip scan if market is cold and no priority targets
                                     
                                     # Scan specific chain on this block
                                     signals = activity_integration.scan_chain_activity(c_name, block_number)
@@ -937,6 +941,11 @@ async def main():
                                 
                                 # Score it
                                 score_result = scorer.score_token(analysis, chain_config)
+
+                                # ACTIVITY SCANNER ADMISSION (2025-12-29)
+                                # Feed high-value pools into the hunter-mode scanner
+                                if activity_integration:
+                                    activity_integration.track_new_pool(analysis, score_result)
                                 
                                 # Apply bias
                                 if rotation_bonus > 0:

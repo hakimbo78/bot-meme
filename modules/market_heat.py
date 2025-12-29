@@ -51,3 +51,15 @@ class MarketHeatEngine:
     def get_status_str(self) -> str:
         s = self.status
         return f"{s.value} ({int(self.heat_score)}%)"
+
+    def record_shortlisted_candidate(self):
+        """Record a high-potential candidate detection"""
+        self.record_activity(weight=5)
+
+    def record_alert_triggered(self):
+        """Record a successful alert generation"""
+        self.record_activity(weight=15)
+
+    def set_liquidity_spike_flag(self):
+        """Record a massive liquidity injection event"""
+        self.record_activity(weight=30)
