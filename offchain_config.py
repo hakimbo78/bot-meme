@@ -26,19 +26,19 @@ OFFCHAIN_SCREENER_CONFIG = {
         'min_request_interval_seconds': 0.2,
     },
     
-    # Filters (DIAGNOSTIC MODE - Lowered to see what's being filtered)
+    # Filters (PRODUCTION - Restored after successful testing)
     # Note: API now pre-filters $0 volume and <$500 liquidity
     'filters': {
         # Level-0 thresholds (basic quality gates)
         'min_liquidity': 500,  # $500 (API already filters <$500)
-        'min_volume_5m': 10,  # $10 volume (LOWERED for diagnostic)
+        'min_volume_5m': 50,  # $50 volume (PRODUCTION)
         'min_tx_5m': 2,  # Minimum 2 transactions
         'max_age_hours': 999999,  # DISABLED - Allow old pair revivals (DexScreener detects activity)
         
-        # Level-1 thresholds (LOWERED FOR DIAGNOSTIC)
-        'min_price_change_5m': 0.1,  # 0.1% (was 10%) - DIAGNOSTIC
-        'min_price_change_1h': 0.5,  # 0.5% (was 20%) - DIAGNOSTIC
-        'min_volume_spike_ratio': 0.1,  # 0.1x (was 1.5x) - DIAGNOSTIC
+        # Level-1 thresholds (momentum detection - PRODUCTION)
+        'min_price_change_5m': 10.0,  # 10% price gain in 5m
+        'min_price_change_1h': 20.0,  # 20% price gain in 1h
+        'min_volume_spike_ratio': 1.5,  # 1.5x volume spike
         
         # DEXTools guarantee
         'dextools_top_rank': 50,  # Top 50 ranks bypass filters
@@ -50,9 +50,9 @@ OFFCHAIN_SCREENER_CONFIG = {
         'max_size': 1000,  # Max 1000 cached pairs
     },
     
-    # Deduplicator (DISABLED for testing - was 600s)
+    # Deduplicator (PRODUCTION - Restored)
     'deduplicator': {
-        'cooldown_seconds': 0,  # DISABLED - Allow re-evaluation every scan (testing only!)
+        'cooldown_seconds': 600,  # 10 minutes cooldown (prevents spam)
     },
     
     # Scheduler
