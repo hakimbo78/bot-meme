@@ -128,7 +128,7 @@ class EVMAdapter(ChainAdapter):
             self.w3 = Web3(Web3.HTTPProvider(self.config['rpc_url'], request_kwargs={'timeout': 10}))
             
             # CU OPTIMIZATION: Cache eth_chainId to prevent spam
-            def cached_chain_id_middleware(make_request, w3):
+            def cached_chain_id_middleware(make_request, w3=None):
                 cache = {}
                 def middleware(method, params):
                     if method == 'eth_chainId':
