@@ -54,21 +54,25 @@ class PairNormalizer:
         price_change_6h = self._safe_float(price_change.get('h6', 0))
         price_change_24h = self._safe_float(price_change.get('h24', 0))
         
-        # Extract volume
+        # Extract volume (preserve None if not available - enables fallback)
         volume = raw_pair.get('volume', {})
-        volume_5m = self._safe_float(volume.get('m5', 0))
-        volume_1h = self._safe_float(volume.get('h1', 0))
-        volume_24h = self._safe_float(volume.get('h24', 0))
+        volume_5m = self._safe_float(volume.get('m5')) if volume.get('m5') is not None else None
+        volume_1h = self._safe_float(volume.get('h1')) if volume.get('h1') is not None else None
+        volume_24h = self._safe_float(volume.get('h24', 0))  # Always use 24h as final fallback
         
         # Extract liquidity
         liquidity_obj = raw_pair.get('liquidity', {})
         liquidity = self._safe_float(liquidity_obj.get('usd', 0))
         
-        # Extract transaction counts
+        # Extract transaction counts (preserve None if not available)
         tx_obj = raw_pair.get('txns', {})
-        tx_5m = self._safe_int(tx_obj.get('m5', {}).get('buys', 0) + tx_obj.get('m5', {}).get('sells', 0))
-        tx_1h = self._safe_int(tx_obj.get('h1', {}).get('buys', 0) + tx_obj.get('h1', {}).get('sells', 0))
-        tx_24h = self._safe_int(tx_obj.get('h24', {}).get('buys', 0) + tx_obj.get('h24', {}).get('sells', 0))
+        m5_txns = tx_obj.get('m5', {})
+        h1_txns = tx_obj.get('h1', {})
+        h24_txns = tx_obj.get('h24', {})
+        
+        tx_5m = self._safe_int(m5_txns.get('buys', 0) + m5_txns.get('sells', 0)) if m5_txns else None
+        tx_1h = self._safe_int(h1_txns.get('buys', 0) + h1_txns.get('sells', 0)) if h1_txns else None
+        tx_24h = self._safe_int(h24_txns.get('buys', 0) + h24_txns.get('sells', 0))  # Always use 24h as fallback
         
         # Extract addresses
         pair_address = raw_pair.get('pairAddress', '')
