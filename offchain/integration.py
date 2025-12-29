@@ -512,28 +512,98 @@ class OffChainScreenerIntegration:
             chain: Chain name
         """
         try:
+            # Extract data
             pair_address = normalized.get('pair_address', 'UNKNOWN')
+            token0 = normalized.get('token0', 'UNKNOWN')
             token_symbol = normalized.get('token_symbol', 'UNKNOWN')
+            token_name = normalized.get('token_name', 'UNKNOWN')
             offchain_score = normalized.get('offchain_score', 0)
+            
+            # Metrics
             liquidity = normalized.get('liquidity', 0)
+            volume_5m = normalized.get('volume_5m')
+            volume_1h = normalized.get('volume_1h')
             volume_24h = normalized.get('volume_24h', 0)
             
-            # Build alert message
-            message = f"🌐 [{chain.upper()}] [OFFCHAIN] {token_symbol}\n"
-            message += f"Pair: {pair_address[:10]}...\n"
-            message += f"Token: {normalized.get('token_name', 'UNKNOWN')} ({pair_address[:6]}...)\n"
-            message += f"Liquidity: ${liquidity:,.0f}\n"
-            message += f"Volume 24h: ${volume_24h:,.0f}\n"
-            message += f"Off-chain score: {offchain_score:.1f} (threshold: 60)\n\n"
+            price_change_5m = normalized.get('price_change_5m', 0) or 0
+            price_change_1h = normalized.get('price_change_1h', 0) or 0
+            price_change_24h = normalized.get('price_change_24h', 0) or 0
+            
+            age_minutes = normalized.get('age_minutes')
+            event_type = normalized.get('event_type', 'UNKNOWN')
+            dex = normalized.get('dex', 'unknown')
+            
+            # Determine volume to display (use available data)
+            if volume_5m and volume_5m > 0:
+                volume_display = f"${volume_5m:,.0f} (5m)"
+            elif volume_1h and volume_1h > 0:
+                volume_display = f"${volume_1h:,.0f} (1h)"
+            else:
+                volume_display = f"${volume_24h:,.0f} (24h)"
+            
+            # Build alert message (similar to on-chain format)
+            message = f"🌐 [{chain.upper()}] OFFCHAIN ALERT 🌐\n\n"
+            
+            message += f"Token: {token_name} ({token_symbol})\n"
+            message += f"Chain: {chain.upper()}\n"
+            message += f"Token Address: `{token0}`\n"
+            message += f"Pair Address: `{pair_address}`\n"
+            message += f"DEX: {dex.upper()}\n"
+            message += f"Score: {offchain_score:.1f}/100 (Off-chain only)\n\n"
+            
+            message += f"📊 Metrics:\n"
+            if age_minutes:
+                if age_minutes < 60:
+                    message += f"• Age: {age_minutes:.1f} min\n"
+                elif age_minutes < 1440:
+                    message += f"• Age: {age_minutes/60:.1f} hours\n"
+                else:
+                    message += f"• Age: {age_minutes/1440:.1f} days\n"
+            message += f"• Liquidity: ${liquidity:,.0f}\n"
+            message += f"• Volume: {volume_display}\n"
+            
+            if price_change_5m != 0 or price_change_1h != 0:
+                message += f"• Price Change: "
+                changes = []
+                if price_change_5m != 0:
+                    changes.append(f"5m: {price_change_5m:+.1f}%")
+                if price_change_1h != 0:
+                    changes.append(f"1h: {price_change_1h:+.1f}%")
+                if price_change_24h != 0:
+                    changes.append(f"24h: {price_change_24h:+.1f}%")
+                message += ", ".join(changes) + "\n"
+            
+            message += f"\n🔍 Detection:\n"
+            message += f"• Source: DexScreener\n"
+            message += f"• Event Type: {event_type}\n"
+            message += f"• Off-chain Score: {offchain_score:.1f}/100\n\n"
             
             if offchain_score < 60:
-                message += "⏭️ Skipped (score < 60) - RPC calls SAVED!"
+                message += "⏭️ **Skipped** (score < 60)\n"
+                message += "✅ RPC calls SAVED - No on-chain verification triggered\n\n"
+                message += "💡 Note: Score too low for on-chain verification\n"
             else:
-                message += "🔍 Triggering on-chain verification..."
+                message += "🔍 **Triggering on-chain verification...**\n"
+                message += "⏳ Full analysis in progress\n\n"
+            
+            # Add links
+            message += f"\n🔗 Links:\n"
+            if chain.lower() == 'base':
+                message += f"• [BaseScan](https://basescan.org/address/{token0})\n"
+                message += f"• [DexScreener](https://dexscreener.com/base/{pair_address})\n"
+            elif chain.lower() == 'ethereum':
+                message += f"• [Etherscan](https://etherscan.io/address/{token0})\n"
+                message += f"• [DexScreener](https://dexscreener.com/ethereum/{pair_address})\n"
+            
+            message += f"\nVerdict: {'⏭️ SKIP' if offchain_score < 60 else '🔍 VERIFY'}"
             
             # Send alert
             await self.telegram_notifier.send_message_async(message)
+            print(f"[OFFCHAIN] 📱 Telegram alert sent for {pair_address[:10]}...")
             
         except Exception as e:
             print(f"[OFFCHAIN] Error sending Telegram alert: {e}")
+            import traceback
+            traceback.print_exc()
+
 
