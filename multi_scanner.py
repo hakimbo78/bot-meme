@@ -170,6 +170,7 @@ class MultiChainScanner:
 
         # Initialize Global Block Service
         # We need the Chain ID (hardcoded or fetched once)
+        config = self.get_chain_config(chain_name)
         chain_id = config.get('chain_id', 1 if chain_name == 'ethereum' else 8453) # Default Base
         
         service = GlobalBlockService.get_instance(chain_name, chain_id, adapter.w3)
