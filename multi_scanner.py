@@ -201,11 +201,10 @@ class MultiChainScanner:
                 diff = now - last_beat
                 
                 # Get chain-specific scan interval from adapter (CU-optimized)
+                # Get chain-specific scan interval from adapter (CU-optimized)
                 adapter = self.adapters.get(chain_name)
-                if adapter:
-                    scan_interval = getattr(adapter, 'scan_interval', 30)
-                else:
-                    scan_interval = 180
+                # FORCE LAZY INTERVAL: The adapter might still think it's fast, but global service is slow
+                scan_interval = 180 
                 stall_threshold = scan_interval + 120  # Allow scan_interval + 120s buffer
                 
                 if diff > stall_threshold:
