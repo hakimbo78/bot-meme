@@ -527,7 +527,10 @@ async def main():
             
             # 1. Start MultiChainScanner (EVM) in background tasks
             # MultiChainScanner now manages its own isolated tasks per chain
-            await scanner.start_async(queue)
+            # DISABLED: Not cost-effective - high CU usage, zero alerts
+            # await scanner.start_async(queue)
+            print(f"{Fore.YELLOW}⚠️  On-chain scanner DISABLED (saving CU costs)")
+            print(f"{Fore.CYAN}💡 Using off-chain screener only (DexScreener)")
             
             # 2. Solana Producer Task
             async def run_solana_producer():
