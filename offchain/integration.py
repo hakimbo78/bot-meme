@@ -597,9 +597,28 @@ class OffChainScreenerIntegration:
             
             message += f"\nVerdict: {'⏭️ SKIP' if offchain_score < 60 else '🔍 VERIFY'}"
             
-            # Send alert (NO parse_mode to avoid markdown issues)
-            await self.telegram_notifier.send_message_async(message)
-            print(f"[OFFCHAIN] 📱 Telegram alert sent for {pair_address[:10]}...")
+            # Send alert in PLAIN TEXT mode (no markdown parsing)
+            # Use bot directly to avoid parse_mode issues
+            try:
+                await self.telegram_notifier.bot.send_message(
+                    chat_id=self.telegram_notifier.chat_id,
+                    text=message,
+                    parse_mode=None,  # NO markdown parsing
+                    disable_web_page_preview=False  # Allow URL previews
+                )
+                print(f"[OFFCHAIN] 📱 Telegram alert sent for {pair_address[:10]}...")
+            except Exception as send_error:
+                print(f"[OFFCHAIN] Telegram send failed: {send_error}")
+                # Fallback: try without any formatting
+                try:
+                    simple_msg = f"🌐 OFFCHAIN ALERT\nToken: {token_symbol}\nPair: {pair_address}\nScore: {offchain_score:.1f}"
+                    await self.telegram_notifier.bot.send_message(
+                        chat_id=self.telegram_notifier.chat_id,
+                        text=simple_msg,
+                        parse_mode=None
+                    )
+                except:
+                    pass
             
         except Exception as e:
             print(f"[OFFCHAIN] Error sending Telegram alert: {e}")
