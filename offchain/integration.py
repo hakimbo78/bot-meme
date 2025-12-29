@@ -256,6 +256,9 @@ class OffChainScreenerIntegration:
             return None
         
         # 3. FILTERING
+        # DEBUG: Log pair data before filter
+        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol5m: ${normalized.get('volume_5m', 0) or 0:,.0f}")
+        
         passed, reason = self.filter.apply_filters(normalized)
         if not passed:
             self.stats['filtered_out'] += 1
