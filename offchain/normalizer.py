@@ -22,11 +22,13 @@ class PairNormalizer:
       "pair_address": "0x...",
       "token0": "0x...",
       "token1": "0x...",
-      "price_change_5m": 120.5,
-      "price_change_1h": 890.1,
-      "volume_5m": 120000,
+      "price_change_1h": 15.5,
+      "price_change_24h": 120.0,
+      "volume_1h": 5000,
+      "volume_24h": 80000,
       "liquidity": 85000,
-      "tx_5m": 45,
+      "tx_1h": 45,
+      "tx_24h": 320,
       "source": "dexscreener",
       "confidence": 0.72,
       "event_type": "SECONDARY_MARKET"
@@ -48,64 +50,43 @@ class PairNormalizer:
             Normalized pair event dict
         """
         # ================================================================
-        # PRICE CHANGE EXTRACTION
+        # PRICE CHANGE EXTRACTION (H1/H24 ONLY)
         # ================================================================
-        # DexScreener provides: m5, h1, h6, h24
-        # NOTE: m5 (5-minute) data is often missing/unreliable
-        # We use h1 (1-hour) as the primary momentum indicator
+        # DexScreener PUBLIC API provides: h1, h6, h24 (m5 is unreliable)
         price_change = raw_pair.get('priceChange', {})
-        price_change_5m = self._safe_float(price_change.get('m5', 0))
         price_change_1h = self._safe_float(price_change.get('h1', 0))
         price_change_6h = self._safe_float(price_change.get('h6', 0))
         price_change_24h = self._safe_float(price_change.get('h24', 0))
         
         # ================================================================
-        # VOLUME EXTRACTION + VIRTUAL 5m CALCULATION
+        # VOLUME EXTRACTION (H1/H24 ONLY)
         # ================================================================
-        # DexScreener API does NOT provide reliable m5 volume
-        # We derive VIRTUAL 5m volume from h1: virtual_5m = h1 / 12
         volume = raw_pair.get('volume', {})
         
         vol_1h_raw = volume.get('h1')
         vol_24h_raw = volume.get('h24', 0)
         
-        # Extract h1 and h24 volumes
+        # Extract h1 and h24 volumes directly from API
         volume_1h = self._safe_float(vol_1h_raw) if vol_1h_raw and vol_1h_raw > 0 else None
-        volume_24h = self._safe_float(vol_24h_raw, 0)  # Always use 24h as final fallback
-        
-        # CALCULATE VIRTUAL 5m VOLUME from h1
-        # Assumption: h1 volume is evenly distributed across 12 five-minute periods
-        if volume_1h is not None and volume_1h > 0:
-            volume_5m = volume_1h / 12.0  # Virtual 5m volume
-        else:
-            volume_5m = None
+        volume_24h = self._safe_float(vol_24h_raw, 0)
         
         # Extract liquidity
         liquidity_obj = raw_pair.get('liquidity', {})
         liquidity = self._safe_float(liquidity_obj.get('usd', 0))
         
         # ================================================================
-        # TRANSACTION COUNT EXTRACTION + VIRTUAL 5m CALCULATION
+        # TRANSACTION COUNT EXTRACTION (H1/H24 ONLY)
         # ================================================================
-        # DexScreener API does NOT provide reliable m5 txn counts
-        # We derive VIRTUAL 5m tx count from h1: virtual_5m = h1 / 12
         tx_obj = raw_pair.get('txns', {})
         h1_txns = tx_obj.get('h1', {})
         h24_txns = tx_obj.get('h24', {})
         
-        # Extract h1 and h24 transaction counts (buys + sells)
+        # Extract h1 and h24 transaction counts (buys + sells) directly from API
         tx_1h_raw = h1_txns.get('buys', 0) + h1_txns.get('sells', 0) if h1_txns else 0
         tx_24h_raw = h24_txns.get('buys', 0) + h24_txns.get('sells', 0) if h24_txns else 0
         
         tx_1h = tx_1h_raw if tx_1h_raw > 0 else None
-        tx_24h = tx_24h_raw  # Always use 24h as fallback
-        
-        # CALCULATE VIRTUAL 5m TX COUNT from h1
-        # Assumption: h1 transactions are evenly distributed across 12 five-minute periods
-        if tx_1h is not None and tx_1h > 0:
-            tx_5m = tx_1h / 12.0  # Virtual 5m tx count (can be fractional)
-        else:
-            tx_5m = None
+        tx_24h = tx_24h_raw
         
         # Extract addresses
         pair_address = raw_pair.get('pairAddress', '')
@@ -124,15 +105,14 @@ class PairNormalizer:
             liquidity=liquidity,
             volume_24h=volume_24h,
             tx_count=tx_24h,
-            has_price_change=bool(price_change_5m or price_change_1h)
+            has_price_change=bool(price_change_1h)
         )
         
         # Determine event type
         event_type = self._determine_event_type(
-            price_change_5m=price_change_5m,
             price_change_1h=price_change_1h,
-            volume_5m=volume_5m,
-            tx_5m=tx_5m,
+            volume_1h=volume_1h,
+            tx_1h=tx_1h,
             created_at=raw_pair.get('pairCreatedAt')
         )
         
@@ -155,14 +135,12 @@ class PairNormalizer:
             "token1": token1,
             
             # Price metrics
-            "price_change_5m": price_change_5m,
             "price_change_1h": price_change_1h,
             "price_change_6h": price_change_6h,
             "price_change_24h": price_change_24h,
             "current_price": self._safe_float(raw_pair.get('priceUsd', 0)),
             
             # Volume metrics
-            "volume_5m": volume_5m,
             "volume_1h": volume_1h,
             "volume_24h": volume_24h,
             
@@ -170,7 +148,6 @@ class PairNormalizer:
             "liquidity": liquidity,
             
             # Transaction counts
-            "tx_5m": tx_5m,
             "tx_1h": tx_1h,
             "tx_24h": tx_24h,
             
@@ -209,10 +186,9 @@ class PairNormalizer:
         volume_24h = self._safe_float(metrics.get('volume_24h', 0))
         liquidity = self._safe_float(metrics.get('liquidity', 0))
         
-        # DEXTools doesn't provide 5m data, so we extrapolate or set to None
-        price_change_5m = None  # Not available
-        volume_5m = None
-        tx_5m = None
+        # DEXTools doesn't provide h1 volume/tx data reliably
+        volume_1h = None
+        tx_1h = None
         
         # Extract addresses
         pair_address = raw_pair.get('id', {}).get('pair', '')
@@ -246,23 +222,20 @@ class PairNormalizer:
             "token1": token1,
             
             # Price metrics
-            "price_change_5m": price_change_5m,
             "price_change_1h": price_change_1h,
             "price_change_6h": None,
             "price_change_24h": price_change_24h,
             "current_price": self._safe_float(raw_pair.get('price', 0)),
             
             # Volume metrics
-            "volume_5m": volume_5m,
-            "volume_1h": None,
+            "volume_1h": volume_1h,
             "volume_24h": volume_24h,
             
             # Liquidity
             "liquidity": liquidity,
             
             # Transaction counts
-            "tx_5m": tx_5m,
-            "tx_1h": None,
+            "tx_1h": tx_1h,
             "tx_24h": None,
             
             # Metadata
@@ -378,15 +351,15 @@ class PairNormalizer:
         
         return min(1.0, score)
     
-    def _determine_event_type(self, price_change_5m: float, price_change_1h: float,
-                             volume_5m: float, tx_5m: int, created_at: Optional[int]) -> str:
+    def _determine_event_type(self, price_change_1h: float,
+                             volume_1h: float, tx_1h: int, created_at: Optional[int]) -> str:
         """
-        Determine event type based on metrics.
+        Determine event type based on h1 metrics only.
         
         Types:
-        - NEW_PAIR: Recently created
-        - PRICE_SPIKE: Sudden price increase
-        - VOLUME_SPIKE: High volume activity
+        - NEW_PAIR: Recently created (< 1 hour)
+        - PRICE_SPIKE: Strong price increase (>= 100% in 1h)
+        - VOLUME_SPIKE: High volume activity (>= $10k in 1h)
         - SECONDARY_MARKET: General breakout signal
         """
         # Check if new pair (< 60 minutes old)
@@ -398,15 +371,12 @@ class PairNormalizer:
             except:
                 pass
         
-        # Check for price spike
-        if price_change_5m and price_change_5m >= 50:  # > 50% in 5 minutes
+        # Check for price spike (h1 only)
+        if price_change_1h and price_change_1h >= 100:  # >= 100% in 1 hour
             return "PRICE_SPIKE"
         
-        if price_change_1h and price_change_1h >= 200:  # > 200% in 1 hour
-            return "PRICE_SPIKE"
-        
-        # Check for volume spike
-        if volume_5m and volume_5m >= 50000:  # $50k+ in 5 minutes
+        # Check for volume spike (h1 only)
+        if volume_1h and volume_1h >= 10000:  # $10k+ in 1 hour
             return "VOLUME_SPIKE"
         
         # Default

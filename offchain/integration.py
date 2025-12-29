@@ -267,18 +267,22 @@ class OffChainScreenerIntegration:
         if not pair_address:
             return None
         
-        # 2. DEDUPLICATION
-        if self.deduplicator.is_duplicate(pair_address, chain):
+        # 2. DEDUPLICATION (with momentum-based re-evaluation)
+        volume_1h = normalized.get('volume_1h')
+        price_change_1h = normalized.get('price_change_1h')
+        
+        if self.deduplicator.is_duplicate(pair_address, chain, volume_1h, price_change_1h):
             self.stats['deduplicated'] += 1
-            print(f"[OFFCHAIN DEBUG] {pair_address[:10]}... - DUPLICATE (cooldown active)")
+            print(f"[OFFCHAIN DEBUG] {pair_address[:10]}... - DUPLICATE (cooldown active, no momentum increase)")
             return None
         
         # 3. FILTERING
-        # DEBUG: Log pair data before filter (show ALL volume values)
-        vol_5m = normalized.get('volume_5m', 0) or 0
+        # DEBUG: Log pair data before filter (use h1 metrics)
         vol_1h = normalized.get('volume_1h', 0) or 0
         vol_24h = normalized.get('volume_24h', 0) or 0
-        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol5m: ${vol_5m:,.0f} | Vol1h: ${vol_1h:,.0f} | Vol24h: ${vol_24h:,.0f}")
+        tx_1h = normalized.get('tx_1h', 0) or 0
+        price_1h = normalized.get('price_change_1h', 0) or 0
+        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol1h: ${vol_1h:,.0f} | Tx1h: {tx_1h:.0f} | Δ1h: {price_1h:+.1f}%")
         
         passed, reason = self.filter.apply_filters(normalized)
         if not passed:
@@ -306,7 +310,13 @@ class OffChainScreenerIntegration:
     
     def _calculate_offchain_score(self, normalized_pair: Dict) -> float:
         """
-        Calculate off-chain score (0-100) based on normalized data.
+        Calculate off-chain score (0-100) based on h1 metrics ONLY.
+        
+        Scoring weights (per config):
+        - Liquidity: 30%
+        - Volume (h1): 30%
+        - Price Change (h1): 25%
+        - Transactions (h1): 15%
         
         This score will be combined with on-chain score:
         FINAL_SCORE = (OFFCHAIN_SCORE × 0.6) + (ONCHAIN_SCORE × 0.4)
@@ -319,69 +329,68 @@ class OffChainScreenerIntegration:
         """
         score = 0.0
         
-        # Price momentum (max 40 points)
-        price_change_5m = normalized_pair.get('price_change_5m', 0) or 0
-        price_change_1h = normalized_pair.get('price_change_1h', 0) or 0
+        # Get scoring weights from config
+        scoring_config = self.config.get('scoring', {})
+        liq_weight = scoring_config.get('liquidity_weight', 0.30) * 100
+        vol_weight = scoring_config.get('volume_1h_weight', 0.30) * 100
+        price_weight = scoring_config.get('price_change_1h_weight', 0.25) * 100
+        tx_weight = scoring_config.get('tx_1h_weight', 0.15) * 100
         
-        if price_change_5m >= 100:
-            score += 20
-        elif price_change_5m >= 50:
-            score += 15
-        elif price_change_5m >= 20:
-            score += 10
-        
-        if price_change_1h >= 300:
-            score += 20
-        elif price_change_1h >= 150:
-            score += 15
-        elif price_change_1h >= 50:
-            score += 10
-        
-        # Volume spike (max 30 points)
-        volume_5m = normalized_pair.get('volume_5m', 0) or 0
-        volume_24h = normalized_pair.get('volume_24h', 0) or 0
-        
-        if volume_5m >= 100000:
-            score += 15
-        elif volume_5m >= 50000:
-            score += 10
-        elif volume_5m >= 10000:
-            score += 5
-        
-        if volume_24h >= 1000000:
-            score += 15
-        elif volume_24h >= 500000:
-            score += 10
-        elif volume_24h >= 100000:
-            score += 5
-        
-        # Transaction acceleration (max 20 points)
-        tx_5m = normalized_pair.get('tx_5m', 0) or 0
-        
-        if tx_5m >= 100:
-            score += 20
-        elif tx_5m >= 50:
-            score += 15
-        elif tx_5m >= 20:
-            score += 10
-        elif tx_5m >= 10:
-            score += 5
-        
-        # Liquidity (max 10 points)
+        # Liquidity score (0-30 points)
         liquidity = normalized_pair.get('liquidity', 0) or 0
-        
         if liquidity >= 100000:
-            score += 10
+            score += liq_weight
         elif liquidity >= 50000:
-            score += 7
+            score += liq_weight * 0.7
         elif liquidity >= 20000:
-            score += 5
+            score += liq_weight * 0.5
         elif liquidity >= 10000:
-            score += 3
+            score += liq_weight * 0.3
+        elif liquidity >= 5000:
+            score += liq_weight * 0.2
         
-        # Source confidence boost
+        # Volume (h1) score (0-30 points)
+        volume_1h = normalized_pair.get('volume_1h', 0) or 0
+        if volume_1h >= 50000:
+            score += vol_weight
+        elif volume_1h >= 10000:
+            score += vol_weight * 0.7
+        elif volume_1h >= 5000:
+            score += vol_weight * 0.5
+        elif volume_1h >= 1000:
+            score += vol_weight * 0.3
+        elif volume_1h >= 500:
+            score += vol_weight * 0.2
+        
+        # Price change (h1) score (0-25 points)
+        price_change_1h = normalized_pair.get('price_change_1h', 0) or 0
+        if price_change_1h >= 100:
+            score += price_weight
+        elif price_change_1h >= 50:
+            score += price_weight * 0.7
+        elif price_change_1h >= 20:
+            score += price_weight * 0.5
+        elif price_change_1h >= 10:
+            score += price_weight * 0.3
+        elif price_change_1h >= 5:
+            score += price_weight * 0.2
+        
+        # Transaction (h1) score (0-15 points)
+        tx_1h = normalized_pair.get('tx_1h', 0) or 0
+        if tx_1h >= 200:
+            score += tx_weight
+        elif tx_1h >= 100:
+            score += tx_weight * 0.7
+        elif tx_1h >= 50:
+            score += tx_weight * 0.5
+        elif tx_1h >= 20:
+            score += tx_weight * 0.3
+        elif tx_1h >= 10:
+            score += tx_weight * 0.2
+        
+        # Source confidence boost (up to 10 bonus points)
         confidence = normalized_pair.get('confidence', 0)
-        score += confidence * 10  # Up to 10 bonus points
+        score += confidence * 10
         
         # DEXTools top rank boost
         if normalized_pair.get('source') == 'dextools':
@@ -519,13 +528,12 @@ class OffChainScreenerIntegration:
             token_name = normalized.get('token_name', 'UNKNOWN')
             offchain_score = normalized.get('offchain_score', 0)
             
-            # Metrics
+            # Metrics (H1/H24 ONLY)
             liquidity = normalized.get('liquidity', 0)
-            volume_5m = normalized.get('volume_5m')
             volume_1h = normalized.get('volume_1h')
             volume_24h = normalized.get('volume_24h', 0)
+            tx_1h = normalized.get('tx_1h', 0) or 0
             
-            price_change_5m = normalized.get('price_change_5m', 0) or 0
             price_change_1h = normalized.get('price_change_1h', 0) or 0
             price_change_24h = normalized.get('price_change_24h', 0) or 0
             
@@ -533,13 +541,11 @@ class OffChainScreenerIntegration:
             event_type = normalized.get('event_type', 'UNKNOWN')
             dex = normalized.get('dex', 'unknown')
             
-            # Determine volume to display (use available data)
-            if volume_5m and volume_5m > 0:
-                volume_display = f"${volume_5m:,.0f} (5m)"
-            elif volume_1h and volume_1h > 0:
-                volume_display = f"${volume_1h:,.0f} (1h)"
+            # Determine volume to display (prefer h1)
+            if volume_1h and volume_1h > 0:
+                volume_display = f"Vol1h: ${volume_1h:,.0f}"
             else:
-                volume_display = f"${volume_24h:,.0f} (24h)"
+                volume_display = f"Vol24h: ${volume_24h:,.0f}"
             
             # Build alert message (similar to on-chain format)
             message = f"🌐 [{chain.upper()}] OFFCHAIN ALERT 🌐\n\n"
@@ -560,17 +566,15 @@ class OffChainScreenerIntegration:
                 else:
                     message += f"• Age: {age_minutes/1440:.1f} days\n"
             message += f"• Liquidity: ${liquidity:,.0f}\n"
-            message += f"• Volume: {volume_display}\n"
+            message += f"• {volume_display} | Tx1h: {tx_1h:.0f}\n"
             
-            if price_change_5m != 0 or price_change_1h != 0:
-                message += f"• Price Change: "
+            if price_change_1h != 0 or price_change_24h != 0:
+                message += f"• Price: "
                 changes = []
-                if price_change_5m != 0:
-                    changes.append(f"5m: {price_change_5m:+.1f}%")
                 if price_change_1h != 0:
-                    changes.append(f"1h: {price_change_1h:+.1f}%")
+                    changes.append(f"Δ1h: {price_change_1h:+.1f}%")
                 if price_change_24h != 0:
-                    changes.append(f"24h: {price_change_24h:+.1f}%")
+                    changes.append(f"Δ24h: {price_change_24h:+.1f}%")
                 message += ", ".join(changes) + "\n"
             
             message += f"\n🔍 Detection:\n"

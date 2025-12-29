@@ -5,16 +5,14 @@ Multi-level filtering to eliminate 95% of noise before on-chain verification.
 
 FILTERING STRATEGY:
 
-Level-0 (cheap, off-chain only):
-- liquidity > X
-- volume_5m > Y
-- tx_5m > Z
-- age < N hours
+Level-0 (Quality Gate - eliminates dead/low-activity pairs):
+- liquidity >= $1,000
+- volume.h1 >= $300
+- txns.h1 >= 10
 
-Level-1 (momentum based):
-- price_change_5m OR 15m OR 1h
-- volume spike ratio
-- tx acceleration
+Level-1 (Momentum Detection - identifies breakouts):
+- priceChange.h1 >= 5% OR
+- volume spike ratio >= 2.0x (h1 vs h24 average)
 """
 
 from typing import Dict, Optional
@@ -38,24 +36,20 @@ class OffChainFilter:
         self.config = config or {}
         
         # ================================================================
-        # LEVEL-0 THRESHOLDS (Activity Gate)
+        # LEVEL-0 THRESHOLDS (Quality Gate)
         # ================================================================
-        # DexScreener API provides h1 data, NOT m5
-        # We use VIRTUAL 5m metrics derived from h1: virtual_5m = h1 / 12
-        self.min_liquidity = self.config.get('min_liquidity', 500)  # $500 minimum
-        
-        # VIRTUAL 5m thresholds (applied to h1/12 values)
-        self.min_volume_5m_virtual = self.config.get('min_volume_5m_virtual', 50)  # $50 virtual 5m volume
-        self.min_tx_5m_virtual = self.config.get('min_tx_5m_virtual', 2)  # 2 virtual 5m transactions
+        # DexScreener API provides h1/h24 data ONLY
+        self.min_liquidity = self.config.get('min_liquidity', 1000)  # $1,000 minimum
+        self.min_volume_1h = self.config.get('min_volume_1h', 300)  # $300 h1 volume
+        self.min_tx_1h = self.config.get('min_tx_1h', 10)  # 10 h1 transactions
         
         self.max_age_hours = self.config.get('max_age_hours', None)  # None = disabled
         
         # ================================================================
         # LEVEL-1 THRESHOLDS (Momentum Gate)
         # ================================================================
-        # Use h1 price change directly (DexScreener provides this natively)
-        self.min_price_change_1h = self.config.get('min_price_change_1h', 15.0)  # 15% gain in 1h
-        self.min_volume_spike_ratio = self.config.get('min_volume_spike_ratio', 1.3)  # 1.3x volume spike
+        self.min_price_change_1h = self.config.get('min_price_change_1h', 5.0)  # 5% gain in 1h
+        self.min_volume_spike_ratio = self.config.get('min_volume_spike_ratio', 2.0)  # 2.0x volume spike
         
         # DEXTools guarantee rule
         self.dextools_top_rank = self.config.get('dextools_top_rank', 50)  # Top 50 = force pass
@@ -125,13 +119,13 @@ class OffChainFilter:
     
     def _apply_level_0(self, pair: Dict) -> tuple[bool, Optional[str]]:
         """
-        Apply Level-0 filters (basic criteria).
+        Apply Level-0 filters (Quality Gate).
         
         Checks:
-        - Liquidity >= min_liquidity
-        - Virtual volume_5m >= min_volume_5m_virtual
-        - Virtual tx_5m >= min_tx_5m_virtual
-        - Age <= max_age_hours (if enabled)
+        - liquidity >= min_liquidity
+        - volume_1h >= min_volume_1h
+        - tx_1h >= min_tx_1h
+        - age <= max_age_hours (if enabled)
         
         Returns:
             (passed: bool, reason: str or None)
@@ -144,31 +138,26 @@ class OffChainFilter:
             return False, f"Low liquidity (${liquidity:,.0f} < ${self.min_liquidity:,})"
         
         # ================================================================
-        # CHECK 2: Virtual 5m Volume (from h1/12)
+        # CHECK 2: Volume (H1 - direct from API)
         # ================================================================
-        # The normalizer calculates: volume_5m = volume_1h / 12
-        volume_5m = pair.get('volume_5m')
+        volume_1h = pair.get('volume_1h')
         
-        # If volume_5m is None, the pair has no h1 volume data → reject
-        if volume_5m is None or volume_5m < self.min_volume_5m_virtual:
-            vol_display = f"${volume_5m:,.0f}" if volume_5m else "N/A"
-            return False, f"Low virtual 5m volume ({vol_display} < ${self.min_volume_5m_virtual:,})"
+        if volume_1h is None or volume_1h < self.min_volume_1h:
+            vol_display = f"${volume_1h:,.0f}" if volume_1h else "N/A"
+            return False, f"Low h1 volume ({vol_display} < ${self.min_volume_1h:,})"
         
         # ================================================================
-        # CHECK 3: Virtual 5m Transaction Count (from h1/12)
+        # CHECK 3: Transaction Count (H1 - direct from API)
         # ================================================================
-        # The normalizer calculates: tx_5m = tx_1h / 12
-        tx_5m = pair.get('tx_5m')
+        tx_1h = pair.get('tx_1h')
         
-        # If tx_5m is None, the pair has no h1 tx data → reject
-        if tx_5m is None or tx_5m < self.min_tx_5m_virtual:
-            tx_display = f"{tx_5m:.1f}" if tx_5m else "N/A"
-            return False, f"Low virtual 5m transactions ({tx_display} < {self.min_tx_5m_virtual})"
+        if tx_1h is None or tx_1h < self.min_tx_1h:
+            tx_display = f"{tx_1h:.0f}" if tx_1h else "N/A"
+            return False, f"Low h1 transactions ({tx_display} < {self.min_tx_1h})"
         
         # ================================================================
         # CHECK 4: Age (if enabled)
         # ================================================================
-        # If max_age_hours is None → disabled (allow all ages)
         if self.max_age_hours is not None:
             age_minutes = pair.get('age_minutes')
             if age_minutes is not None:

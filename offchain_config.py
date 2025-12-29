@@ -26,24 +26,20 @@ OFFCHAIN_SCREENER_CONFIG = {
         'min_request_interval_seconds': 0.2,
     },
     
-    # Filters (PRODUCTION - FIXED: DexScreener API provides h1 only, NOT 5m)
-    # Virtual 5m metrics are derived from h1 using: virtual_5m = h1 / 12
+    # Filters (PRODUCTION - H1-BASED ONLY)
+    # DexScreener PUBLIC API provides ONLY h1 and h24 metrics
     'filters': {
-        # Level-0 thresholds (basic quality gates)
-        'min_liquidity': 500,  # $500 (API already filters <$500)
-        
-        # VIRTUAL 5m metrics (derived from h1 data)
-        # DexScreener API does NOT provide real m5 data
-        # These thresholds apply to: h1 / 12
-        'min_volume_5m_virtual': 50,  # $50 virtual 5m volume (from h1/12)
-        'min_tx_5m_virtual': 2,  # Minimum 2 virtual 5m transactions (from h1/12)
+        # Level-0 thresholds (Quality Gate)
+        'min_liquidity': 1000,  # $1,000 minimum liquidity
+        'min_volume_1h': 300,  # $300 minimum hourly volume
+        'min_tx_1h': 10,  # 10 minimum hourly transactions
         
         'max_age_hours': None,  # DISABLED - Allow old pair revivals (momentum-based)
         
-        # Level-1 thresholds (momentum detection - PRODUCTION)
-        # DexScreener provides h1 price change natively
-        'min_price_change_1h': 15.0,  # 15% price gain in 1h (was 20%)
-        'min_volume_spike_ratio': 1.3,  # 1.3x volume spike (was 1.5x)
+        # Level-1 thresholds (Momentum Detection)
+        # Use h1 metrics ONLY - no 5m data available from DexScreener API
+        'min_price_change_1h': 5.0,  # 5% price gain in 1h
+        'min_volume_spike_ratio': 2.0,  # 2.0x hourly volume spike (h1 vs h24 avg)
         
         # DEXTools guarantee
         'dextools_top_rank': 50,  # Top 50 ranks bypass filters
@@ -75,11 +71,17 @@ OFFCHAIN_SCREENER_CONFIG = {
         'activity_threshold': 5,  # Pairs/scan to consider "active"
     },
     
-    # Scoring weights for FINAL_SCORE calculation
+    # Scoring weights for FINAL_SCORE calculation (H1-based)
     'scoring': {
         'offchain_weight': 0.6,  # 60% off-chain score
         'onchain_weight': 0.4,  # 40% on-chain score
         'verify_threshold': 60,  # Trigger on-chain verify if FINAL_SCORE >= 60
+        
+        # Off-chain score component weights (total = 100%)
+        'liquidity_weight': 0.30,  # 30% - liquidity.usd
+        'volume_1h_weight': 0.30,  # 30% - volume.h1
+        'price_change_1h_weight': 0.25,  # 25% - priceChange.h1
+        'tx_1h_weight': 0.15,  # 15% - txns.h1
     },
 }
 
