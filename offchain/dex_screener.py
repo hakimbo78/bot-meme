@@ -93,23 +93,27 @@ class DexScreenerAPI(BaseScreener):
     
     async def fetch_trending_pairs(self, chain: str = "base", limit: int = 50) -> List[Dict]:
         """
-        Fetch trending pairs by volume.
+        Fetch trending pairs by volume - WITH QUALITY FILTERS.
         
-        DexScreener doesn't have a direct "trending" endpoint,
-        so we search for recently created pairs with high volume.
+        Improvements:
+        - Pre-filter dead pairs ($0 volume)
+        - Pre-filter low liquidity pairs (< $500)
+        - Sort by 24h volume (most active first)
+        - Only return quality pairs
         
         Args:
             chain: Target chain
             limit: Max pairs to return
             
         Returns:
-            List of pair data dicts
+            List of HIGH QUALITY pair data dicts
         """
         chain = self._normalize_chain_name(chain)
         
         print(f"[DEXSCREENER DEBUG] fetch_trending_pairs called for chain: {chain}")
         
-        # Use search endpoint with chain filter
+        # Strategy: Use search but apply STRICT pre-filtering
+        # This eliminates junk BEFORE normalization
         url = f"{self.BASE_URL}/search"
         params = {
             'q': chain,  # Search by chain
@@ -135,22 +139,69 @@ class DexScreenerAPI(BaseScreener):
             sample_pair = pairs[0]
             print(f"[DEXSCREENER DEBUG] Sample pair chainId: {sample_pair.get('chainId')}, pairAddress: {sample_pair.get('pairAddress', 'N/A')[:10]}...")
         
-        # Filter by chain and sort by volume
+        # ============================================================
+        # PRE-FILTERING (NEW - Improve data quality)
+        # ============================================================
+        
+        # Step 1: Filter by chain
         chain_pairs = [
             p for p in pairs 
             if p.get('chainId', '').lower() == chain
         ]
-        
         print(f"[DEXSCREENER DEBUG] After chain filter ({chain}): {len(chain_pairs)} pairs")
         
-        # Sort by 24h volume descending
-        chain_pairs.sort(
+        # Step 2: PRE-FILTER LOW QUALITY (before sorting)
+        quality_pairs = []
+        filtered_dead = 0
+        filtered_low_liq = 0
+        filtered_no_data = 0
+        
+        for p in chain_pairs:
+            # Get volume (prefer 24h for stability)
+            vol_24h = p.get('volume', {}).get('h24', 0) if isinstance(p.get('volume'), dict) else 0
+            vol_24h = float(vol_24h) if vol_24h else 0
+            
+            # Get liquidity
+            liquidity = p.get('liquidity', {}).get('usd', 0) if isinstance(p.get('liquidity'), dict) else 0
+            liquidity = float(liquidity) if liquidity else 0
+            
+            # QUALITY CHECKS
+            # Skip if NO volume at all (dead pair)
+            if vol_24h == 0:
+                filtered_dead += 1
+                continue
+            
+            # Skip if liquidity too low (< $500 = likely scam/rug)
+            if liquidity < 500:
+                filtered_low_liq += 1
+                continue
+            
+            # Skip if missing critical data
+            if not p.get('pairAddress'):
+                filtered_no_data += 1
+                continue
+            
+            # Passed quality checks
+            quality_pairs.append(p)
+        
+        print(f"[DEXSCREENER DEBUG] Quality filter: {len(quality_pairs)} passed")
+        print(f"[DEXSCREENER DEBUG]   - Filtered dead pairs ($0 vol): {filtered_dead}")
+        print(f"[DEXSCREENER DEBUG]   - Filtered low liq (<$500): {filtered_low_liq}")
+        print(f"[DEXSCREENER DEBUG]   - Filtered no data: {filtered_no_data}")
+        
+        # Step 3: Sort by 24h volume descending (most active first)
+        quality_pairs.sort(
             key=lambda x: float(x.get('volume', {}).get('h24', 0) or 0),
             reverse=True
         )
         
-        result = chain_pairs[:limit]
-        print(f"[DEXSCREENER DEBUG] Returning {len(result)} pairs")
+        result = quality_pairs[:limit]
+        print(f"[DEXSCREENER DEBUG] Returning {len(result)} HIGH QUALITY pairs")
+        
+        # Log top pair volume for reference
+        if result:
+            top_vol = float(result[0].get('volume', {}).get('h24', 0) or 0)
+            print(f"[DEXSCREENER DEBUG] Top pair 24h volume: ${top_vol:,.0f}")
         
         return result
     
@@ -241,16 +292,21 @@ class DexScreenerAPI(BaseScreener):
     
     async def fetch_new_pairs(self, chain: str = "base", max_age_minutes: int = 60) -> List[Dict]:
         """
-        Fetch recently created pairs.
+        Fetch recently created pairs - WITH QUALITY FILTERS.
         
         This is the MAIN METHOD for detecting new tokens.
+        
+        Improvements:
+        - Pre-filter dead pairs ($0 volume)
+        - Pre-filter low liquidity pairs (< $500)
+        - Only return pairs with actual trading activity
         
         Args:
             chain: Target chain
             max_age_minutes: Maximum age of pair in minutes
             
         Returns:
-            List of new pair data dicts
+            List of HIGH QUALITY new pair data dicts
         """
         chain = self._normalize_chain_name(chain)
         
@@ -280,6 +336,8 @@ class DexScreenerAPI(BaseScreener):
         new_pairs = []
         chain_matched = 0
         has_creation_time = 0
+        filtered_dead = 0
+        filtered_low_liq = 0
         
         for pair in pairs:
             if pair.get('chainId', '').lower() != chain:
@@ -289,17 +347,46 @@ class DexScreenerAPI(BaseScreener):
             
             # Parse creation time
             created_at = pair.get('pairCreatedAt')
-            if created_at:
-                has_creation_time += 1
-                try:
-                    created_time = datetime.fromtimestamp(created_at / 1000)  # milliseconds to seconds
-                    if created_time >= cutoff_time:
-                        new_pairs.append(pair)
-                except Exception as e:
-                    print(f"[DEXSCREENER DEBUG] Error parsing creation time: {e}")
-                    pass
+            if not created_at:
+                continue
+            
+            has_creation_time += 1
+            
+            try:
+                created_time = datetime.fromtimestamp(created_at / 1000)  # milliseconds to seconds
+                if created_time < cutoff_time:
+                    continue  # Too old
+                
+                # NEW: Quality checks BEFORE adding
+                # Get volume
+                vol_24h = pair.get('volume', {}).get('h24', 0) if isinstance(pair.get('volume'), dict) else 0
+                vol_24h = float(vol_24h) if vol_24h else 0
+                
+                # Get liquidity
+                liquidity = pair.get('liquidity', {}).get('usd', 0) if isinstance(pair.get('liquidity'), dict) else 0
+                liquidity = float(liquidity) if liquidity else 0
+                
+                # Skip if NO volume (dead pair)
+                if vol_24h == 0:
+                    filtered_dead += 1
+                    continue
+                
+                # Skip if liquidity too low
+                if liquidity < 500:
+                    filtered_low_liq += 1
+                    continue
+                
+                # Passed all checks
+                new_pairs.append(pair)
+                
+            except Exception as e:
+                print(f"[DEXSCREENER DEBUG] Error parsing creation time: {e}")
+                pass
         
-        print(f"[DEXSCREENER DEBUG] Chain matched: {chain_matched}, Has creation time: {has_creation_time}, New pairs: {len(new_pairs)}")
+        print(f"[DEXSCREENER DEBUG] Chain matched: {chain_matched}, Has creation time: {has_creation_time}")
+        print(f"[DEXSCREENER DEBUG]   - Filtered dead pairs ($0 vol): {filtered_dead}")
+        print(f"[DEXSCREENER DEBUG]   - Filtered low liq (<$500): {filtered_low_liq}")
+        print(f"[DEXSCREENER DEBUG] New HIGH QUALITY pairs: {len(new_pairs)}")
         
         return new_pairs
     
