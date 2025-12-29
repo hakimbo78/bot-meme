@@ -50,9 +50,9 @@ OFFCHAIN_SCREENER_CONFIG = {
         'max_size': 1000,  # Max 1000 cached pairs
     },
     
-    # Deduplicator
+    # Deduplicator (DISABLED for testing - was 600s)
     'deduplicator': {
-        'cooldown_seconds': 600,  # 10 minutes cooldown
+        'cooldown_seconds': 0,  # DISABLED - Allow re-evaluation every scan (testing only!)
     },
     
     # Scheduler
