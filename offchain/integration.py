@@ -139,14 +139,23 @@ class OffChainScreenerIntegration:
         """
         all_passed_pairs = []
         
+        print(f"[OFFCHAIN DEBUG] _scan_dexscreener called with chains: {chains}")
+        
         for chain in chains:
             try:
+                print(f"[OFFCHAIN DEBUG] Scanning chain: {chain}")
+                
                 # Fetch trending pairs and new pairs
                 trending = await self.dexscreener.fetch_trending_pairs(chain, limit=50)
+                print(f"[OFFCHAIN DEBUG] Trending pairs: {len(trending)}")
+                
                 new_pairs = await self.dexscreener.fetch_new_pairs(chain, max_age_minutes=60)
+                print(f"[OFFCHAIN DEBUG] New pairs: {len(new_pairs)}")
                 
                 # Combine (deduplicate by pair_address)
                 all_pairs = trending + new_pairs
+                print(f"[OFFCHAIN DEBUG] Combined (before dedup): {len(all_pairs)}")
+                
                 seen_addresses = set()
                 unique_pairs = []
                 
@@ -156,17 +165,26 @@ class OffChainScreenerIntegration:
                         seen_addresses.add(addr)
                         unique_pairs.append(pair)
                 
+                print(f"[OFFCHAIN DEBUG] Unique pairs: {len(unique_pairs)}")
+                
                 self.stats['total_raw_pairs'] += len(unique_pairs)
                 
                 # Process each pair
+                processed = 0
                 for raw_pair in unique_pairs:
                     passed_pair = await self._process_pair(raw_pair, 'dexscreener', chain)
                     if passed_pair:
                         all_passed_pairs.append(passed_pair)
+                        processed += 1
+                
+                print(f"[OFFCHAIN DEBUG] Processed {processed} pairs that passed filters")
                 
             except Exception as e:
                 print(f"[OFFCHAIN] DexScreener scan error for {chain}: {e}")
+                import traceback
+                traceback.print_exc()
         
+        print(f"[OFFCHAIN DEBUG] Total passed pairs across all chains: {len(all_passed_pairs)}")
         return all_passed_pairs
     
     async def _scan_dextools(self, chains: List[str]) -> List[Dict]:

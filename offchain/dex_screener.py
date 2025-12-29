@@ -107,18 +107,33 @@ class DexScreenerAPI(BaseScreener):
         """
         chain = self._normalize_chain_name(chain)
         
+        print(f"[DEXSCREENER DEBUG] fetch_trending_pairs called for chain: {chain}")
+        
         # Use search endpoint with chain filter
         url = f"{self.BASE_URL}/search"
         params = {
             'q': chain,  # Search by chain
         }
         
+        print(f"[DEXSCREENER DEBUG] Making request to: {url} with params: {params}")
+        
         data = await self._rate_limited_request(url, params)
         
-        if not data or 'pairs' not in data:
+        if not data:
+            print(f"[DEXSCREENER DEBUG] No data returned from API")
+            return []
+        
+        if 'pairs' not in data:
+            print(f"[DEXSCREENER DEBUG] Response has no 'pairs' key. Keys: {list(data.keys())}")
             return []
         
         pairs = data['pairs']
+        print(f"[DEXSCREENER DEBUG] API returned {len(pairs)} total pairs")
+        
+        # Log first pair for debugging
+        if pairs:
+            sample_pair = pairs[0]
+            print(f"[DEXSCREENER DEBUG] Sample pair chainId: {sample_pair.get('chainId')}, pairAddress: {sample_pair.get('pairAddress', 'N/A')[:10]}...")
         
         # Filter by chain and sort by volume
         chain_pairs = [
@@ -126,13 +141,18 @@ class DexScreenerAPI(BaseScreener):
             if p.get('chainId', '').lower() == chain
         ]
         
+        print(f"[DEXSCREENER DEBUG] After chain filter ({chain}): {len(chain_pairs)} pairs")
+        
         # Sort by 24h volume descending
         chain_pairs.sort(
             key=lambda x: float(x.get('volume', {}).get('h24', 0) or 0),
             reverse=True
         )
         
-        return chain_pairs[:limit]
+        result = chain_pairs[:limit]
+        print(f"[DEXSCREENER DEBUG] Returning {len(result)} pairs")
+        
+        return result
     
     async def fetch_top_gainers(self, chain: str = "base", timeframe: str = "1h", limit: int = 50) -> List[Dict]:
         """
@@ -234,34 +254,52 @@ class DexScreenerAPI(BaseScreener):
         """
         chain = self._normalize_chain_name(chain)
         
+        print(f"[DEXSCREENER DEBUG] fetch_new_pairs called for chain: {chain}, max_age: {max_age_minutes}min")
+        
         # Use search to find recent pairs
         url = f"{self.BASE_URL}/search"
         params = {'q': chain}
         
         data = await self._rate_limited_request(url, params)
         
-        if not data or 'pairs' not in data:
+        if not data:
+            print(f"[DEXSCREENER DEBUG] No data returned from API")
+            return []
+        
+        if 'pairs' not in data:
+            print(f"[DEXSCREENER DEBUG] Response has no 'pairs' key")
             return []
         
         pairs = data['pairs']
+        print(f"[DEXSCREENER DEBUG] API returned {len(pairs)} total pairs")
         
         # Filter by chain and age
         cutoff_time = datetime.now() - timedelta(minutes=max_age_minutes)
+        print(f"[DEXSCREENER DEBUG] Cutoff time: {cutoff_time}")
+        
         new_pairs = []
+        chain_matched = 0
+        has_creation_time = 0
         
         for pair in pairs:
             if pair.get('chainId', '').lower() != chain:
                 continue
             
+            chain_matched += 1
+            
             # Parse creation time
             created_at = pair.get('pairCreatedAt')
             if created_at:
+                has_creation_time += 1
                 try:
                     created_time = datetime.fromtimestamp(created_at / 1000)  # milliseconds to seconds
                     if created_time >= cutoff_time:
                         new_pairs.append(pair)
-                except:
+                except Exception as e:
+                    print(f"[DEXSCREENER DEBUG] Error parsing creation time: {e}")
                     pass
+        
+        print(f"[DEXSCREENER DEBUG] Chain matched: {chain_matched}, Has creation time: {has_creation_time}, New pairs: {len(new_pairs)}")
         
         return new_pairs
     
