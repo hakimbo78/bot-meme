@@ -54,8 +54,9 @@ chains:
   # SOLANA - Full Implementation (2025-12-27)
   # Supports: Pump.fun, Raydium, Jupiter
   # Modes: SNIPER, RUNNING
+  # DISABLED: Using off-chain DexScreener API only (cost optimization)
   solana:
-    enabled: true
+    enabled: false
     rpc_url: "https://mainnet.helius-rpc.com/?api-key=e06bc5e1-0e03-41e4-b354-2a78cbd121bc"
     
     # Program IDs
