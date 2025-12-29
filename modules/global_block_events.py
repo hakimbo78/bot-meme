@@ -89,7 +89,7 @@ class GlobalBlockService:
     """
     _instances: Dict[str, 'GlobalBlockService'] = {}
     
-    def __init__(self, chain_name: str, chain_id: int, w3: Web3, interval: float = 6.0):
+    def __init__(self, chain_name: str, chain_id: int, w3: Web3, interval: float = 30.0):
         self.chain_name = chain_name
         self.chain_id = chain_id
         self.w3 = w3
@@ -103,7 +103,7 @@ class GlobalBlockService:
         self._processed_blocks: Set[int] = set()
         
     @classmethod
-    def get_instance(cls, chain_name: str, chain_id: int, w3: Web3, interval: float = 6.0):
+    def get_instance(cls, chain_name: str, chain_id: int, w3: Web3, interval: float = 30.0):
         if chain_name not in cls._instances:
             cls._instances[chain_name] = cls(chain_name, chain_id, w3, interval)
         return cls._instances[chain_name]
