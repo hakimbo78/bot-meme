@@ -311,12 +311,12 @@ class EVMAdapter(ChainAdapter):
             print(f"⚠️  {self.get_chain_prefix()} RPC Error: {e}")
             return None
 
-    async def scan_new_pairs_async(self, target_block: int = None) -> List[Dict]:
+    async def scan_new_pairs_async(self, target_block: int = None, **kwargs) -> List[Dict]:
         """
         CU-OPTIMIZED STAGED SCANNER PIPELINE
         
         Event-Driven Mode:
-        - target_block provided by GlobalBlockFeed
+        - snapshot provided by GlobalBlockService
         - No internal polling
         - Efficient delta scans
         """
@@ -331,23 +331,33 @@ class EVMAdapter(ChainAdapter):
 
         try:
             # ===== STAGE 1: BLOCK TICK =====
-            if target_block:
+            snapshot = kwargs.get('snapshot')
+            current_block = 0
+            block_timestamp = 0
+            
+            if snapshot:
+                # TRUE GLOBAL EVENT DRIVEN MODE
+                current_block = snapshot.block_number
+                block_timestamp = snapshot.timestamp
+            elif target_block:
+                # Legacy compatibility
                 current_block = target_block
+                block_timestamp = int(time.time()) # Approximate fallback
             else:
-                current_block = await self._run_with_timeout(self._get_current_block)
+                # STRICT MODE: Reject internal polling
+                # print(f"🛑 [{self.chain_name.upper()}] REJECTED: No block snapshot provided") 
+                return []
             
             if not current_block:
-                print(f"❌ [{self.chain_name.upper()}] Failed to get current block")
                 return []
 
             # Check if we need to scan
             if current_block <= self.last_block:
-                # print(f"🛑 [EVENT-DRIVEN] No new block -> skipping all scans") # As requested
                 return []
 
-            # In event-driven mode, we don't pay for eth_blockNumber here (paid by listener)
-            if not target_block:
-                self._increment_cu(1)  # eth_blockNumber cost
+            # In event-driven mode, we don't pay for eth_blockNumber/timestamp here (paid by listener)
+            if not snapshot:
+                self._increment_cu(1)  # penalty for legacy calls
 
             # ===== STAGE 2: FACTORY LOGS =====
             # Limited block range per chain
@@ -480,7 +490,8 @@ class EVMAdapter(ChainAdapter):
                         'symbol': metadata.get('symbol', '???') if metadata else '???',
                         'decimals': metadata.get('decimals', 18) if metadata else 18,
                         'liquidity_usd': liquidity or 0,
-                        'timestamp': int(time.time())  # Approximate
+                        'liquidity_usd': liquidity or 0,
+                        'timestamp': block_timestamp  # Use snapshot timestamp
                     }
 
                     final_pairs.append(pair_data)
