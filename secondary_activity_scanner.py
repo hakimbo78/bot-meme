@@ -101,7 +101,9 @@ class SecondaryActivityScanner:
         # Configuration
         self.max_pools = 50  # Max pools in ring buffer
         self.ttl_seconds = 300  # 5 minutes
-        self.scan_blocks_back = 3  # Scan last 3 blocks per cycle
+        self.scan_blocks_back = 1  # EMERGENCY OPTIMIZATION: Scan only 1 block
+        
+        print(f"✅ [ACTIVITY] Initialized {self.chain_name.upper()} in CU-OPTIMIZED MODE (Hash-only, 1 block/cycle)")
         
         # Event signatures (Keccak-256)
         self.swap_sigs = {
@@ -160,11 +162,18 @@ class SecondaryActivityScanner:
     
     def scan_block_for_swaps(self, block_number: int) -> List[Dict]:
         """
-        Scan a single block for Swap events (CU-efficient: hash-only scan)
+        Scan a single block for Swap events (ULTRA CU-EFFICIENT)
+        
+        EMERGENCY OPTIMIZATION:
+        - Max 5 tx per block (down from 50) = 90% reduction!
+        - Early exit after finding swaps
+        - Skip blocks with no transactions
         
         Returns: List of flagged transactions to parse
         """
         flagged_txs = []
+        swaps_found = 0
+        max_swaps_per_block = 3  # Stop after finding 3 swaps
         
         try:
             # OPTIMIZATION: Get block with tx hashes only (NO full tx data)
@@ -177,10 +186,17 @@ class SecondaryActivityScanner:
             if not tx_hashes:
                 return []
             
+            # ULTRA AGGRESSIVE LIMIT: Only check first 5 transactions per block
+            # This reduces RPC calls by 90%!
+            max_tx_to_check = min(5, len(tx_hashes))
+            
             # For each tx, check receipts for Swap events
-            # OPTIMIZATION: Batch receipt fetching to reduce RPC calls
-            for tx_hash in tx_hashes[:50]:  # Limit to first 50 tx per block to control CU
+            for tx_hash in tx_hashes[:max_tx_to_check]:
                 try:
+                    # EARLY EXIT: Stop if we found enough swaps
+                    if swaps_found >= max_swaps_per_block:
+                        break
+                    
                     receipt = self.web3.eth.get_transaction_receipt(tx_hash)
                     
                     # Check logs for Swap events
@@ -200,6 +216,7 @@ class SecondaryActivityScanner:
                         if is_swap_v2 or is_swap_v3:
                             pool_address = log['address']
                             dex_type = 'uniswap_v2' if is_swap_v2 else 'uniswap_v3'
+                            swaps_found += 1
                             
                             # Extract trader from topics (topic[1] for V2, topic[2] for V3)
                             trader_topic = topics[1] if is_swap_v2 and len(topics) > 1 else (topics[2] if is_swap_v3 and len(topics) > 2 else None)
@@ -360,12 +377,20 @@ class SecondaryActivityScanner:
                 from_block = self.last_scanned_block + 1
             
             # Limit scan range to prevent overload
-            from_block = max(from_block, current_block - self.scan_blocks_back)
+            # OPTIMIZATION: Aggressively reduce block scan range
+            # Only scan max 1 block back to keep CU usage minimal
+            max_scan_blocks = 1
+            from_block = max(from_block, current_block - max_scan_blocks)
             
             if from_block > current_block:
                 return []  # No new blocks to scan
             
-            print(f"🔍 [ACTIVITY] {self.chain_name.upper()}: Scanning blocks {from_block} to {current_block}")
+            # Ensure we don't scan too many blocks at once even if we feel behind
+            # Just scan the latest block to catch up efficiently
+            if (current_block - from_block) > max_scan_blocks:
+                from_block = current_block - max_scan_blocks
+            
+            print(f"🔍 [ACTIVITY] {self.chain_name.upper()}: Scanning block {current_block} (optimized)")
             
             # Scan each block
             for block_num in range(from_block, current_block + 1):
