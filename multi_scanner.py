@@ -14,7 +14,7 @@ from chain_adapters import get_adapter_for_chain
 import traceback
 
 # EVENT-DRIVEN IMPORTS
-from modules.block_listener import GlobalBlockFeed, SharedBlockCache
+from modules.global_block_events import GlobalBlockService, EventBus, BlockSnapshot
 from modules.market_heat import MarketHeatEngine, HeatState
 
 
@@ -132,28 +132,27 @@ class MultiChainScanner:
         # Inject heat engine into adapter for internal use
         adapter.heat_engine = self.heat_engines[chain_name]
         
-        # Initialize Global Block Feed
-        feed = GlobalBlockFeed.get_instance(chain_name, adapter.w3)
-        self.block_feeds[chain_name] = feed
+        # Inject heat engine into adapter for internal use
+        adapter.heat_engine = self.heat_engines[chain_name]
         
-        # Define Event Handler
-        async def on_block(block_number: int):
-            try:
-                # 1. MARKET HEAT GATE
-                heat_engine = self.heat_engines[chain_name]
-                if heat_engine.is_cold():
-                    print(f"⏸️  [GATED][{chain_name.upper()}] Market COLD ({heat_engine.get_status_str()}) → factory scan skipped")
-                    return # NO RPC
-                
-                # 2. RUN SCAN DELTA
-                # Update heartbeat
-                self.heartbeats[chain_name] = time.time()
-                
-                # Run scan (pass explicit block to avoid RPC)
-                pairs = await adapter.scan_new_pairs_async(target_block=block_number)
+            # Define Event Handler (Receives BlockSnapshot)
+            async def on_block(snapshot: BlockSnapshot):
+                try:
+                    # 1. MARKET HEAT GATE
+                    heat_engine = self.heat_engines[chain_name]
+                    if heat_engine.is_cold():
+                        print(f"⏸️  [GATED][{chain_name.upper()}] Market COLD ({heat_engine.get_status_str()}) → factory scan skipped")
+                        return # NO RPC
+                    
+                    # 2. RUN SCAN DELTA
+                    # Update heartbeat
+                    self.heartbeats[chain_name] = time.time()
+                    
+                    # Run scan (pass SNAPSHOT to avoid RPC)
+                    pairs = await adapter.scan_new_pairs_async(snapshot=snapshot)
                 
                 if pairs:
-                    print(f"🔥 [EVENT-DRIVEN][{chain_name.upper()}] Found {len(pairs)} pairs in block {block_number}")
+                    print(f"🔥 [EVENT-DRIVEN][{chain_name.upper()}] Found {len(pairs)} pairs in block {snapshot.block_number}")
                     # Record activity -> Heat Up
                     heat_engine.record_activity()
                     
@@ -169,11 +168,18 @@ class MultiChainScanner:
                 print(f"⚠️  [{chain_name.upper()}] Block handler error: {e}")
                 # traceback.print_exc()
 
-        # Subscribe
-        feed.subscribe(on_block)
+        # Initialize Global Block Service
+        # We need the Chain ID (hardcoded or fetched once)
+        chain_id = config.get('chain_id', 1 if chain_name == 'ethereum' else 8453) # Default Base
         
-        # Start Feed
-        feed.start()
+        service = GlobalBlockService.get_instance(chain_name, chain_id, adapter.w3)
+        self.block_feeds[chain_name] = service
+        
+        # Subscribe via EventBus
+        EventBus.subscribe(f"NEW_BLOCK_{chain_name.upper()}", on_block)
+        
+        # Start Service
+        service.start()
         
         # Keep task alive but idle (feed runs in background task)
         try:

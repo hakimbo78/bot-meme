@@ -127,6 +127,19 @@ class EVMAdapter(ChainAdapter):
             # Add timeout to HTTP provider
             self.w3 = Web3(Web3.HTTPProvider(self.config['rpc_url'], request_kwargs={'timeout': 10}))
             
+            # CU OPTIMIZATION: Cache eth_chainId to prevent spam
+            def cached_chain_id_middleware(make_request, w3):
+                cache = {}
+                def middleware(method, params):
+                    if method == 'eth_chainId':
+                        if 'eth_chainId' not in cache:
+                            cache['eth_chainId'] = make_request(method, params)
+                        return cache['eth_chainId']
+                    return make_request(method, params)
+                return middleware
+            
+            self.w3.middleware_onion.inject(cached_chain_id_middleware, layer=0)
+            
             if not self.w3.is_connected():
                 print(f"❌ {self.get_chain_prefix()} Could not connect to RPC")
                 return False
