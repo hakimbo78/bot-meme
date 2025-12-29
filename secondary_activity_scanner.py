@@ -358,7 +358,7 @@ class SecondaryActivityScanner:
         
         return activity_signals
     
-    def scan_recent_activity(self) -> List[Dict]:
+    def scan_recent_activity(self, target_block: int = None) -> List[Dict]:
         """
         Main scanning method: Scan recent blocks for activity
         
@@ -366,7 +366,10 @@ class SecondaryActivityScanner:
         """
         try:
             # Get current block
-            current_block = self.web3.eth.block_number
+            if target_block:
+                current_block = target_block
+            else:
+                current_block = self.web3.eth.block_number
             
             # Determine scan range
             if self.last_scanned_block == 0:

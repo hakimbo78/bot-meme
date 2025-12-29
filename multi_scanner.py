@@ -11,6 +11,11 @@ import asyncio
 import time
 from typing import List, Dict, Optional
 from chain_adapters import get_adapter_for_chain
+import traceback
+
+# EVENT-DRIVEN IMPORTS
+from modules.block_listener import GlobalBlockFeed, SharedBlockCache
+from modules.market_heat import MarketHeatEngine, HeatState
 
 
 
@@ -35,6 +40,10 @@ class MultiChainScanner:
         self.heartbeats = {} # Last successful scan timestamp
         self.tasks = []
         self.is_running = False
+        
+        # EVENT-DRIVEN STATE
+        self.heat_engines = {}
+        self.block_feeds = {}
         
         # Filter out Solana if it's handled by dedicated module in main.py
         # We do this to avoid redundant RPC calls and timeouts
@@ -108,59 +117,71 @@ class MultiChainScanner:
         self.tasks.append(monitor_task)
         
     async def _chain_loop(self, chain_name: str, queue: asyncio.Queue):
-        """Isolated scan loop for a single chain - CU OPTIMIZED"""
+        """
+        EVENT-DRIVEN SCAN LOOP
+        Triggered by GlobalBlockFeed on new blocks only.
+        Gated by MarketHeatEngine.
+        """
         adapter = self.adapters[chain_name]
-        print(f"✅ [{chain_name.upper()}] Scanner loop started")
+        print(f"✅ [{chain_name.upper()}] Event-driven scanner connected")
         
-        # Init heartbeat
-        self.heartbeats[chain_name] = time.time()
-        previous_interval = adapter.scan_interval
+        # Initialize Market Heat Engine for this chain
+        if chain_name not in self.heat_engines:
+            self.heat_engines[chain_name] = MarketHeatEngine.get_instance(chain_name)
         
-        while self.is_running:
+        # Inject heat engine into adapter for internal use
+        adapter.heat_engine = self.heat_engines[chain_name]
+        
+        # Initialize Global Block Feed
+        feed = GlobalBlockFeed.get_instance(chain_name, adapter.w3)
+        self.block_feeds[chain_name] = feed
+        
+        # Define Event Handler
+        async def on_block(block_number: int):
             try:
-                # CU-OPTIMIZED: Use chain-specific scan interval
-                scan_start = time.time()
-                print(f"🔄 [{chain_name.upper()}] Starting scan cycle...")
+                # 1. MARKET HEAT GATE
+                heat_engine = self.heat_engines[chain_name]
+                if heat_engine.is_cold():
+                    print(f"⏸️  [GATED][{chain_name.upper()}] Market COLD ({heat_engine.get_status_str()}) → factory scan skipped")
+                    return # NO RPC
                 
-                # 1. Scans with internal yields and timeouts
-                pairs = await adapter.scan_new_pairs_async()
-                
-                # 2. Update heartbeat
+                # 2. RUN SCAN DELTA
+                # Update heartbeat
                 self.heartbeats[chain_name] = time.time()
-                scan_end = time.time()
                 
-                # 3. Enqueue results and log
+                # Run scan (pass explicit block to avoid RPC)
+                pairs = await adapter.scan_new_pairs_async(target_block=block_number)
+                
                 if pairs:
-                    print(f"✅ [{chain_name.upper()}] Found {len(pairs)} new pairs")
+                    print(f"🔥 [EVENT-DRIVEN][{chain_name.upper()}] Found {len(pairs)} pairs in block {block_number}")
+                    # Record activity -> Heat Up
+                    heat_engine.record_activity()
+                    
                     for pair in pairs:
                         await queue.put(pair)
                 else:
-                    print(f"⏸️  [{chain_name.upper()}] No new pairs found")
-                
-                # 4. CU-AWARE SLEEP: Respect chain-specific intervals
-                scan_duration = scan_end - scan_start
-                current_interval = adapter.scan_interval
-                
-                # Log heat status and interval adjustment
-                if adapter.heat_engine:
-                    heat_status = adapter.heat_engine.get_heat_status()
-                    print(f"[HEAT][{chain_name.upper()}] Market heat: {heat_status['score']} ({heat_status['zone']})")
-                    if current_interval != previous_interval:
-                        print(f"[SCAN][{chain_name.upper()}] Interval adjusted: {previous_interval} → {current_interval}")
-                
-                sleep_time = max(0, current_interval - scan_duration)
-                print(f"😴 [{chain_name.upper()}] Scan took {scan_duration:.1f}s, sleeping {sleep_time:.1f}s")
-                await asyncio.sleep(sleep_time)
-                
-                previous_interval = current_interval
-                
-            except asyncio.CancelledError:
-                print(f"🛑 [{chain_name.upper()}] Task cancelled")
-                break
+                    # Optional: Print idle message (strictly requested: 🛑 [EVENT-DRIVEN] No new block... but this is 'on_block' so it IS a new block)
+                    # The user requested: "🛑 [EVENT-DRIVEN] No new block → skipping all scans" - this is handled by BlockListener not calling us if no block.
+                    # We are here implies new block.
+                    pass
+                    
             except Exception as e:
-                print(f"⚠️  [{chain_name.upper()}] Loop error: {e}")
-                # Backoff on error
-                await asyncio.sleep(5)
+                print(f"⚠️  [{chain_name.upper()}] Block handler error: {e}")
+                # traceback.print_exc()
+
+        # Subscribe
+        feed.subscribe(on_block)
+        
+        # Start Feed
+        feed.start()
+        
+        # Keep task alive but idle (feed runs in background task)
+        try:
+            while self.is_running:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            print(f"🛑 [{chain_name.upper()}] Task cancelled")
+            feed.stop()
 
     async def _health_monitor(self):
         """Monitor chain heartbeats and flag stalls - CU-AWARE"""

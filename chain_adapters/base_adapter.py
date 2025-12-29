@@ -26,13 +26,15 @@ class ChainAdapter(ABC):
         """
         pass
 
-    async def scan_new_pairs_async(self) -> List[Dict]:
+    async def scan_new_pairs_async(self, target_block: int = None) -> List[Dict]:
         """
         Async version of scan_new_pairs. 
         Default implementation wraps synchronous call in thread to avoid blocking event loop.
         Override this for optimized async implementations.
         """
         import asyncio
+        # Note: synchronous scan_new_pairs might not support target_block without modification
+        # If the adapter supports it, it should leverage it.
         return await asyncio.to_thread(self.scan_new_pairs)
     
     @abstractmethod

@@ -526,37 +526,72 @@ async def main():
             # 2.5. Secondary Market Scanner Producer Task
             async def run_secondary_producer():
                 if not secondary_enabled: return
-                print(f"{Fore.BLUE}🔍 Secondary market scanner task started")
+                print(f"{Fore.BLUE}🔍 Secondary market scanner task started (Event-Driven)")
                 
-                while True:
-                    try:
-                        await asyncio.sleep(30)  # Scan every 30 seconds
-                        
-                        for chain_name, sec_scanner in secondary_scanners.items():
-                            if not sec_scanner.is_enabled():
-                                continue
-                                
-                            try:
-                                signals = await sec_scanner.scan_all_pairs()
-                                
-                                if signals:
-                                    print(f"{Fore.BLUE}🎯 [SECONDARY] {chain_name.upper()}: {len(signals)} breakout signals detected")
+                try:
+                    from modules.block_listener import GlobalBlockFeed
+                    from modules.market_heat import MarketHeatEngine
+                    
+                    active_chains = 0
+                    for chain_name, sec_scanner in secondary_scanners.items():
+                        try:
+                            # Use existing adapter logic or fallback to scanner web3
+                            adapter = scanner.get_adapter(chain_name)
+                            w3 = adapter.w3 if adapter else sec_scanner.web3
+                            
+                            feed = GlobalBlockFeed.get_instance(chain_name, w3)
+                            heat_engine = MarketHeatEngine.get_instance(chain_name)
+                            
+                            async def on_secondary_block(block_number):
+                                try:
+                                    # MARKET HEAT GATE
+                                    if heat_engine.is_cold():
+                                        return
                                     
-                                    for signal in signals:
-                                        # Add chain info and put in main queue for processing
-                                        signal['chain'] = chain_name
-                                        signal['signal_type'] = 'secondary_market'
-                                        await queue.put(signal)
+                                    if not sec_scanner.is_enabled():
+                                        return
                                         
-                                        # Send secondary alert
-                                        if telegram.enabled:
-                                            telegram.send_secondary_alert(signal)
+                                    try:
+                                        signals = await sec_scanner.scan_all_pairs(target_block=block_number)
+                                        
+                                        if signals:
+                                            print(f"{Fore.BLUE}🎯 [SECONDARY][{chain_name.upper()}] {len(signals)} breakout signals detected")
+                                            # Record activity (lower weight for secondary)
+                                            heat_engine.record_activity(weight=2)
+                                            
+                                            for signal in signals:
+                                                # Add chain info and put in main queue for processing
+                                                signal['chain'] = chain_name
+                                                signal['signal_type'] = 'secondary_market'
+                                                await queue.put(signal)
                                                 
-                            except Exception as e:
-                                print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
-                                
-                    except Exception as e:
-                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
+                                                # Send secondary alert
+                                                if telegram.enabled:
+                                                    telegram.send_secondary_alert(signal)
+                                                    
+                                    except Exception as scan_e:
+                                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {scan_e}")
+
+                                except Exception as e:
+                                    print(f"{Fore.YELLOW}⚠️  [SECONDARY] Handler error: {e}")
+                            
+                            feed.subscribe(on_secondary_block)
+                            active_chains += 1
+                            print(f"{Fore.BLUE}✅ [SECONDARY] Subscribed to {chain_name.upper()}")
+                        
+                        except Exception as e:
+                            print(f"{Fore.YELLOW}⚠️  [SECONDARY] Setup error for {chain_name}: {e}")
+                    
+                    if active_chains == 0:
+                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] No active chains connected")
+                        
+                    while True:
+                        await asyncio.sleep(60)
+                        
+                except Exception as e:
+                    print(f"{Fore.YELLOW}⚠️  [SECONDARY] Fatal producer error: {e}")
+                    # Fallback
+                    while True:
                         await asyncio.sleep(30)
 
             if secondary_enabled:
@@ -564,44 +599,78 @@ async def main():
 
             # 2.75. Activity Scanner Producer Task (2025-12-29)
             async def run_activity_producer():
-                """Scan for activity signals across all chains"""
+                """Event-driven activity scanner"""
                 if not ACTIVITY_SCANNER_AVAILABLE or not activity_integration:
                     return
                 
-                print(f"{Fore.CYAN}🔥 Activity scanner task started")
+                print(f"{Fore.CYAN}🔥 Activity scanner task started (Event-Driven)")
                 
-                while True:
-                    try:
-                        await asyncio.sleep(30)  # Scan every 30 seconds
-                        
-                        # Scan all registered chains
-                        signals = activity_integration.scan_all_chains()
-                        
-                        if signals:
-                            print(f"{Fore.CYAN}🎯 [ACTIVITY] {len(signals)} signals detected")
-                            
-                            for signal in signals:
-                                # Check DEXTools guarantee rule
-                                should_force = activity_integration.should_force_enqueue(signal)
-                                
-                                if should_force or signal.get('activity_score', 0) >= 60:
-                                    # Enrich signal with activity context
-                                    enriched_data = activity_integration.process_activity_signal(signal)
-                                    
-                                    # Add to main queue for processing
-                                    await queue.put(enriched_data)
-                                    
-                                    pool_addr = signal.get('pool_address', 'UNKNOWN')
-                                    print(f"{Fore.CYAN}🔥 [ACTIVITY] Enqueued: {pool_addr[:10]}... (score: {signal.get('activity_score', 0)})")
-                                    
-                                    # Send immediate activity alert if force enqueue (high confidence)
-                                    if telegram.enabled and should_force:
-                                        telegram.send_activity_alert(signal)
+                try:
+                    from modules.block_listener import GlobalBlockFeed
+                    from modules.market_heat import MarketHeatEngine
                     
-                    except Exception as e:
-                        print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Producer error: {e}")
-                        import traceback
-                        traceback.print_exc()
+                    # Setup listeners for each chain
+                    active_chains = 0
+                    for chain_name in activity_integration.scanners.keys():
+                        try:
+                            adapter = scanner.get_adapter(chain_name)
+                            if not adapter: 
+                                continue
+                                
+                            feed = GlobalBlockFeed.get_instance(chain_name, adapter.w3)
+                            heat_engine = MarketHeatEngine.get_instance(chain_name)
+                            
+                            # Define handler
+                            async def on_activity_block(block_number):
+                                try:
+                                    # MARKET HEAT GATE
+                                    if heat_engine.is_cold():
+                                        return # Skip scan if market is cold
+                                    
+                                    # Scan specific chain on this block
+                                    signals = activity_integration.scan_chain_activity(chain_name, block_number)
+                                    
+                                    if signals:
+                                        # Record activity (Heat Up)
+                                        heat_engine.record_activity(weight=5)
+                                        
+                                        print(f"{Fore.CYAN}🎯 [ACTIVITY] {len(signals)} signals detected in block {block_number}")
+                                        
+                                        for signal in signals:
+                                            should_force = activity_integration.should_force_enqueue(signal)
+                                            
+                                            if should_force or signal.get('activity_score', 0) >= 60:
+                                                enriched_data = activity_integration.process_activity_signal(signal)
+                                                await queue.put(enriched_data)
+                                                
+                                                pool_addr = signal.get('pool_address', 'UNKNOWN')
+                                                print(f"{Fore.CYAN}🔥 [ACTIVITY] Enqueued: {pool_addr[:10]}... (score: {signal.get('activity_score', 0)})")
+                                                
+                                                if telegram.enabled and should_force:
+                                                    telegram.send_activity_alert(signal)
+                                                    
+                                except Exception as e:
+                                    print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Handler error: {e}")
+
+                            # Subscribe
+                            feed.subscribe(on_activity_block)
+                            active_chains += 1
+                            print(f"{Fore.CYAN}✅ [ACTIVITY] Subscribed to {chain_name.upper()} block feed")
+                            
+                        except Exception as e:
+                             print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Setup error for {chain_name}: {e}")
+                    
+                    if active_chains == 0:
+                        print(f"{Fore.YELLOW}⚠️  [ACTIVITY] No active chains connected")
+                    
+                    # Keep task alive
+                    while True:
+                        await asyncio.sleep(60)
+                        
+                except Exception as e:
+                    print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Fatal producer error: {e}")
+                    # Fallback loop if event system fails
+                    while True:
                         await asyncio.sleep(30)
             
             if ACTIVITY_SCANNER_AVAILABLE and activity_integration:

@@ -311,39 +311,43 @@ class EVMAdapter(ChainAdapter):
             print(f"⚠️  {self.get_chain_prefix()} RPC Error: {e}")
             return None
 
-    async def scan_new_pairs_async(self) -> List[Dict]:
+    async def scan_new_pairs_async(self, target_block: int = None) -> List[Dict]:
         """
         CU-OPTIMIZED STAGED SCANNER PIPELINE
-
-        Stage 1: Block Tick (cheap)
-        Stage 2: Factory Logs (address-filtered, limited range)
-        Stage 3: Cheap Heuristics (NO eth_call)
-        Stage 4: Shortlist (HARD LIMIT)
-        Stage 5: Expensive RPC (STRICT - only for shortlist)
+        
+        Event-Driven Mode:
+        - target_block provided by GlobalBlockFeed
+        - No internal polling
+        - Efficient delta scans
         """
-        print(f"🔍 [{self.chain_name.upper()}] CU-optimized scan starting...")
+        # print(f"🔍 [{self.chain_name.upper()}] CU-optimized scan starting...")
 
         # CU CHECK: Emergency slow mode if budget exceeded
         if not self._check_cu_budget():
-            print(f"🚨 [{self.chain_name.upper()}] CU BUDGET EXCEEDED - Entering slow mode")
-            await asyncio.sleep(300)  # 5min cooldown
+            print(f"💸 [RPC GUARD][{self.chain_name.upper()}] Budget exceeded - Skipping scan")
             return []
 
         candidates = []
 
         try:
             # ===== STAGE 1: BLOCK TICK =====
-            current_block = await self._run_with_timeout(self._get_current_block)
+            if target_block:
+                current_block = target_block
+            else:
+                current_block = await self._run_with_timeout(self._get_current_block)
+            
             if not current_block:
                 print(f"❌ [{self.chain_name.upper()}] Failed to get current block")
                 return []
 
             # Check if we need to scan
             if current_block <= self.last_block:
-                print(f"⏸️  [{self.chain_name.upper()}] No new blocks (current: {current_block}, last: {self.last_block})")
+                # print(f"🛑 [EVENT-DRIVEN] No new block -> skipping all scans") # As requested
                 return []
 
-            self._increment_cu(1)  # eth_blockNumber cost
+            # In event-driven mode, we don't pay for eth_blockNumber here (paid by listener)
+            if not target_block:
+                self._increment_cu(1)  # eth_blockNumber cost
 
             # ===== STAGE 2: FACTORY LOGS =====
             # Limited block range per chain

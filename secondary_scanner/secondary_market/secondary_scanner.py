@@ -341,7 +341,7 @@ class SecondaryScanner:
             'weth_address': self.config.get('weth_address', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2')
         }
 
-    async def scan_pair_events(self, pair_address: str, pair_data: Dict) -> List[Dict]:
+    async def scan_pair_events(self, pair_address: str, pair_data: Dict, target_block: int = None) -> List[Dict]:
         """
         Scan recent events for a pair to update metrics.
         Returns list of swap events with volume data.
@@ -353,7 +353,11 @@ class SecondaryScanner:
                 return []
 
             # Get latest block
-            latest_block = self.web3.eth.block_number
+            if target_block:
+                latest_block = target_block
+            else:
+                latest_block = self.web3.eth.block_number
+                
             from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
 
             # Use checksum address
@@ -401,7 +405,7 @@ class SecondaryScanner:
             print(f"⚠️  Error scanning events for {pair_address}: {e}")
             return []
 
-    async def process_pair(self, pair_address: str) -> Optional[Dict]:
+    async def process_pair(self, pair_address: str, target_block: int = None) -> Optional[Dict]:
         """
         Process a single pair: update metrics, evaluate triggers.
         Returns signal data if secondary signal detected.
@@ -424,7 +428,7 @@ class SecondaryScanner:
                 return None
 
             # Scan recent swap events for volume
-            swap_events = await self.scan_pair_events(pair_address, pair_data)
+            swap_events = await self.scan_pair_events(pair_address, pair_data, target_block)
 
             # Add volume data (simplified - would sum actual volumes)
             total_volume = sum(event.get('volume_usd', 0) for event in swap_events)
@@ -476,7 +480,7 @@ class SecondaryScanner:
 
         return None
 
-    async def scan_all_pairs(self) -> List[Dict]:
+    async def scan_all_pairs(self, target_block: int = None) -> List[Dict]:
         """
         Scan all monitored pairs for signals.
         Returns list of detected signals.
@@ -488,7 +492,7 @@ class SecondaryScanner:
 
         async def process_with_limit(pair_addr):
             async with semaphore:
-                result = await self.process_pair(pair_addr)
+                result = await self.process_pair(pair_addr, target_block)
                 if result:
                     signals.append(result)
 

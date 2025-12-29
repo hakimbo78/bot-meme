@@ -72,6 +72,30 @@ class ActivityIntegration:
         
         return all_signals
     
+    def scan_chain_activity(self, chain_name: str, target_block: int) -> List[Dict]:
+        """
+        Scan a specific chain for activity signals (Event-Driven)
+        """
+        if not self.enabled:
+            return []
+            
+        scanner = self.scanners.get(chain_name)
+        if not scanner:
+            return []
+            
+        try:
+            signals = scanner.scan_recent_activity(target_block=target_block)
+            
+            if signals:
+                self.signals_by_chain[chain_name] = len(signals)
+                self.total_signals += len(signals)
+                print(f"🔥 [ACTIVITY INT] {chain_name.upper()}: {len(signals)} signals in block {target_block}")
+                
+            return signals
+        except Exception as e:
+            print(f"⚠️  [ACTIVITY INT] {chain_name.upper()}: Scan error: {e}")
+            return []
+    
     def process_activity_signal(self, signal: Dict, token_data: Optional[Dict] = None) -> Dict:
         """
         Process an activity signal and prepare for pipeline injection
