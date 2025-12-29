@@ -390,7 +390,7 @@ class EVMAdapter(ChainAdapter):
             logs = await self._run_with_timeout(fetch_factory_logs, timeout=5.0)
             if not logs:
                 self.last_block = current_block
-                print(f"📭 [{self.chain_name.upper()}] No factory logs found in blocks {from_block}-{to_block}")
+                # print(f"📭 [{self.chain_name.upper()}] No factory logs found in blocks {from_block}-{to_block}")
                 return []
 
             self._increment_cu(len(logs) * 5)  # eth_getLogs cost estimate
