@@ -29,6 +29,12 @@ from .cache import OffChainCache
 from .deduplicator import Deduplicator
 from .scheduler import OffChainScheduler
 
+# Import Telegram notifier for alerts
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from telegram_notifier import TelegramNotifier
+
 
 class OffChainScreenerIntegration:
     """
@@ -67,6 +73,9 @@ class OffChainScreenerIntegration:
         
         # Output queue for normalized pairs
         self.pair_queue = asyncio.Queue()
+        
+        # Telegram notifier for alerts
+        self.telegram_notifier = TelegramNotifier()
         
         # Enabled chains
         self.enabled_chains = self.config.get('enabled_chains', ['base'])
@@ -290,6 +299,9 @@ class OffChainScreenerIntegration:
         
         print(f"[OFFCHAIN] ✅ {source.upper()} | {chain.upper()} | {pair_address[:10]}... | Score: {offchain_score:.1f} | {normalized.get('event_type')}")
         
+        # 7. SEND TELEGRAM ALERT
+        await self._send_telegram_alert(normalized, chain)
+        
         return normalized
     
     def _calculate_offchain_score(self, normalized_pair: Dict) -> float:
@@ -490,3 +502,38 @@ class OffChainScreenerIntegration:
         print(f"  Pairs found:         DexScreener={scheduler_stats['pairs_found']['dexscreener']}, DEXTools={scheduler_stats['pairs_found']['dextools']}")
         
         print("="*60 + "\n")
+    
+    async def _send_telegram_alert(self, normalized: Dict, chain: str):
+        """
+        Send Telegram alert for off-chain detected pair.
+        
+        Args:
+            normalized: Normalized pair data
+            chain: Chain name
+        """
+        try:
+            pair_address = normalized.get('pair_address', 'UNKNOWN')
+            token_symbol = normalized.get('token_symbol', 'UNKNOWN')
+            offchain_score = normalized.get('offchain_score', 0)
+            liquidity = normalized.get('liquidity', 0)
+            volume_24h = normalized.get('volume_24h', 0)
+            
+            # Build alert message
+            message = f"🌐 [{chain.upper()}] [OFFCHAIN] {token_symbol}\n"
+            message += f"Pair: {pair_address[:10]}...\n"
+            message += f"Token: {normalized.get('token_name', 'UNKNOWN')} ({pair_address[:6]}...)\n"
+            message += f"Liquidity: ${liquidity:,.0f}\n"
+            message += f"Volume 24h: ${volume_24h:,.0f}\n"
+            message += f"Off-chain score: {offchain_score:.1f} (threshold: 60)\n\n"
+            
+            if offchain_score < 60:
+                message += "⏭️ Skipped (score < 60) - RPC calls SAVED!"
+            else:
+                message += "🔍 Triggering on-chain verification..."
+            
+            # Send alert
+            await self.telegram_notifier.send_message_async(message)
+            
+        except Exception as e:
+            print(f"[OFFCHAIN] Error sending Telegram alert: {e}")
+
