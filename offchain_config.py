@@ -35,10 +35,10 @@ OFFCHAIN_SCREENER_CONFIG = {
         'min_tx_5m': 2,  # Minimum 2 transactions
         'max_age_hours': 48,  # Only pairs < 48 hours old
         
-        # Level-1 thresholds (momentum detection)
-        'min_price_change_5m': 10.0,  # 10% price gain in 5m
-        'min_price_change_1h': 20.0,  # 20% price gain in 1h
-        'min_volume_spike_ratio': 1.5,  # 1.5x volume spike
+        # Level-1 thresholds (DISABLED FOR TESTING - detect alerts)
+        'min_price_change_5m': 0.0,  # Accept any (was 10.0)
+        'min_price_change_1h': 0.0,  # Accept any (was 20.0)
+        'min_volume_spike_ratio': 0.0,  # Accept any (was 1.5)
         
         # DEXTools guarantee
         'dextools_top_rank': 50,  # Top 50 ranks bypass filters
