@@ -191,7 +191,7 @@ class MultiChainScanner:
             feed.stop()
 
     async def _health_monitor(self):
-        """Monitor chain heartbeats and flag stalls - CU-AWARE"""
+        """Monitor chain heartbeats and flag stalls - CU-AWARE & HEAT-AWARE"""
         print("❤️  Health monitor active (CU-optimized)")
         while self.is_running:
             await asyncio.sleep(30) # Check every 30s (less frequent for CU optimization)
@@ -200,7 +200,14 @@ class MultiChainScanner:
             for chain_name, last_beat in self.heartbeats.items():
                 diff = now - last_beat
                 
-                # Get chain-specific scan interval from adapter (CU-optimized)
+                # Check if market is COLD - skip stall warnings if market is intentionally cold
+                heat_engine = self.heat_engines.get(chain_name)
+                if heat_engine and heat_engine.is_cold():
+                    # Market is COLD, scanner is INTENTIONALLY skipping scans
+                    # This is NOT a stall, this is CU-saving mode working correctly
+                    # Don't send stall alerts
+                    continue
+                
                 # Get chain-specific scan interval from adapter (CU-optimized)
                 adapter = self.adapters.get(chain_name)
                 # FORCE LAZY INTERVAL: The adapter might still think it's fast, but global service is slow
@@ -213,8 +220,11 @@ class MultiChainScanner:
                     
                     if self.error_monitor:
                         try:
-                            # Clean message for Telegram (avoid special chars that might break parsing)
-                            clean_msg = f"No activity for {int(diff)}s, expected every {scan_interval}s"
+                            # Clean message for Telegram (escape special chars)
+                            # Remove markdown chars that could break parsing
+                            clean_diff = int(diff)
+                            clean_msg = f"No activity for {clean_diff}s, expected every {scan_interval}s"
+                            
                             await self.error_monitor.send_error_alert(
                                 error_type="CHAIN_STALLED",
                                 error_message=clean_msg,
