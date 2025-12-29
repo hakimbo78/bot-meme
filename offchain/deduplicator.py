@@ -5,8 +5,9 @@ Prevents duplicate pair events from being processed multiple times.
 Tracks seen pairs with cooldown period.
 
 IMPROVED: Now supports momentum-based re-evaluation.
-- Re-evaluates if volume_1h increased by >= 50%
-- Re-evaluates if price_change_1h increased by >= 3%
+- Re-evaluates if volume_1h increased by >= threshold (default 5)
+- Re-evaluates if price_change_1h increased by >= threshold (default 0.1%)
+- Re-evaluates if tx_1h increased (any increase)
 
 RPC SAVINGS: Avoids redundant on-chain verification for same pair unless momentum changed.
 """
@@ -24,6 +25,7 @@ class Deduplicator:
     - Cooldown-based deduplication
     - Separate tracking per chain
     - Thread-safe operations
+    - Configurable momentum re-evaluation
     """
     
     def __init__(self, config: Dict = None):
@@ -35,7 +37,11 @@ class Deduplicator:
         """
         self.config = config or {}
         
-        self.cooldown_seconds = self.config.get('cooldown_seconds', 600)  # 10 minutes default
+        self.cooldown_seconds = self.config.get('base_cooldown_seconds', 
+                                              self.config.get('cooldown_seconds', 600))
+        
+        # Bypass conditions
+        self.bypass_config = self.config.get('bypass_conditions', {})
         
         # Track seen pairs with metrics: {chain: {pair_address: {timestamp, volume_1h, price_change_1h}}}
         self._seen: Dict[str, Dict[str, Dict]] = {}
@@ -51,12 +57,12 @@ class Deduplicator:
                     volume_1h: float = None, price_change_1h: float = None, 
                     tx_1h: int = None) -> bool:
         """
-        Check if pair was recently seen (with momentum-based re-evaluation).
+        Check if pair was recently seen (with sensitive momentum-based re-evaluation).
         
-        Re-evaluation triggers (ANY of these):
-        - volume_1h increased by >= 50% since last seen
+        Re-evaluation triggers (Configurable):
+        - volume_1h increased >= threshold (default 5)
         - tx_1h increased (any increase)
-        - priceChange.h1 changed significantly (>= 3% delta)
+        - priceChange.h1 changed >= threshold (default 0.1%)
         
         Args:
             pair_address: Pair contract address
@@ -90,27 +96,29 @@ class Deduplicator:
                     prev_price_change = pair_data.get('price_change_1h', 0)
                     prev_tx = pair_data.get('tx_1h', 0)
                     
-                    # Calculate momentum increases
+                    # Calculate momentum changes
                     volume_increase = False
                     price_increase = False
                     tx_increase = False
                     
-                    # Volume check
-                    if volume_1h is not None and prev_volume and prev_volume > 0:
-                        volume_ratio = volume_1h / prev_volume
-                        if volume_ratio >= 1.5:  # 50% increase
+                    # Volume check (Absolute increase)
+                    vol_threshold = self.bypass_config.get('volume_h1_increased', 5)
+                    if volume_1h is not None and prev_volume is not None:
+                        if volume_1h >= prev_volume + vol_threshold:
                             volume_increase = True
                     
-                    # Price change delta check
+                    # Price change delta check (Absolute delta)
+                    price_threshold = self.bypass_config.get('abs_price_change_h1_delta', 0.1)
                     if price_change_1h is not None and prev_price_change is not None:
                         price_delta = abs(price_change_1h - prev_price_change)
-                        if price_delta >= 3.0:  # 3% change in price movement
+                        if price_delta >= price_threshold:
                             price_increase = True
                     
-                    # Transaction count check (any increase)
-                    if tx_1h is not None and prev_tx is not None:
-                        if tx_1h > prev_tx:
-                            tx_increase = True
+                    # Transaction count check (Any increase)
+                    if self.bypass_config.get('txns_h1_increased', True):
+                        if tx_1h is not None and prev_tx is not None:
+                            if tx_1h > prev_tx:
+                                tx_increase = True
                     
                     # If momentum increased significantly, allow re-evaluation
                     if volume_increase or price_increase or tx_increase:

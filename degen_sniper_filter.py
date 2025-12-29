@@ -20,7 +20,7 @@ from typing import Dict, Optional, List, Tuple
 from datetime import datetime, timedelta
 
 
-class OffChainFilter:
+class DegenSniperFilter:
     """
     MODE C: DEGEN SNIPER Filter
     
