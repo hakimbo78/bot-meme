@@ -103,7 +103,7 @@ class GlobalBlockService:
         self._processed_blocks: Set[int] = set()
         
     @classmethod
-    def get_instance(cls, chain_name: str, chain_id: int, w3: Web3, interval: float = 30.0):
+    def get_instance(cls, chain_name: str, chain_id: int, w3: Web3, interval: float = 60.0):
         if chain_name not in cls._instances:
             cls._instances[chain_name] = cls(chain_name, chain_id, w3, interval)
         return cls._instances[chain_name]
