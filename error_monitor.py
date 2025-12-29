@@ -76,13 +76,13 @@ class ErrorMonitor:
         try:
             chain_prefix = f"[{chain.upper()}] " if chain else ""
             message = f"""
-⚠️ **CRITICAL ERROR**
+⚠️ *CRITICAL ERROR*
 
-**Type:** {error_type}
-**Chain:** {chain_prefix if chain else 'SYSTEM'}
-**Message:** {error_message}
+*Type:* {error_type}
+*Chain:* {chain_prefix if chain else 'SYSTEM'}
+*Message:* {error_message.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')}
 
-**Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+*Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 _Next alert after 5 min cooldown_
 """
