@@ -9,6 +9,7 @@ When upgrade conditions are met, tokens auto-upgrade to TRADE with re-alert.
 """
 import os
 from pathlib import Path
+from safe_math import safe_div_percentage
 
 # Base directory for cooldown files
 TRADE_EARLY_DIR = Path(__file__).parent
@@ -125,7 +126,8 @@ def check_upgrade_eligibility(
     # Calculate metrics
     liq_growth_pct = 0
     if initial_liquidity > 0:
-        liq_growth_pct = ((current_liquidity - initial_liquidity) / initial_liquidity) * 100
+        # SAFE: Prevent division by zero in liquidity growth calculation
+        liq_growth_pct = safe_div_percentage(current_liquidity, initial_liquidity, default=0)
     metrics["liquidity_growth_pct"] = liq_growth_pct
     
     score_increase = current_score - initial_score

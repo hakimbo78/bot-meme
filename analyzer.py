@@ -4,6 +4,7 @@ from datetime import datetime
 from web3 import Web3
 from functools import wraps
 from config import GOPLUS_API_URL
+from safe_math import safe_div, safe_div_percentage
 
 # Import new security analysis modules
 from momentum_tracker import MomentumTracker
@@ -140,7 +141,7 @@ class TokenAnalyzer:
             security_data = {'is_mintable': True, 'is_blacklisted': False, 'holder_count': 100}
         
         # Calculate age
-        age_minutes = (int(time.time()) - pair_data['timestamp']) / 60
+        age_minutes = safe_div(int(time.time()) - pair_data['timestamp'], 60, default=0)
         
         return {
             'name': name,
@@ -181,7 +182,7 @@ class TokenAnalyzer:
                 weth_reserve = reserves[1]
             
             # Convert WETH to USD (WETH has 18 decimals)
-            liquidity_usd = (weth_reserve / 1e18) * self.eth_price_usd
+            liquidity_usd = safe_div(weth_reserve, 1e18, default=0) * self.eth_price_usd
             return liquidity_usd
         except Exception as e:
             print(f"⚠️  Error getting liquidity: {e}")

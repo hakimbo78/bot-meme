@@ -3,6 +3,7 @@ Trigger Engine for Secondary Market Scanner
 Evaluates market conditions against trigger thresholds
 """
 from typing import Dict, List, Set
+from safe_math import safe_div
 
 
 class TriggerEngine:
@@ -27,11 +28,10 @@ class TriggerEngine:
 
         # Volume Spike Trigger
         volume_5m = metrics.get('volume_5m', 0)
-        volume_1h_avg = metrics.get('volume_1h', 0) / 60 * 5  # Rough 5m average from 1h
-        if volume_1h_avg > 0:
-            volume_ratio = volume_5m / volume_1h_avg
-        else:
-            volume_ratio = float('inf') if volume_5m > 0 else 0
+        # SAFE: prevent division by zero in volume average calculation
+        volume_1h_avg = safe_div(metrics.get('volume_1h', 0) * 5, 60, 0)  # Rough 5m average from 1h
+        # SAFE: prevent division by zero in volume ratio
+        volume_ratio = safe_div(volume_5m, volume_1h_avg, float('inf') if volume_5m > 0 else 0)
 
         triggers['volume_spike'] = (
             volume_ratio >= 5 and volume_5m >= self.min_volume_5m
@@ -50,9 +50,10 @@ class TriggerEngine:
         current_price = metrics.get('price', 0)
 
         price_breakout = False
-        if high_24h > 0:
-            price_ratio = current_price / high_24h
-            price_breakout = price_ratio >= 1.02
+        # SAFE: prevent ZERO_BASE_PRICE crash in price ratio
+        price_ratio = safe_div(current_price, high_24h, 0)
+        if price_ratio >= 1.02:
+            price_breakout = True
         if price_change_1h >= 25:
             price_breakout = True
 

@@ -15,6 +15,7 @@ from config import (
     SMART_MONEY_CHECK_ENABLED,
     WALLET_AGE_THRESHOLD_DAYS
 )
+from safe_math import safe_div
 
 
 @dataclass
@@ -212,7 +213,8 @@ class WalletTracker:
                 pass
             
             if total_supply > 0:
-                lp_percentage = (deployer_lp_balance / total_supply) * 100
+                # SAFE: Prevent division by zero if total_supply is zero
+                lp_percentage = safe_div(deployer_lp_balance, total_supply, default=0) * 100
                 
                 if lp_percentage < 1:
                     result['lp_status'] = 'REMOVED'

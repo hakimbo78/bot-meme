@@ -14,6 +14,7 @@ from config import (
     MOMENTUM_LIQUIDITY_TOLERANCE,
     MOMENTUM_SCORE_MAX
 )
+from safe_math import safe_div, safe_ratio
 
 
 @dataclass
@@ -177,7 +178,8 @@ class MomentumTracker:
             return False
         
         for snapshot in snapshots[1:]:
-            change_ratio = abs(snapshot.liquidity_usd - baseline) / baseline
+            # SAFE: Use safe_ratio to prevent division by zero if baseline == 0
+            change_ratio = safe_ratio(snapshot.liquidity_usd, baseline, default=999.0)
             if change_ratio > MOMENTUM_LIQUIDITY_TOLERANCE:
                 return False
         

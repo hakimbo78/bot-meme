@@ -16,6 +16,7 @@ from config import (
     SWAP_LIQUIDITY_RATIO_THRESHOLD,
     GAS_SPIKE_MULTIPLIER
 )
+from safe_math import safe_div
 
 
 @dataclass
@@ -220,14 +221,15 @@ class TransactionAnalyzer:
             
             # 3. Check for gas spike anomaly
             if gas_prices:
-                avg_gas = sum(gas_prices) / len(gas_prices)
+                # SAFE: Prevent division by zero if gas_prices is empty
+                avg_gas = safe_div(sum(gas_prices), len(gas_prices), default=1.0)
                 for gas_price in gas_prices:
                     if gas_price > avg_gas * GAS_SPIKE_MULTIPLIER:
                         patterns.append(TransactionPattern(
                             pattern_type='GAS_SPIKE',
                             wallet_address='unknown',
                             block_number=to_block,
-                            details=f'Gas {gas_price/1e9:.1f} Gwei vs avg {avg_gas/1e9:.1f} Gwei'
+                            details=f'Gas {safe_div(gas_price, 1e9, default=0):.1f} Gwei vs avg {safe_div(avg_gas, 1e9, default=0):.1f} Gwei'
                         ))
                         break  # One gas spike pattern is enough
             

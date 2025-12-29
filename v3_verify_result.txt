@@ -1,0 +1,67 @@
+﻿================================================================================
+BASE V3 VERIFICATION
+================================================================================
+
+Latest block: 40088230
+
+[Test 1] Check V3 factory contract
+  Address: 0x33128a8fC17869897dcE68Ed026d694621f6FDfD
+  Result: Contract EXISTS (code size: 24535 bytes)
+
+[Test 2] Query ALL events from factory (last 1000 blocks)
+  Result: 7 total events from factory
+
+  Event signatures found:
+    783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118: 7 events
+
+[Test 3] Query PoolCreated events specifically
+  Signature: 783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118
+  Last   1000 blocks: 7 PoolCreated events
+    First event block: 40087338
+    Tx: bbb4fdf3649dad03110744ef7a8f0158da919a557113c82afbed999afcc9cdad
+
+[Test 4] Try to find any V3 pool on BASE
+  Factory owner: 0x31FAfd4889FA1269F7a13A66eE0fB458f27D72A9
+  This confirms it's a real Uniswap V3 factory
+
+
+
+================================================================================
+ETHEREUM V3 VERIFICATION
+================================================================================
+
+Latest block: 24114527
+
+[Test 1] Check V3 factory contract
+  Address: 0x1F98431c8aD98523631AE4a59f267346ea31F984
+  Result: Contract EXISTS (code size: 24535 bytes)
+
+[Test 2] Query ALL events from factory (last 1000 blocks)
+  Result: 14 total events from factory
+
+  Event signatures found:
+    783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118: 14 events
+
+[Test 3] Query PoolCreated events specifically
+  Signature: 783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118
+  Last   1000 blocks: 14 PoolCreated events
+    First event block: 24113711
+    Tx: 0d2d92575d58c3dd1ac40d7d52ae63fc1a5f7798e403702056be0aef12130fdc
+
+[Test 4] Try to find any V3 pool on ETHEREUM
+  Factory owner: 0x5E74C9f42EEd283bFf3744fBD1889d398d40867d
+  This confirms it's a real Uniswap V3 factory
+
+================================================================================
+CONCLUSION
+================================================================================
+
+If Test 2 shows many events BUT Test 3 shows 0 PoolCreated:
+  -> Event signature might be wrong OR V3 rarely creates pools
+
+If Test 2 shows 0 events:
+  -> Factory address might be wrong OR it's not the V3 factory
+
+If Test 3 shows PoolCreated events in 50k blocks but not in 10k:
+  -> V3 activity is VERY low, need even wider lookback
+

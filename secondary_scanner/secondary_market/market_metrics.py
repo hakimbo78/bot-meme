@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from collections import defaultdict, deque
 import asyncio
 from web3 import Web3
+from safe_math import safe_div, safe_div_percentage
 
 
 class MarketMetrics:
@@ -58,16 +59,19 @@ class MarketMetrics:
 
     def _calculate_v2_price(self, reserves0: int, reserves1: int, token0_is_weth: bool) -> float:
         """Calculate price from V2 reserves"""
+        # CRITICAL: Check for zero reserves - mark as INVALID_ZERO_RESERVE
         if reserves0 == 0 or reserves1 == 0:
             return 0
         if token0_is_weth:
-            return (reserves0 / 10**18) / (reserves1 / 10**18)  # WETH per token
+            # SAFE: Use safe_div to prevent any residual division errors
+            return safe_div(safe_div(reserves0, 10**18, 0), safe_div(reserves1, 10**18, 1), 0)
         else:
-            return (reserves1 / 10**18) / (reserves0 / 10**18)  # WETH per token
+            return safe_div(safe_div(reserves1, 10**18, 0), safe_div(reserves0, 10**18, 1), 0)
 
     def _calculate_v3_price(self, sqrt_price_x96: int) -> float:
         """Calculate price from V3 sqrt price"""
-        price = (sqrt_price_x96 / (1 << 96)) ** 2
+        # SAFE: Prevent division by zero in sqrt price calculation
+        price = (safe_div(sqrt_price_x96, (1 << 96), 0)) ** 2
         return price
 
     def update_pair_data(self, pair_address: str, dex_type: str, token_address: str,
@@ -93,7 +97,8 @@ class MarketMetrics:
                 token0_is_weth = (reserve0 > reserve1 * 10**12)  # Rough heuristic
 
                 price = self._calculate_v2_price(reserve0, reserve1, token0_is_weth)
-                liquidity_usd = (reserve0 if token0_is_weth else reserve1) * 2 / 10**18 * self.config.get('eth_price_usd', 3500)
+                # SAFE: Prevent division in liquidity calculation
+                liquidity_usd = safe_div((reserve0 if token0_is_weth else reserve1) * 2, 10**18, 0) * self.config.get('eth_price_usd', 3500)
 
             elif dex_type == "uniswap_v3":
                 liquidity = contract.functions.liquidity().call()
@@ -102,7 +107,8 @@ class MarketMetrics:
 
                 price = self._calculate_v3_price(sqrt_price_x96)
                 # V3 liquidity calculation is more complex - simplified
-                liquidity_usd = liquidity / 10**18 * self.config.get('eth_price_usd', 3500)
+                # SAFE: Prevent division in V3 liquidity
+                liquidity_usd = safe_div(liquidity, 10**18, 0) * self.config.get('eth_price_usd', 3500)
 
             else:
                 return {}
@@ -114,7 +120,8 @@ class MarketMetrics:
             # Get holder count (simplified - total supply / average balance heuristic)
             token_contract = self._get_token_contract(token_address)
             total_supply = token_contract.functions.totalSupply().call()
-            holders = max(1, int(total_supply / (10**token_decimals * 1000)))  # Rough estimate
+            # SAFE: Prevent division by zero in holder estimation
+            holders = max(1, int(safe_div(total_supply, (10**token_decimals * 1000), 1)))  # Rough estimate
             self.holder_history[pair_address].append((current_time, holders))
 
             self.last_update[pair_address] = current_time
@@ -171,12 +178,14 @@ class MarketMetrics:
 
         # Price change metrics
         if len(prices_5m) >= 2:
-            metrics['price_change_5m'] = ((prices_5m[-1][1] - prices_5m[0][1]) / prices_5m[0][1]) * 100
+            # SAFE: Use safe_div_percentage - if prices_5m[0][1] is 0, return 0 (ZERO_BASE_PRICE flag)
+            metrics['price_change_5m'] = safe_div_percentage(prices_5m[-1][1], prices_5m[0][1], default=0)
         else:
             metrics['price_change_5m'] = 0
 
         if len(prices_1h) >= 2:
-            metrics['price_change_1h'] = ((prices_1h[-1][1] - prices_1h[0][1]) / prices_1h[0][1]) * 100
+            # SAFE: Prevent ZERO_BASE_PRICE crash
+            metrics['price_change_1h'] = safe_div_percentage(prices_1h[-1][1], prices_1h[0][1], default=0)
         else:
             metrics['price_change_1h'] = 0
 
@@ -190,8 +199,9 @@ class MarketMetrics:
         metrics['liquidity_now'] = liquidities[-1][1] if liquidities else 0
 
         if liquidities_1h:
-            avg_liq_1h = sum(l[1] for l in liquidities_1h) / len(liquidities_1h)
-            metrics['liquidity_delta_1h'] = ((metrics['liquidity_now'] - avg_liq_1h) / avg_liq_1h) * 100 if avg_liq_1h > 0 else 0
+            # SAFE: Prevent division by zero in liquidity averaging
+            avg_liq_1h = safe_div(sum(l[1] for l in liquidities_1h), len(liquidities_1h), 1)
+            metrics['liquidity_delta_1h'] = safe_div_percentage(metrics['liquidity_now'], avg_liq_1h, default=0)
         else:
             metrics['liquidity_delta_1h'] = 0
 
@@ -203,14 +213,16 @@ class MarketMetrics:
 
         if len(holders_recent) >= 2:
             holder_growth = holders_recent[-1][1] - holders_recent[0][1]
-            time_diff_hours = (holders_recent[-1][0] - holders_recent[0][0]) / 3600
-            metrics['holder_growth_rate'] = holder_growth / time_diff_hours if time_diff_hours > 0 else 0
+            # SAFE: Prevent division by zero in time difference
+            time_diff_hours = safe_div(holders_recent[-1][0] - holders_recent[0][0], 3600, 1)
+            metrics['holder_growth_rate'] = safe_div(holder_growth, time_diff_hours, 0)
         else:
             metrics['holder_growth_rate'] = 0
 
         # Token age (from first price data point)
         if prices:
-            metrics['token_age_minutes'] = (now - prices[0][0]) / 60
+            # SAFE: Prevent division in age calculation
+            metrics['token_age_minutes'] = safe_div(now - prices[0][0], 60, 0)
         else:
             metrics['token_age_minutes'] = 0
 

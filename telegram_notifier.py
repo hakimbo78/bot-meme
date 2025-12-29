@@ -19,6 +19,7 @@ from config import (
     REALERT_LIQUIDITY_IMPROVEMENT,
     REALERT_MAX_PER_HOUR
 )
+from safe_math import safe_div, safe_div_percentage
 
 
 class TelegramNotifier:
@@ -101,7 +102,8 @@ class TelegramNotifier:
                 result['improvement_type'] = f'Score +{current_score - last_score}'
             elif liquidity_improved:
                 result['is_realert'] = True
-                pct = ((current_liquidity - last_liquidity) / last_liquidity) * 100
+                # SAFE: Prevent division by zero in liquidity percentage
+                pct = safe_div_percentage(current_liquidity, last_liquidity, default=0)
                 result['improvement_type'] = f'Liquidity +{pct:.0f}%'
             elif renounced_changed:
                 result['is_realert'] = True
@@ -342,7 +344,8 @@ class TelegramNotifier:
         if age_minutes < 60:
             age_str = f"{age_minutes:.0f} min"
         else:
-            age_hours = age_minutes / 60
+            # SAFE: Prevent division in age hours
+            age_hours = safe_div(age_minutes, 60, 0)
             age_str = f"{age_hours:.1f} hours"
         
         # Volume and changes
