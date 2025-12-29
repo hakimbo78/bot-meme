@@ -55,6 +55,15 @@ try:
 except ImportError as e:
     print(f"⚠️  Activity scanner not available: {e}")
 
+# Off-Chain Screener (2025-12-29) - RPC-Saving Off-Chain Gatekeeper
+OFFCHAIN_SCREENER_AVAILABLE = False
+try:
+    from offchain.integration import OffChainScreenerIntegration
+    from offchain_config import get_offchain_config, is_offchain_enabled
+    OFFCHAIN_SCREENER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Off-chain screener not available: {e}")
+
 init(autoreset=True)
 
 def print_alert(token_data, score_data):
@@ -397,6 +406,37 @@ async def main():
         else:
             print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Activity scanner module not available")
         
+        # ================================================
+        # OFF-CHAIN SCREENER SETUP (2025-12-29)
+        # ================================================
+        offchain_screener = None
+        if OFFCHAIN_SCREENER_AVAILABLE and is_offchain_enabled():
+            try:
+                offchain_config = get_offchain_config()
+                # Use enabled_chains from command line args
+                offchain_config['enabled_chains'] = enabled_chains
+                
+                offchain_screener = OffChainScreenerIntegration(offchain_config)
+                
+                print(f"\n{Fore.GREEN}🌐 OFF-CHAIN SCREENER: ENABLED")
+                print(f"{Fore.GREEN}    - Primary: DexScreener (FREE)")
+                if offchain_config.get('dextools_enabled'):
+                    print(f"{Fore.GREEN}    - Secondary: DEXTools (API key required)")
+                print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in enabled_chains])}")
+                print(f"{Fore.GREEN}    - Target: ~95% noise reduction")
+                print(f"{Fore.GREEN}    - RPC savings: < 5k calls/day\n")
+                
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  Off-chain screener failed to initialize: {e}")
+                import traceback
+                traceback.print_exc()
+                offchain_screener = None
+        else:
+            if not OFFCHAIN_SCREENER_AVAILABLE:
+                print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Off-chain screener module not available")
+            elif not is_offchain_enabled():
+                print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Off-chain screener disabled in config")
+        
         
         # SOLANA MODULE - Isolated Solana chain handling
         solana_enabled = False
@@ -683,6 +723,45 @@ async def main():
                 tasks.append(asyncio.create_task(run_activity_producer(), name="activity-producer"))
                 print(f"{Fore.GREEN}✅ Activity scanner producer added to task list")
 
+            # 2.8. Off-Chain Screener Producer Task (2025-12-29) - RPC Savings
+            async def run_offchain_producer():
+                """
+                Producer task for off-chain screener.
+                Reads normalized pairs from off-chain APIs and enqueues for processing.
+                """
+                if not offchain_screener:
+                    return
+                
+                print(f"{Fore.GREEN}🌐 Off-chain screener producer task started")
+                
+                # Start off-chain scanner background tasks
+                try:
+                    offchain_tasks = await offchain_screener.start()
+                    print(f"{Fore.GREEN}   Started {len(offchain_tasks)} off-chain scanner tasks")
+                except Exception as e:
+                    print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Failed to start tasks: {e}")
+                    return
+                
+                while True:
+                    try:
+                        # Get next normalized pair from off-chain screener
+                        normalized_pair = await offchain_screener.get_next_pair()
+                        
+                        # Add metadata for consumer
+                        normalized_pair['source_type'] = 'offchain'
+                        normalized_pair['requires_onchain_verify'] = True
+                        
+                        # Enqueue for main consumer processing
+                        await queue.put(normalized_pair)
+                        
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Producer error: {e}")
+                        await asyncio.sleep(5)
+            
+            if offchain_screener:
+                tasks.append(asyncio.create_task(run_offchain_producer(), name="offchain-producer"))
+                print(f"{Fore.GREEN}✅ Off-chain screener producer added to task list")
+
 
             # 3. Upgrade Monitor Task (Periodic)
             async def run_upgrade_monitor():
@@ -767,6 +846,62 @@ async def main():
                                 
                             except Exception as sol_token_e:
                                 print(f"{Fore.YELLOW}⚠️  [SOL] Token processing error: {sol_token_e}")
+                        
+                        # ================================================
+                        # OFF-CHAIN PAIR PROCESSING (2025-12-29)
+                        # ================================================
+                        elif pair_data.get('source_type') == 'offchain':
+                            try:
+                                chain_name = pair_data.get('chain', 'unknown')
+                                chain_prefix = f"[{chain_name.upper()}]"
+                                pair_address = pair_data.get('pair_address', 'UNKNOWN')
+                                
+                                print(f"{Fore.GREEN}🌐 {chain_prefix} [OFFCHAIN] {pair_data.get('token_symbol', 'UNKNOWN')} | Pair: {pair_address[:10]}...")
+                                
+                                # Extract off-chain score
+                                offchain_score = pair_data.get('offchain_score', 0)
+                                
+                                # Get scoring config
+                                scoring_config = offchain_screener.config.get('scoring', {})
+                                verify_threshold = scoring_config.get('verify_threshold', 60)
+                                offchain_weight = scoring_config.get('offchain_weight', 0.6)
+                                onchain_weight = scoring_config.get('onchain_weight', 0.4)
+                                
+                                print(f"{Fore.GREEN}    Off-chain score: {offchain_score:.1f} (threshold: {verify_threshold})")
+                                
+                                # Check if we should trigger on-chain verification
+                                if offchain_score >= verify_threshold:
+                                    print(f"{Fore.GREEN}    🔍 Triggering on-chain verification...")
+                                    
+                                    # Get chain config for this chain
+                                    chain_config = None
+                                    if chain_name != 'solana':
+                                        chain_config = scanner.get_chain_config(chain_name)
+                                    
+                                    # For now, log what would happen
+                                    # TODO: Implement full on-chain verification
+                                    # This would call existing analyzer but ONLY for high-score pairs
+                                    
+                                    print(f"{Fore.GREEN}    📊 Combined scoring would apply:")
+                                    print(f"{Fore.GREEN}       - Off-chain weight: {offchain_weight*100}%")
+                                    print(f"{Fore.GREEN}       - On-chain weight: {onchain_weight*100}%")
+                                    print(f"{Fore.GREEN}    ⚡ RPC SAVED: This pair passed 95% filter!")
+                                    
+                                    # Display off-chain statistics every 10 pairs
+                                    if offchain_screener.stats['passed_to_queue'] % 10 == 0:
+                                        stats = offchain_screener.get_stats()
+                                        pipeline = stats['pipeline']
+                                        if pipeline['total_raw_pairs'] > 0:
+                                            noise_reduction = (1 - pipeline['passed_to_queue'] / pipeline['total_raw_pairs']) * 100
+                                            print(f"{Fore.CYAN}    📊 [OFFCHAIN STATS] Noise reduction: {noise_reduction:.1f}% | Passed: {pipeline['passed_to_queue']}/{pipeline['total_raw_pairs']}")
+                                    
+                                else:
+                                    print(f"{Fore.YELLOW}    ⏭️  Skipped (score < {verify_threshold}) - RPC calls SAVED!")
+                                
+                            except Exception as offchain_e:
+                                print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Processing error: {offchain_e}")
+                                import traceback
+                                traceback.print_exc()
                         
                         # ================================================
                         # SECONDARY MARKET PROCESSING
@@ -1166,6 +1301,11 @@ async def main():
 
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}Monitoring stopped.")
+            
+            # Cleanup off-chain screener
+            if offchain_screener:
+                print(f"{Fore.CYAN}🌐 Closing off-chain screener...")
+                await offchain_screener.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

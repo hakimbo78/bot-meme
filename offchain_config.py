@@ -9,11 +9,11 @@ OFFCHAIN_SCREENER_CONFIG = {
     # Feature flag
     'enabled': True,
     
-    # Enabled chains
-    'enabled_chains': ['base', 'ethereum', 'blast'],
+    # Enabled chains (BASE, ETHEREUM, SOLANA as requested)
+    'enabled_chains': ['base', 'ethereum', 'solana'],
     
-    # DEXTools (optional - requires API key)
-    'dextools_enabled': False,  # Set to True if you have API key
+    # DEXTools (optional - requires API key) - DISABLED for now
+    'dextools_enabled': False,  # Using DexScreener only
     'dextools': {
         'api_key': '',  # Add your DEXTools API key here
         'rate_limit_per_minute': 30,
