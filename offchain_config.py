@@ -33,7 +33,7 @@ OFFCHAIN_SCREENER_CONFIG = {
         'min_liquidity': 500,  # $500 (API already filters <$500)
         'min_volume_5m': 50,  # $50 volume (PRODUCTION - restored from testing)
         'min_tx_5m': 2,  # Minimum 2 transactions
-        'max_age_hours': 48,  # Only pairs < 48 hours old
+        'max_age_hours': 999999,  # DISABLED - Allow old pair revivals (DexScreener detects activity)
         
         # Level-1 thresholds (momentum detection - PRODUCTION)
         'min_price_change_5m': 10.0,  # 10% price gain in 5m
