@@ -75,12 +75,16 @@ class ErrorMonitor:
         # Send alert
         try:
             chain_prefix = f"[{chain.upper()}] " if chain else ""
+            
+            # Fix: Avoid backslash in f-string expression
+            clean_message = error_message.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')
+            
             message = f"""
 ⚠️ *CRITICAL ERROR*
 
 *Type:* {error_type}
 *Chain:* {chain_prefix if chain else 'SYSTEM'}
-*Message:* {error_message.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')}
+*Message:* {clean_message}
 
 *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
