@@ -135,21 +135,21 @@ class MultiChainScanner:
         # Inject heat engine into adapter for internal use
         adapter.heat_engine = self.heat_engines[chain_name]
         
-            # Define Event Handler (Receives BlockSnapshot)
-            async def on_block(snapshot: BlockSnapshot):
-                try:
-                    # 1. MARKET HEAT GATE
-                    heat_engine = self.heat_engines[chain_name]
-                    if heat_engine.is_cold():
-                        print(f"⏸️  [GATED][{chain_name.upper()}] Market COLD ({heat_engine.get_status_str()}) → factory scan skipped")
-                        return # NO RPC
-                    
-                    # 2. RUN SCAN DELTA
-                    # Update heartbeat
-                    self.heartbeats[chain_name] = time.time()
-                    
-                    # Run scan (pass SNAPSHOT to avoid RPC)
-                    pairs = await adapter.scan_new_pairs_async(snapshot=snapshot)
+        # Define Event Handler (Receives BlockSnapshot)
+        async def on_block(snapshot: BlockSnapshot):
+            try:
+                # 1. MARKET HEAT GATE
+                heat_engine = self.heat_engines[chain_name]
+                if heat_engine.is_cold():
+                    print(f"⏸️  [GATED][{chain_name.upper()}] Market COLD ({heat_engine.get_status_str()}) → factory scan skipped")
+                    return # NO RPC
+                
+                # 2. RUN SCAN DELTA
+                # Update heartbeat
+                self.heartbeats[chain_name] = time.time()
+                
+                # Run scan (pass SNAPSHOT to avoid RPC)
+                pairs = await adapter.scan_new_pairs_async(snapshot=snapshot)
                 
                 if pairs:
                     print(f"🔥 [EVENT-DRIVEN][{chain_name.upper()}] Found {len(pairs)} pairs in block {snapshot.block_number}")
