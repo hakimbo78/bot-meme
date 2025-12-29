@@ -126,10 +126,15 @@ class OffChainFilter:
         if liquidity < self.min_liquidity:
             return False, f"Low liquidity (${liquidity:,.0f} < ${self.min_liquidity:,})"
         
-        # Check volume (use 5m if available, else 1h, else 24h)
+        # Check volume (use 5m if available AND meaningful, else 1h, else 24h)
         volume_5m = pair.get('volume_5m')
         volume_1h = pair.get('volume_1h')
         volume_24h = pair.get('volume_24h', 0)
+        
+        # Treat very low vol_5m (<$5) as None to enable fallback
+        # API sometimes returns $1-2 which is not meaningful
+        if volume_5m is not None and volume_5m < 5:
+            volume_5m = None
         
         volume_to_check = volume_5m if volume_5m is not None else (volume_1h if volume_1h is not None else volume_24h)
         
