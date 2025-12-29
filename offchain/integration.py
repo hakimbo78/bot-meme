@@ -261,6 +261,7 @@ class OffChainScreenerIntegration:
         # 2. DEDUPLICATION
         if self.deduplicator.is_duplicate(pair_address, chain):
             self.stats['deduplicated'] += 1
+            print(f"[OFFCHAIN DEBUG] {pair_address[:10]}... - DUPLICATE (cooldown active)")
             return None
         
         # 3. FILTERING
