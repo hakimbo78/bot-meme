@@ -51,24 +51,37 @@ class PairNormalizer:
         base_address = base_token.get('address', '').lower()
         quote_address = quote_token.get('address', '').lower()
         
-        # Known Quote Tokens (WETH, SOL, USDC, USDT)
+        # Known Quote Tokens (WETH, SOL, USDC, USDT, DAI)
         QUOTE_TOKENS = {
             '0x4200000000000000000000000000000000000006', # Base/Op WETH
             'so11111111111111111111111111111111111111112', # Solana SOL
             '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', # Mainnet WETH
             '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', # Base USDC
-            '0xdac17f958d2ee523a2206206994597c13d831ec7', # USDT
-            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', # USDC
+            '0xdac17f958d2ee523a2206206994597c13d831ec7', # Ethereum USDT
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', # Ethereum USDC
             'epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v', # Solana USDC
             'es9vmfrzacermjfrf4h2fyd4kconky11mcce8benwnyb', # Solana USDT
+            '0x50c5725949a6f0c7290c45f84749e64d8ad46442', # Base DAI
+            '0xfde4c96c8593536e31f229ea8f37b2adb2656a1d', # Base USDT (native-ish)
         }
         
-        # If Base Token is a Quote Token, verify the other is NOT.
-        # If so, swap them. We want the "Subject" to be the meme/alt coin.
-        if base_address in QUOTE_TOKENS and quote_address not in QUOTE_TOKENS:
+        # LOGIC:
+        # 1. If BOTH are Quote Tokens -> Stable pair (e.g. SOL/USDC) -> SKIP (Return None or flag)
+        # 2. If Base is Quote, Quote is NOT -> Swap -> Subject is Quote Token (Meme)
+        # 3. Else -> Subject is Base Token
+        
+        if base_address in QUOTE_TOKENS and quote_address in QUOTE_TOKENS:
+            # Stable pair or noise. Return minimal dummy or None to filter later.
+            # We'll tag it as 'STABLE_PAIR' and ensure integration drops it.
+            major_token = base_token # Default
+            # The integration layer will drop it if we return it? 
+            # Integration checks: if deduplicator.is_duplicate...
+            # If we allow it, it becomes a duplicate.
+            # Let's set token_address to EMPTY so it gets dropped by normalizer check: "if not pair_address or not token_address: return None"
+            major_token = {} 
+        elif base_address in QUOTE_TOKENS:
             major_token = quote_token
         else:
-            # Default: Base token is the subject (or both are quotes, or neither)
             major_token = base_token
 
         token_address = major_token.get('address', '')
