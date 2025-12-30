@@ -65,7 +65,7 @@ class OffChainScreenerIntegration:
         # REPLACED: DexScreener -> GeckoTerminal (better API, time-based queries)
         from .geckoterminal_api import GeckoTerminalAPI
         self.geckoterminal = GeckoTerminalAPI(self.config.get('geckoterminal', {}))
-        self.dextools = DexToolsAPI(self.config.get('dextools', {}))\r
+        self.dextools = DexToolsAPI(self.config.get('dextools', {}))
         
         self.normalizer = PairNormalizer()
         self.filter = OffChainFilter(self.config.get('filters', {}))
