@@ -91,32 +91,50 @@ class DexScreenerAPI(BaseScreener):
             print(f"[DEXSCREENER] Request error: {e}")
             return None
     
+    def _get_search_query(self, chain: str) -> str:
+        """
+        Get the best search query for a chain to find trending/new pairs.
+        
+        Using just "base" or "solana" restricts results to pairs with that text.
+        Searching for the native token (WETH, SOL) returns 90% of pairs.
+        """
+        chain = chain.lower()
+        if chain == 'base':
+            return 'WETH' # Most pairs on Base are vs WETH
+        elif chain == 'solana':
+            return 'SOL' # Most pairs on Solana are vs SOL  
+        elif chain == 'ethereum':
+            return 'WETH'
+        elif chain == 'arbitrum':
+            return 'WETH'
+        elif chain == 'optimism':
+            return 'WETH'
+        elif chain == 'polygon':
+            return 'MATIC'
+        elif chain == 'blast':
+            return 'WETH'
+        else:
+            return chain # Fallback
+            
     async def fetch_trending_pairs(self, chain: str = "base", limit: int = 50) -> List[Dict]:
         """
         Fetch trending pairs by volume - WITH QUALITY FILTERS.
         
         Improvements:
         - Pre-filter dead pairs ($0 volume)
-        - Pre-filter low liquidity pairs (< $500)
+        - Pre-filter low liquidity pairs (< $100) - RELAXED for Level-0
         - Sort by 24h volume (most active first)
         - Only return quality pairs
-        
-        Args:
-            chain: Target chain
-            limit: Max pairs to return
-            
-        Returns:
-            List of HIGH QUALITY pair data dicts
         """
         chain = self._normalize_chain_name(chain)
+        query = self._get_search_query(chain)
         
-        print(f"[DEXSCREENER DEBUG] fetch_trending_pairs called for chain: {chain}")
+        print(f"[DEXSCREENER DEBUG] fetch_trending_pairs called for chain: {chain} using query: '{query}'")
         
         # Strategy: Use search but apply STRICT pre-filtering
-        # This eliminates junk BEFORE normalization
         url = f"{self.BASE_URL}/search"
         params = {
-            'q': chain,  # Search by chain
+            'q': query,  # Search by native token for broader coverage
         }
         
         print(f"[DEXSCREENER DEBUG] Making request to: {url} with params: {params}")
@@ -128,16 +146,11 @@ class DexScreenerAPI(BaseScreener):
             return []
         
         if 'pairs' not in data:
-            print(f"[DEXSCREENER DEBUG] Response has no 'pairs' key. Keys: {list(data.keys())}")
+            print(f"[DEXSCREENER DEBUG] Response has no 'pairs' key")
             return []
         
         pairs = data['pairs']
         print(f"[DEXSCREENER DEBUG] API returned {len(pairs)} total pairs")
-        
-        # Log first pair for debugging
-        if pairs:
-            sample_pair = pairs[0]
-            print(f"[DEXSCREENER DEBUG] Sample pair chainId: {sample_pair.get('chainId')}, pairAddress: {sample_pair.get('pairAddress', 'N/A')[:10]}...")
         
         # ============================================================
         # PRE-FILTERING (NEW - Improve data quality)
@@ -167,12 +180,13 @@ class DexScreenerAPI(BaseScreener):
             
             # QUALITY CHECKS
             # Skip if NO volume at all (dead pair)
-            if vol_24h == 0:
+            if vol_24h <= 0:
                 filtered_dead += 1
                 continue
             
-            # Skip if liquidity too low (< $500 = likely scam/rug)
-            if liquidity < 500:
+            # RELAXED PRE-FILTER: $100 min liquidity (was $500)
+            # This allows early pairs but stops absolute dust
+            if liquidity < 100:
                 filtered_low_liq += 1
                 continue
             
@@ -186,7 +200,7 @@ class DexScreenerAPI(BaseScreener):
         
         print(f"[DEXSCREENER DEBUG] Quality filter: {len(quality_pairs)} passed")
         print(f"[DEXSCREENER DEBUG]   - Filtered dead pairs ($0 vol): {filtered_dead}")
-        print(f"[DEXSCREENER DEBUG]   - Filtered low liq (<$500): {filtered_low_liq}")
+        print(f"[DEXSCREENER DEBUG]   - Filtered low liq (<$100): {filtered_low_liq}")
         print(f"[DEXSCREENER DEBUG]   - Filtered no data: {filtered_no_data}")
         
         # Step 3: Sort by 24h volume descending (most active first)
@@ -198,48 +212,22 @@ class DexScreenerAPI(BaseScreener):
         result = quality_pairs[:limit]
         print(f"[DEXSCREENER DEBUG] Returning {len(result)} HIGH QUALITY pairs")
         
-        # Log top pair volume for reference
-        if result:
-            top_vol = float(result[0].get('volume', {}).get('h24', 0) or 0)
-            print(f"[DEXSCREENER DEBUG] Top pair 24h volume: ${top_vol:,.0f}")
-        
         return result
     
     async def fetch_top_gainers(self, chain: str = "base", timeframe: str = "1h", limit: int = 50) -> List[Dict]:
-        """
-        Fetch top gainers by price change.
-        
-        Args:
-            chain: Target chain
-            timeframe: 5m, 1h, 6h, or 24h
-            limit: Max pairs to return
-            
-        Returns:
-            List of pair data dicts sorted by price change
-        """
+        """Fetch top gainers by price change."""
         chain = self._normalize_chain_name(chain)
+        query = self._get_search_query(chain)
         
         # Map timeframe to DexScreener field
         timeframe_map = {
-            '5m': 'm5',
-            '15m': 'm5',  # DexScreener doesn't have 15m, use 5m
-            '1h': 'h1',
-            '6h': 'h6',
-            '24h': 'h24',
+            '5m': 'm5', '15m': 'm5', '1h': 'h1', '6h': 'h6', '24h': 'h24',
         }
-        
         tf_key = timeframe_map.get(timeframe, 'h1')
         
-        # Fetch pairs for chain using tokens endpoint
-        url = f"{self.BASE_URL}/tokens/{chain}"
-        
-        # Get multiple pages if needed
-        all_pairs = []
-        
-        # DexScreener doesn't support pagination in the same way
-        # We'll use the search endpoint and filter
+        # Search using optimized query
         search_url = f"{self.BASE_URL}/search"
-        params = {'q': chain}
+        params = {'q': query}
         
         data = await self._rate_limited_request(search_url, params)
         
@@ -254,6 +242,7 @@ class DexScreenerAPI(BaseScreener):
             if p.get('chainId', '').lower() == chain
         ]
         
+        all_pairs = []
         # Extract price changes and filter positive gainers
         for pair in chain_pairs:
             price_change = pair.get('priceChange', {}).get(tf_key, 0)
@@ -269,73 +258,35 @@ class DexScreenerAPI(BaseScreener):
         return all_pairs[:limit]
     
     async def fetch_pair_details(self, pair_address: str, chain: str = "base") -> Optional[Dict]:
-        """
-        Fetch detailed pair information.
-        
-        Args:
-            pair_address: Pair contract address
-            chain: Target chain
-            
-        Returns:
-            Pair data dict or None
-        """
+        """Fetch detailed pair information."""
         chain = self._normalize_chain_name(chain)
-        
         url = f"{self.BASE_URL}/pairs/{chain}/{pair_address}"
-        
         data = await self._rate_limited_request(url)
-        
         if not data or 'pair' not in data:
             return None
-        
         return data['pair']
     
     async def fetch_new_pairs(self, chain: str = "base", max_age_minutes: int = 60) -> List[Dict]:
         """
         Fetch recently created pairs - WITH QUALITY FILTERS.
-        
-        This is the MAIN METHOD for detecting new tokens.
-        
-        Improvements:
-        - Pre-filter dead pairs ($0 volume)
-        - Pre-filter low liquidity pairs (< $500)
-        - Only return pairs with actual trading activity
-        
-        Args:
-            chain: Target chain
-            max_age_minutes: Maximum age of pair in minutes
-            
-        Returns:
-            List of HIGH QUALITY new pair data dicts
         """
         chain = self._normalize_chain_name(chain)
+        query = self._get_search_query(chain)
         
-        print(f"[DEXSCREENER DEBUG] fetch_new_pairs called for chain: {chain}, max_age: {max_age_minutes}min")
+        print(f"[DEXSCREENER DEBUG] fetch_new_pairs called for chain: {chain}, max_age: {max_age_minutes}min, query: '{query}'")
         
-        # Use search to find recent pairs
         url = f"{self.BASE_URL}/search"
-        params = {'q': chain}
+        params = {'q': query}
         
         data = await self._rate_limited_request(url, params)
         
-        if not data:
-            print(f"[DEXSCREENER DEBUG] No data returned from API")
-            return []
-        
-        if 'pairs' not in data:
-            print(f"[DEXSCREENER DEBUG] Response has no 'pairs' key")
+        if not data or 'pairs' not in data:
             return []
         
         pairs = data['pairs']
-        print(f"[DEXSCREENER DEBUG] API returned {len(pairs)} total pairs")
         
-        # Filter by chain and age
         cutoff_time = datetime.now() - timedelta(minutes=max_age_minutes)
-        print(f"[DEXSCREENER DEBUG] Cutoff time: {cutoff_time}")
-        
         new_pairs = []
-        chain_matched = 0
-        has_creation_time = 0
         filtered_dead = 0
         filtered_low_liq = 0
         
@@ -343,60 +294,41 @@ class DexScreenerAPI(BaseScreener):
             if pair.get('chainId', '').lower() != chain:
                 continue
             
-            chain_matched += 1
-            
-            # Parse creation time
             created_at = pair.get('pairCreatedAt')
             if not created_at:
                 continue
             
-            has_creation_time += 1
-            
             try:
-                created_time = datetime.fromtimestamp(created_at / 1000)  # milliseconds to seconds
+                created_time = datetime.fromtimestamp(created_at / 1000)
                 if created_time < cutoff_time:
-                    continue  # Too old
+                    continue
                 
-                # NEW: Quality checks BEFORE adding
-                # Get volume
-                vol_24h = pair.get('volume', {}).get('h24', 0) if isinstance(pair.get('volume'), dict) else 0
-                vol_24h = float(vol_24h) if vol_24h else 0
+                # Quality checks
+                vol_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
+                liquidity = float(pair.get('liquidity', {}).get('usd', 0) or 0)
                 
-                # Get liquidity
-                liquidity = pair.get('liquidity', {}).get('usd', 0) if isinstance(pair.get('liquidity'), dict) else 0
-                liquidity = float(liquidity) if liquidity else 0
-                
-                # Skip if NO volume (dead pair)
-                if vol_24h == 0:
+                if vol_24h <= 0:
                     filtered_dead += 1
                     continue
                 
-                # Skip if liquidity too low
-                if liquidity < 500:
+                if liquidity < 100: # RELAXED: was 500
                     filtered_low_liq += 1
                     continue
                 
-                # Passed all checks
                 new_pairs.append(pair)
                 
             except Exception as e:
-                print(f"[DEXSCREENER DEBUG] Error parsing creation time: {e}")
                 pass
         
-        print(f"[DEXSCREENER DEBUG] Chain matched: {chain_matched}, Has creation time: {has_creation_time}")
-        print(f"[DEXSCREENER DEBUG]   - Filtered dead pairs ($0 vol): {filtered_dead}")
-        print(f"[DEXSCREENER DEBUG]   - Filtered low liq (<$500): {filtered_low_liq}")
-        print(f"[DEXSCREENER DEBUG] New HIGH QUALITY pairs: {len(new_pairs)}")
-        
+        print(f"[DEXSCREENER DEBUG] New pairs found: {len(new_pairs)} (liq>100, vol>0)")
         return new_pairs
     
     def get_rate_limit_info(self) -> Dict:
         """Get current rate limit status."""
         remaining = self.rate_limit_per_minute - self.request_count
-        
         return {
             'remaining': max(0, remaining),
-            'reset_time': None,  # DexScreener doesn't expose this
+            'reset_time': None,
             'total_requests': self.request_count,
             'rate_limit': self.rate_limit_per_minute,
         }
