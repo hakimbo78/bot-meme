@@ -428,7 +428,7 @@ class ManualTokenAuditor:
         return audit_report
     
     async def send_audit_to_telegram(self, audit_report: Dict):
-        """Send audit report to Telegram."""
+        """Send comprehensive audit report to Telegram."""
         if not self.telegram.enabled:
             print(f"\n{Fore.YELLOW}⚠️  Telegram not configured - skipping notification")
             return
@@ -449,31 +449,213 @@ class ManualTokenAuditor:
             'CRITICAL': '⛔'
         }
         
-        message = f"""🔍 *MANUAL TOKEN AUDIT REPORT*
+        # Build comprehensive report
+        # HEADER
+        header = f"""{'='*40}
+🔍 AUDITING {chain} TOKEN
+{'='*40}
 
-*Chain:* {chain}
-*Token:* `{analysis.get('name', 'UNKNOWN')}` ({analysis.get('symbol', 'UNKNOWN')})
-*Address:* `{token_address}`
-
-📊 *Scores:*
-• Security Score: {security_score}/100
-• Trading Score: {score_data.get('score', 0):.1f}/100
-• Verdict: {score_data.get('verdict', 'UNKNOWN')}
-
-🛡️ *Risk Assessment:*
-• Overall Risk: {risk_emoji.get(overall_risk, '⚪')} {overall_risk}
-
-💡 *Recommendation:*
-{recommendation}
-
-⚠️ _Manual audit - Always DYOR before trading._
+*Token Address:* `{token_address}`
 """
         
+        # STEP 1: ON-CHAIN ANALYSIS
+        step1 = f"""
+{'─'*40}
+📊 STEP 1: ON-CHAIN ANALYSIS
+{'─'*40}
+
+*Token Name:* {analysis.get('name', 'UNKNOWN')}
+*Symbol:* {analysis.get('symbol', 'UNKNOWN')}
+*Decimals:* {analysis.get('decimals', 0)}
+"""
+        
+        # Add total supply for EVM chains
+        if chain in ['BASE', 'ETHEREUM']:
+            step1 += f"*Total Supply:* {analysis.get('total_supply', 0):,.0f}\n"
+        
+        # STEP 2: LIQUIDITY & MARKET ANALYSIS
+        if chain == 'SOLANA':
+            liquidity_sol = analysis.get('liquidity_sol', 0)
+            pool_address = analysis.get('pool_address', 'N/A')
+            lp_valid = analysis.get('lp_valid', False)
+            
+            if liquidity_sol >= 100:
+                liq_status = "EXCELLENT - High liquidity"
+            elif liquidity_sol >= 50:
+                liq_status = "GOOD - Adequate liquidity"
+            elif liquidity_sol >= 10:
+                liq_status = "MODERATE - Medium liquidity"
+            elif liquidity_sol >= 1:
+                liq_status = "LOW - Limited liquidity"
+            else:
+                liq_status = "CRITICAL - Very low liquidity"
+            
+            step2 = f"""
+{'─'*40}
+💧 STEP 2: LIQUIDITY & MARKET
+{'─'*40}
+
+*Pool Address:* `{pool_address[:10]}...{pool_address[-8:] if len(pool_address) > 18 else ''}`
+*Liquidity:* {liquidity_sol:.2f} SOL
+*LP Valid:* {'✅ YES' if lp_valid else '❌ NO'}
+*Assessment:* {liq_status}
+"""
+        else:
+            liquidity_usd = analysis.get('liquidity_usd', 0)
+            pair_address = analysis.get('pair_address', 'N/A')
+            age_minutes = analysis.get('age_minutes', 0)
+            
+            if liquidity_usd >= 100000:
+                liq_status = "EXCELLENT - High liquidity"
+            elif liquidity_usd >= 50000:
+                liq_status = "GOOD - Adequate liquidity"
+            elif liquidity_usd >= 10000:
+                liq_status = "MODERATE - Medium liquidity"
+            elif liquidity_usd >= 1000:
+                liq_status = "LOW - Limited liquidity"
+            else:
+                liq_status = "CRITICAL - Very low liquidity"
+            
+            step2 = f"""
+{'─'*40}
+💧 STEP 2: LIQUIDITY & MARKET
+{'─'*40}
+
+*Pair Address:* `{pair_address[:10]}...{pair_address[-8:] if len(pair_address) > 18 else ''}`
+*Liquidity:* ${liquidity_usd:,.2f}
+*Age:* {age_minutes:.1f} min ({age_minutes/60:.1f} hrs)
+*Assessment:* {liq_status}
+"""
+        
+        # STEP 3: SECURITY AUDIT
+        if chain == 'SOLANA':
+            metadata_ok = analysis.get('metadata_ok', False)
+            state = analysis.get('state', 'UNKNOWN')
+            lp_valid = analysis.get('lp_valid', False)
+            
+            security_level = 'HIGH' if security_score >= 80 else 'MEDIUM' if security_score >= 50 else 'LOW'
+            
+            step3 = f"""
+{'─'*40}
+🛡️ STEP 3: SECURITY AUDIT
+{'─'*40}
+
+*Metadata Resolved:* {'✅ YES' if metadata_ok else '❌ NO'}
+*Token State:* {state}
+*LP Validation:* {'✅ PASSED' if lp_valid else '⚠️ PENDING'}
+
+*Security Score:* {security_score}/100 ({security_level})
+"""
+        else:
+            renounced = analysis.get('renounced', False)
+            is_honeypot = analysis.get('is_honeypot', False)
+            has_mint = analysis.get('has_mint_function', False)
+            has_pause = analysis.get('has_pause_function', False)
+            has_blacklist = analysis.get('has_blacklist', False)
+            
+            security_level = 'HIGH' if security_score >= 80 else 'MEDIUM' if security_score >= 50 else 'LOW'
+            
+            step3 = f"""
+{'─'*40}
+🛡️ STEP 3: SECURITY AUDIT
+{'─'*40}
+
+*Ownership Renounced:* {'✅ YES' if renounced else '❌ NO'}
+*Honeypot Detected:* {'⚠️ YES' if is_honeypot else '✅ NO'}
+*Mint Function:* {'⚠️ YES' if has_mint else '✅ NO'}
+*Pause Function:* {'⚠️ YES' if has_pause else '✅ NO'}
+*Blacklist Function:* {'⚠️ YES' if has_blacklist else '✅ NO'}
+
+*Security Score:* {security_score}/100 ({security_level})
+"""
+        
+        # STEP 4: COMPREHENSIVE RISK SCORING
+        final_score = score_data.get('score', 0)
+        verdict = score_data.get('verdict', 'UNKNOWN')
+        risk_flags = score_data.get('risk_flags', [])
+        
+        risk_flags_text = ""
+        if risk_flags:
+            risk_flags_text = "\n*⚠️ Risk Flags:*\n"
+            for flag in risk_flags[:5]:  # Limit to 5 flags for Telegram
+                risk_flags_text += f"• {flag}\n"
+        else:
+            risk_flags_text = "\n✅ No major risk flags detected\n"
+        
+        step4 = f"""
+{'─'*40}
+⚖️ STEP 4: RISK SCORING
+{'─'*40}
+
+*Final Score:* {final_score:.1f}/100
+*Verdict:* {verdict}
+{risk_flags_text}
+"""
+        
+        # STEP 5: TRADING RECOMMENDATION
+        insights = []
+        
+        if chain == 'SOLANA':
+            liquidity_sol = analysis.get('liquidity_sol', 0)
+            lp_valid = analysis.get('lp_valid', False)
+            metadata_ok = analysis.get('metadata_ok', False)
+            
+            if liquidity_sol < 10:
+                insights.append("• Low liquidity - high slippage risk")
+            if not lp_valid:
+                insights.append("• LP not validated - rug pull risk")
+            if not metadata_ok:
+                insights.append("• Metadata not resolved")
+        else:
+            liquidity_usd = analysis.get('liquidity_usd', 0)
+            age_minutes = analysis.get('age_minutes', 0)
+            renounced = analysis.get('renounced', False)
+            has_mint = analysis.get('has_mint_function', False)
+            
+            if liquidity_usd < 10000:
+                insights.append("• Low liquidity - high slippage risk")
+            if age_minutes < 60:
+                insights.append("• Very new token - high volatility")
+            if not renounced:
+                insights.append("• Owner can modify contract - rug pull risk")
+            if has_mint:
+                insights.append("• Supply can be increased - dilution risk")
+        
+        insights_text = "\n".join(insights) if insights else "• No critical issues detected"
+        
+        step5 = f"""
+{'─'*40}
+💡 STEP 5: RECOMMENDATION
+{'─'*40}
+
+*Overall Risk:* {risk_emoji.get(overall_risk, '⚪')} {overall_risk}
+
+*Recommendation:*
+{recommendation}
+
+*📋 Key Insights:*
+{insights_text}
+"""
+        
+        # FOOTER
+        footer = f"""
+{'='*40}
+✅ AUDIT COMPLETE
+{'='*40}
+
+⚠️ _Manual audit - Always DYOR_
+"""
+        
+        # Combine all parts
+        full_message = header + step1 + step2 + step3 + step4 + step5 + footer
+        
         try:
-            await self.telegram.send_message_async(message)
+            await self.telegram.send_message_async(full_message)
             print(f"\n{Fore.GREEN}✅ Audit report sent to Telegram")
         except Exception as e:
             print(f"\n{Fore.RED}❌ Failed to send to Telegram: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def audit_token(self, chain: str, token_address: str, send_telegram: bool = True):
         """
