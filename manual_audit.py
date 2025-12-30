@@ -24,6 +24,7 @@ from scorer import TokenScorer
 from multi_scanner import MultiChainScanner
 from config import CHAIN_CONFIGS
 from telegram_notifier import TelegramNotifier
+from tokensniffer_analyzer import TokenSnifferAnalyzer
 
 init(autoreset=True)
 
