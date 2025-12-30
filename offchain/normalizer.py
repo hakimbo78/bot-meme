@@ -46,7 +46,32 @@ class PairNormalizer:
         chain = self._normalize_chain(raw_pair.get('chainId', 'unknown'))
         pair_address = raw_pair.get('pairAddress', '')
         base_token = raw_pair.get('baseToken', {})
-        token_address = base_token.get('address', '')
+        quote_token = raw_pair.get('quoteToken', {})
+        
+        base_address = base_token.get('address', '').lower()
+        quote_address = quote_token.get('address', '').lower()
+        
+        # Known Quote Tokens (WETH, SOL, USDC, USDT)
+        QUOTE_TOKENS = {
+            '0x4200000000000000000000000000000000000006', # Base/Op WETH
+            'so11111111111111111111111111111111111111112', # Solana SOL
+            '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', # Mainnet WETH
+            '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', # Base USDC
+            '0xdac17f958d2ee523a2206206994597c13d831ec7', # USDT
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', # USDC
+        }
+        
+        # If Base Token is a Quote Token, verify the other is NOT.
+        # If so, swap them. We want the "Subject" to be the meme/alt coin.
+        if base_address in QUOTE_TOKENS and quote_address not in QUOTE_TOKENS:
+            major_token = quote_token
+        else:
+            # Default: Base token is the subject (or both are quotes, or neither)
+            major_token = base_token
+
+        token_address = major_token.get('address', '')
+        token_name = major_token.get('name', 'UNKNOWN')
+        token_symbol = major_token.get('symbol', 'UNKNOWN')
         
         # Metrics
         liquidity = self._safe_float(raw_pair.get('liquidity', {}).get('usd', 0))
