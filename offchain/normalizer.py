@@ -61,6 +61,7 @@ class PairNormalizer:
             '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', # Ethereum USDC
             'epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v', # Solana USDC
             'es9vmfrzacermjfrf4h2fyd4kconky11mcce8benwnyb', # Solana USDT
+            'usd1ttgy1n17neehlmeloaybftrbuserhqyiqzvemub', # Solana USD1 (Spam/Stable)
             '0x50c5725949a6f0c7290c45f84749e64d8ad46442', # Base DAI
             '0xfde4c96c8593536e31f229ea8f37b2adb2656a1d', # Base USDT (native-ish)
         }
