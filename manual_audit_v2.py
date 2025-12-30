@@ -304,6 +304,7 @@ class ManualTokenAuditor:
             'analysis': analysis,
             'score_data': score_data,
             'security_score': security_score,
+            'tokensniffer_result': tokensniffer_result,  # Add TokenSniffer data
             'overall_risk': overall_risk,
             'recommendation': recommendation,
             'timestamp': time.time()
@@ -497,6 +498,7 @@ class ManualTokenAuditor:
             'analysis': analysis,
             'score_data': score_data,
             'security_score': security_score,
+            'tokensniffer_result': tokensniffer_result,  # Add TokenSniffer data
             'overall_risk': overall_risk,
             'recommendation': recommendation,
             'timestamp': time.time()
@@ -505,7 +507,7 @@ class ManualTokenAuditor:
         return audit_report
     
     async def send_audit_to_telegram(self, audit_report: Dict):
-        """Send comprehensive audit report to Telegram."""
+        """Send improved, readable audit report to Telegram."""
         if not self.telegram.enabled:
             print(f"\n{Fore.YELLOW}⚠️  Telegram not configured - skipping notification")
             return
@@ -515,219 +517,171 @@ class ManualTokenAuditor:
         analysis = audit_report['analysis']
         score_data = audit_report['score_data']
         security_score = audit_report['security_score']
+        tokensniffer_result = audit_report.get('tokensniffer_result')
         overall_risk = audit_report['overall_risk']
         recommendation = audit_report['recommendation']
         
-        # Format risk emoji
+        # Risk emoji
         risk_emoji = {
             'LOW': '🟢',
             'MEDIUM': '🟡',
             'HIGH': '🔴',
-            'CRITICAL': '⛔'
+            'CRITICAL': '⛔',
+            'VERY_LOW': '🟢'
         }
         
-        # Build comprehensive report
-        # HEADER
-        header = f"""{'='*40}
-🔍 AUDITING {chain} TOKEN
-{'='*40}
+        # === HEADER ===
+        message = f"""🔍 *MANUAL TOKEN AUDIT REPORT*
 
-*Token Address:* `{token_address}`
+*Chain:* {chain}
+*Token:* {analysis.get('name', 'UNKNOWN')} (`{analysis.get('symbol', '???')}`)
+*Address:* `{token_address[:8]}...{token_address[-6:]}`
+
 """
         
-        # STEP 1: ON-CHAIN ANALYSIS
-        step1 = f"""
-{'─'*40}
-📊 STEP 1: ON-CHAIN ANALYSIS
-{'─'*40}
+        # === QUICK SUMMARY ===
+        message += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 *QUICK SUMMARY*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*Token Name:* {analysis.get('name', 'UNKNOWN')}
-*Symbol:* {analysis.get('symbol', 'UNKNOWN')}
-*Decimals:* {analysis.get('decimals', 0)}
 """
         
-        # Add total supply for EVM chains
-        if chain in ['BASE', 'ETHEREUM']:
-            step1 += f"*Total Supply:* {analysis.get('total_supply', 0):,.0f}\n"
+        # Security Score
+        sec_emoji = '🟢' if security_score >= 80 else '🟡' if security_score >= 50 else '🔴'
+        message += f"{sec_emoji} *Security Score:* `{security_score}/100`\n"
         
-        # STEP 2: LIQUIDITY & MARKET ANALYSIS
+        # TokenSniffer Score (if available)
+        if tokensniffer_result:
+            ts_score = tokensniffer_result.get('overall_score', 0)
+            ts_emoji = '🟢' if ts_score >= 80 else '🟡' if ts_score >= 60 else '🔴'
+            message += f"{ts_emoji} *TokenSniffer Score:* `{ts_score}/100`\n"
+        
+        # Trading Score
+        final_score = score_data.get('score', 0)
+        verdict = score_data.get('verdict', 'UNKNOWN')
+        score_emoji = '🟢' if final_score >= 75 else '🟡' if final_score >= 60 else '🔴'
+        message += f"{score_emoji} *Trading Score:* `{final_score:.0f}/100` ({verdict})\n"
+        
+        # Overall Risk
+        message += f"\n{risk_emoji.get(overall_risk, '⚪')} *Overall Risk:* *{overall_risk}*\n"
+        
+        # === MARKET DATA ===
+        message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💧 *MARKET DATA*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+        
         if chain == 'SOLANA':
             liquidity_sol = analysis.get('liquidity_sol', 0)
-            pool_address = analysis.get('pool_address', 'N/A')
-            lp_valid = analysis.get('lp_valid', False)
-            
-            if liquidity_sol >= 100:
-                liq_status = "EXCELLENT - High liquidity"
-            elif liquidity_sol >= 50:
-                liq_status = "GOOD - Adequate liquidity"
-            elif liquidity_sol >= 10:
-                liq_status = "MODERATE - Medium liquidity"
-            elif liquidity_sol >= 1:
-                liq_status = "LOW - Limited liquidity"
-            else:
-                liq_status = "CRITICAL - Very low liquidity"
-            
-            step2 = f"""
-{'─'*40}
-💧 STEP 2: LIQUIDITY & MARKET
-{'─'*40}
-
-*Pool Address:* `{pool_address[:10]}...{pool_address[-8:] if len(pool_address) > 18 else ''}`
-*Liquidity:* {liquidity_sol:.2f} SOL
-*LP Valid:* {'✅ YES' if lp_valid else '❌ NO'}
-*Assessment:* {liq_status}
-"""
+            message += f"💰 *Liquidity:* `{liquidity_sol:.2f} SOL`\n"
         else:
             liquidity_usd = analysis.get('liquidity_usd', 0)
-            pair_address = analysis.get('pair_address', 'N/A')
             age_minutes = analysis.get('age_minutes', 0)
-            
-            if liquidity_usd >= 100000:
-                liq_status = "EXCELLENT - High liquidity"
-            elif liquidity_usd >= 50000:
-                liq_status = "GOOD - Adequate liquidity"
-            elif liquidity_usd >= 10000:
-                liq_status = "MODERATE - Medium liquidity"
-            elif liquidity_usd >= 1000:
-                liq_status = "LOW - Limited liquidity"
-            else:
-                liq_status = "CRITICAL - Very low liquidity"
-            
-            step2 = f"""
-{'─'*40}
-💧 STEP 2: LIQUIDITY & MARKET
-{'─'*40}
+            message += f"💰 *Liquidity:* `${liquidity_usd:,.0f}`\n"
+            message += f"⏰ *Age:* `{age_minutes/60:.1f} hours`\n"
+        
+        # === SECURITY CHECKS ===
+        message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛡️ *SECURITY CHECKS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*Pair Address:* `{pair_address[:10]}...{pair_address[-8:] if len(pair_address) > 18 else ''}`
-*Liquidity:* ${liquidity_usd:,.2f}
-*Age:* {age_minutes:.1f} min ({age_minutes/60:.1f} hrs)
-*Assessment:* {liq_status}
 """
         
-        # STEP 3: SECURITY AUDIT
-        if chain == 'SOLANA':
-            metadata_ok = analysis.get('metadata_ok', False)
-            state = analysis.get('state', 'UNKNOWN')
-            lp_valid = analysis.get('lp_valid', False)
-            
-            security_level = 'HIGH' if security_score >= 80 else 'MEDIUM' if security_score >= 50 else 'LOW'
-            
-            step3 = f"""
-{'─'*40}
-🛡️ STEP 3: SECURITY AUDIT
-{'─'*40}
-
-*Metadata Resolved:* {'✅ YES' if metadata_ok else '❌ NO'}
-*Token State:* {state}
-*LP Validation:* {'✅ PASSED' if lp_valid else '⚠️ PENDING'}
-
-*Security Score:* {security_score}/100 ({security_level})
-"""
-        else:
+        if chain != 'SOLANA':
             renounced = analysis.get('renounced', False)
             is_honeypot = analysis.get('is_honeypot', False)
             has_mint = analysis.get('has_mint_function', False)
-            has_pause = analysis.get('has_pause_function', False)
-            has_blacklist = analysis.get('has_blacklist', False)
             
-            security_level = 'HIGH' if security_score >= 80 else 'MEDIUM' if security_score >= 50 else 'LOW'
-            
-            step3 = f"""
-{'─'*40}
-🛡️ STEP 3: SECURITY AUDIT
-{'─'*40}
-
-*Ownership Renounced:* {'✅ YES' if renounced else '❌ NO'}
-*Honeypot Detected:* {'⚠️ YES' if is_honeypot else '✅ NO'}
-*Mint Function:* {'⚠️ YES' if has_mint else '✅ NO'}
-*Pause Function:* {'⚠️ YES' if has_pause else '✅ NO'}
-*Blacklist Function:* {'⚠️ YES' if has_blacklist else '✅ NO'}
-
-*Security Score:* {security_score}/100 ({security_level})
-"""
+            message += f"{'✅' if renounced else '❌'} Ownership Renounced\n"
+            message += f"{'✅' if not is_honeypot else '⚠️'} Not a Honeypot\n"
+            message += f"{'✅' if not has_mint else '⚠️'} No Mint Function\n"
         
-        # STEP 4: COMPREHENSIVE RISK SCORING
-        final_score = score_data.get('score', 0)
-        verdict = score_data.get('verdict', 'UNKNOWN')
+        # === TOKENSNIFFER ANALYSIS ===
+        if tokensniffer_result and chain != 'SOLANA':
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔬 *TOKENSNIFFER ANALYSIS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+            
+            # Swap Analysis
+            swap = tokensniffer_result.get('swap_analysis', {})
+            if not swap.get('is_honeypot', False):
+                message += f"✅ Token is sellable\n"
+            else:
+                message += f"⚠️ Honeypot detected!\n"
+            
+            buy_fee = swap.get('buy_fee_percent', 0)
+            sell_fee = swap.get('sell_fee_percent', 0)
+            message += f"💸 Buy Fee: `{buy_fee:.1f}%` | Sell Fee: `{sell_fee:.1f}%`\n"
+            
+            # Contract Analysis
+            contract = tokensniffer_result.get('contract_analysis', {})
+            if contract.get('is_verified'):
+                message += f"✅ Contract Verified\n"
+            if contract.get('ownership_renounced'):
+                message += f"✅ Ownership Renounced\n"
+            
+            # Holder Analysis
+            holder = tokensniffer_result.get('holder_analysis', {})
+            creator_pct = holder.get('creator_wallet_percent', 0)
+            top10_pct = holder.get('top10_holders_percent', 0)
+            
+            if creator_pct < 5:
+                message += f"✅ Creator holds `{creator_pct:.1f}%` (< 5%)\n"
+            else:
+                message += f"⚠️ Creator holds `{creator_pct:.1f}%` (≥ 5%)\n"
+            
+            if top10_pct < 70:
+                message += f"✅ Top 10 holders: `{top10_pct:.1f}%` (< 70%)\n"
+            else:
+                message += f"⚠️ Top 10 holders: `{top10_pct:.1f}%` (≥ 70%)\n"
+            
+            # Liquidity Lock
+            liq = tokensniffer_result.get('liquidity_analysis', {})
+            liq_locked = liq.get('liquidity_locked_percent', 0)
+            if liq_locked >= 95:
+                message += f"✅ Liquidity Locked: `{liq_locked:.0f}%`\n"
+            elif liq_locked > 0:
+                message += f"⚠️ Liquidity Locked: `{liq_locked:.0f}%`\n"
+            else:
+                message += f"❌ Liquidity Not Locked\n"
+        
+        # === RISK FLAGS ===
         risk_flags = score_data.get('risk_flags', [])
-        
-        risk_flags_text = ""
         if risk_flags:
-            risk_flags_text = "\n*⚠️ Risk Flags:*\n"
-            for flag in risk_flags[:5]:  # Limit to 5 flags for Telegram
-                risk_flags_text += f"• {flag}\n"
-        else:
-            risk_flags_text = "\n✅ No major risk flags detected\n"
-        
-        step4 = f"""
-{'─'*40}
-⚖️ STEP 4: RISK SCORING
-{'─'*40}
+            message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ *RISK FLAGS*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*Final Score:* {final_score:.1f}/100
-*Verdict:* {verdict}
-{risk_flags_text}
 """
+            for flag in risk_flags[:5]:  # Limit to 5 flags
+                message += f"• {flag}\n"
         
-        # STEP 5: TRADING RECOMMENDATION
-        insights = []
-        
-        if chain == 'SOLANA':
-            liquidity_sol = analysis.get('liquidity_sol', 0)
-            lp_valid = analysis.get('lp_valid', False)
-            metadata_ok = analysis.get('metadata_ok', False)
-            
-            if liquidity_sol < 10:
-                insights.append("• Low liquidity - high slippage risk")
-            if not lp_valid:
-                insights.append("• LP not validated - rug pull risk")
-            if not metadata_ok:
-                insights.append("• Metadata not resolved")
-        else:
-            liquidity_usd = analysis.get('liquidity_usd', 0)
-            age_minutes = analysis.get('age_minutes', 0)
-            renounced = analysis.get('renounced', False)
-            has_mint = analysis.get('has_mint_function', False)
-            
-            if liquidity_usd < 10000:
-                insights.append("• Low liquidity - high slippage risk")
-            if age_minutes < 60:
-                insights.append("• Very new token - high volatility")
-            if not renounced:
-                insights.append("• Owner can modify contract - rug pull risk")
-            if has_mint:
-                insights.append("• Supply can be increased - dilution risk")
-        
-        insights_text = "\n".join(insights) if insights else "• No critical issues detected"
-        
-        step5 = f"""
-{'─'*40}
-💡 STEP 5: RECOMMENDATION
-{'─'*40}
+        # === RECOMMENDATION ===
+        message += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 *RECOMMENDATION*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*Overall Risk:* {risk_emoji.get(overall_risk, '⚪')} {overall_risk}
-
-*Recommendation:*
 {recommendation}
 
-*📋 Key Insights:*
-{insights_text}
 """
         
-        # FOOTER
-        footer = f"""
-{'='*40}
-✅ AUDIT COMPLETE
-{'='*40}
+        # === FOOTER ===
+        message += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️ _Manual audit - Always DYOR_
+⚠️ _Manual audit - Always DYOR before trading_
+_Not financial advice_
 """
-        
-        # Combine all parts
-        full_message = header + step1 + step2 + step3 + step4 + step5 + footer
         
         try:
-            await self.telegram.send_message_async(full_message)
+            await self.telegram.send_message_async(message)
             print(f"\n{Fore.GREEN}✅ Audit report sent to Telegram")
         except Exception as e:
             print(f"\n{Fore.RED}❌ Failed to send to Telegram: {e}")
