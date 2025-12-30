@@ -102,17 +102,30 @@ class OffChainFilter:
 
     def _check_level0_filter(self, pair: Dict) -> Tuple[bool, Optional[str]]:
         """
-        LEVEL-0 FILTER (HARD KILL ONLY)
+        LEVEL-0 FILTER (HARD KILL) - TIGHTENED FOR HYBRID OPTION C
         
-        DROP ONLY if pair is a TOTAL ZOMBIE:
-        - age_days > 30
-        - AND price_change_5m == 0
-        - AND price_change_1h == 0
-        - AND tx_5m == 0
+        DROP if:
+        1. ZOMBIE: age > 30d AND no activity
+        2. LOW LIQUIDITY: < $2,000 (HYBRID)
+        3. LOW VOLUME: < $1,000 in 24h (HYBRID)
         
-        This represents a completely dead pair with no signs of life.
-        Fresh pairs with zero activity ALWAYS PASS.
+        This ensures only quality pairs pass.
         """
+        # Check liquidity (HYBRID requirement)
+        liquidity = pair.get('liquidity', 0)
+        min_liq = self.global_guardrails.get('min_liquidity_usd', 2000)
+        if liquidity < min_liq:
+            return False, f"LOW_LIQUIDITY (${liquidity:,.0f} < ${min_liq:,.0f})"
+        
+        # Check volume (HYBRID requirement)
+        volume_24h = pair.get('volume_24h', 0)
+        min_vol = self.global_guardrails.get('min_volume_24h', 1000)
+        require_volume = self.global_guardrails.get('require_h24_volume', True)
+        
+        if require_volume and volume_24h < min_vol:
+            return False, f"LOW_VOLUME (${volume_24h:,.0f} < ${min_vol:,.0f})"
+        
+        # Check for zombies (old logic)
         age_days = pair.get('age_days', 0)
         if age_days is None:
             age_days = 0.0
@@ -166,59 +179,59 @@ class OffChainFilter:
     def _calculate_score_v3(self, pair: Dict) -> float:
         """
         Calculate 0-100 score based on V3 components.
+        TIGHTENED BUCKETS (HYBRID OPTION C) - Only quality coins get points!
         """
         points_config = self.scoring_config.get('points', {})
         
         score = 0.0
         
-        # 1. Price Change 5m (0-30)
+        # 1. Price Change 5m (0-30) - TIGHTENED
         p5m_cap = points_config.get('price_change_5m', 30)
         p5m = abs(pair.get('price_change_5m', 0) or 0)
         
-        # Linear scaling up to cap? Or buckets?
-        # User didn't specify buckets, so I'll create reasonable ones or linear.
-        # Let's use buckets similar to V2 but adapted.
-        if p5m >= 50: score += p5m_cap
-        elif p5m >= 20: score += p5m_cap * 0.8
-        elif p5m >= 10: score += p5m_cap * 0.6
-        elif p5m >= 5: score += p5m_cap * 0.4
-        else: score += p5m_cap * 0.1 * (p5m/5.0) # Small partial credit
+        if p5m >= 50: score += p5m_cap           # 50%+ → 30 pts
+        elif p5m >= 20: score += p5m_cap * 0.8   # 20%+ → 24 pts
+        elif p5m >= 10: score += p5m_cap * 0.6   # 10%+ → 18 pts
+        elif p5m >= 5: score += p5m_cap * 0.3    # 5%+ → 9 pts (was 0.4)
+        else: score += 0                         # < 5% → 0 pts (was partial)
         
-        # 2. Price Change 1h (0-20)
+        # 2. Price Change 1h (0-20) - TIGHTENED
         p1h_cap = points_config.get('price_change_1h', 20)
         p1h = abs(pair.get('price_change_1h', 0) or 0)
-        if p1h >= 100: score += p1h_cap
-        elif p1h >= 50: score += p1h_cap * 0.8
-        elif p1h >= 20: score += p1h_cap * 0.6
-        elif p1h >= 15: score += p1h_cap * 0.4
-        else: score += p1h_cap * 0.1
+        if p1h >= 100: score += p1h_cap          # 100%+ → 20 pts
+        elif p1h >= 50: score += p1h_cap * 0.8   # 50%+ → 16 pts
+        elif p1h >= 20: score += p1h_cap * 0.6   # 20%+ → 12 pts
+        elif p1h >= 10: score += p1h_cap * 0.3   # 10%+ → 6 pts (was 0.4)
+        else: score += 0                         # < 10% → 0 pts (was 0.1)
         
-        # 3. Tx 5m (0-20)
+        # 3. Tx 5m (0-20) - TIGHTENED
         tx_cap = points_config.get('tx_5m', 20)
         tx = pair.get('tx_5m', 0)
-        if tx >= 50: score += tx_cap
-        elif tx >= 20: score += tx_cap * 0.8
-        elif tx >= 10: score += tx_cap * 0.6
-        elif tx >= 5: score += tx_cap * 0.4
-        elif tx >= 1: score += tx_cap * 0.2
+        if tx >= 50: score += tx_cap             # 50+ tx → 20 pts
+        elif tx >= 20: score += tx_cap * 0.8     # 20+ tx → 16 pts
+        elif tx >= 10: score += tx_cap * 0.6     # 10+ tx → 12 pts
+        elif tx >= 5: score += tx_cap * 0.4      # 5+ tx → 8 pts
+        else: score += 0                         # < 5 tx → 0 pts (was 0.2)
         
-        # 4. Liquidity (0-10)
+        # 4. Liquidity (0-10) - TIGHTENED
         liq_cap = points_config.get('liquidity', 10)
         liq = pair.get('liquidity', 0)
-        if liq >= 50000: score += liq_cap
-        elif liq >= 10000: score += liq_cap * 0.8
-        elif liq >= 5000: score += liq_cap * 0.6
-        elif liq >= 2000: score += liq_cap * 0.4
-        elif liq >= 500: score += liq_cap * 0.2
+        if liq >= 100000: score += liq_cap       # $100K+ → 10 pts
+        elif liq >= 50000: score += liq_cap * 0.8  # $50K+ → 8 pts
+        elif liq >= 20000: score += liq_cap * 0.6  # $20K+ → 6 pts
+        elif liq >= 10000: score += liq_cap * 0.4  # $10K+ → 4 pts
+        elif liq >= 5000: score += liq_cap * 0.2   # $5K+ → 2 pts
+        else: score += 0                         # < $5K → 0 pts (was 0.2)
         
-        # 5. Volume 24h (0-10)
+        # 5. Volume 24h (0-10) - TIGHTENED
         vol_cap = points_config.get('volume_24h', 10)
         vol = pair.get('volume_24h', 0)
-        if vol >= 100000: score += vol_cap
-        elif vol >= 50000: score += vol_cap * 0.8
-        elif vol >= 10000: score += vol_cap * 0.6
-        elif vol >= 5000: score += vol_cap * 0.4
-        elif vol >= 1000: score += vol_cap * 0.2
+        if vol >= 100000: score += vol_cap       # $100K+ → 10 pts
+        elif vol >= 50000: score += vol_cap * 0.8  # $50K+ → 8 pts
+        elif vol >= 20000: score += vol_cap * 0.6  # $20K+ → 6 pts
+        elif vol >= 10000: score += vol_cap * 0.4  # $10K+ → 4 pts
+        elif vol >= 5000: score += vol_cap * 0.2   # $5K+ → 2 pts
+        else: score += 0                         # < $5K → 0 pts (was 0.2)
         
         # 6. Revival Bonus (+10)
         # If age > 30d AND momentum true (momentum already checked if we passed filters)

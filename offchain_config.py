@@ -32,17 +32,18 @@ DEGEN_SNIPER_CONFIG = {
     },
     
     # ================================================================
-    # GLOBAL GUARDRAILS (LEVEL-0)
+    # GLOBAL GUARDRAILS (LEVEL-0) - TIGHTENED FOR QUALITY
     # ================================================================
     'global_guardrails': {
-        'min_liquidity_usd': 500,           # Ultra loose (Level-0)
-        'min_tx_5m': 1,                     # Level-0 rule
-        'require_h24_volume': False,        # Not strictly required by Level-0
+        'min_liquidity_usd': 2000,          # Was 500 → 4x stricter (HYBRID)
+        'min_tx_5m': 3,                     # Was 1 → 3x stricter (HYBRID)
+        'min_volume_24h': 1000,             # NEW requirement (HYBRID)
+        'require_h24_volume': True,         # Enforce volume check (HYBRID)
         'max_age_hours': None,              # Removed for Revival Rule
     },
     
     # ================================================================
-    # SCORING V3 (0-100 Scale - Point System)
+    # SCORING V3 (0-100 Scale - Point System) - TIGHTENED THRESHOLDS
     # ================================================================
     'scoring_v3': {
         'points': {
@@ -55,9 +56,9 @@ DEGEN_SNIPER_CONFIG = {
         },
         'thresholds': {
             'low': 30,
-            'mid': 45,
-            'high': 65,
-            'verify': 65  # Trigger on-chain verification
+            'mid': 55,      # Was 45 → +10 harder (HYBRID)
+            'high': 75,     # Was 65 → +10 harder (HYBRID)
+            'verify': 75    # Was 65 → +10 harder (HYBRID)
         }
     },
     
