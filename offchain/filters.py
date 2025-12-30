@@ -104,7 +104,12 @@ class OffChainFilter:
         """
         LEVEL-0 FILTER (ULTRA LOOSE):
         - liquidity >= 500
-        - tx_5m >= 1
+        - tx_5m >= 1 (RELAXED with conditional logic)
+        
+        PATCHES APPLIED:
+        - PATCH 1: Conditional inactivity (not absolute)
+        - PATCH 2: Age-based bypass for new pairs
+        - PATCH 3: Solana-specific exception
         """
         # Liquidity
         liq = pair.get('liquidity', 0)
@@ -112,11 +117,35 @@ class OffChainFilter:
         if liq < min_liq:
             return False, f"Liquidity too low (${liq} < ${min_liq})"
             
-        # Tx 5m
+        # Tx 5m - RELAXED LOGIC
         tx_5m = pair.get('tx_5m', 0)
         min_tx = self.global_guardrails.get('min_tx_5m', 1)
+        
         if tx_5m < min_tx:
-            return False, f"Inactive (tx_5m={tx_5m})"
+            age_days = pair.get('age_days', 0)
+            if age_days is None:
+                age_days = 0.0
+            price_change_1h = pair.get('price_change_1h', 0) or 0
+            chain = pair.get('chain', '').lower()
+            volume_24h = pair.get('volume_24h', 0)
+            
+            # PATCH 2: Age-based bypass - new pairs frequently have no tx_5m yet
+            if age_days <= 0.5:
+                # Allow new pairs to pass without tx_5m requirement
+                return True, None
+                
+            # PATCH 3: Solana-specific exception - delayed tx_5m reporting
+            if chain == "solana" and liq >= 50000 and volume_24h >= 50000:
+                # Solana pairs with strong liquidity/volume can pass despite missing tx_5m
+                return True, None
+            
+            # PATCH 1: Conditional inactivity - only reject if old + flat + no activity
+            if age_days > 1 and price_change_1h <= 0:
+                return False, f"Fully inactive (old={age_days:.1f}d, flat, tx_5m={tx_5m})"
+            
+            # Otherwise allow: dormant/early/revival pairs can pass
+            # (they have either: young age OR positive price movement)
+            return True, None
             
         return True, None
         
