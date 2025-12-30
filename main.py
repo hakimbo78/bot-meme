@@ -316,95 +316,21 @@ async def main():
                 running_mode_enabled = False
         
         # SECONDARY MARKET SCANNER - Existing pair breakout detection
+        # DISABLED: Going full off-chain (GeckoTerminal only)
         secondary_scanner = None
-        secondary_enabled = False
+        secondary_enabled = False  # FORCE DISABLED
         
-        if SECONDARY_MODULE_AVAILABLE:
-            try:
-                # Get global secondary scanner config
-                secondary_config = CHAIN_CONFIGS.get('secondary_scanner', {})
-                
-                # Initialize secondary scanner for each enabled EVM chain
-                secondary_scanners = {}
-                for chain_name in evm_chains:
-                    chain_config = CHAIN_CONFIGS.get('chains', {}).get(chain_name, {})
-                    if chain_config.get('enabled', False):
-                        # Get web3 provider from adapter
-                        adapter = scanner.get_adapter(chain_name)
-                        if adapter and hasattr(adapter, 'w3'):
-                            # Merge chain config with global secondary config
-                            full_config = {
-                                **chain_config, 
-                                'chain_name': chain_name,
-                                'secondary_scanner': secondary_config
-                            }
-                            
-                            sec_scanner = SecondaryScanner(
-                                adapter.w3, 
-                                full_config
-                            )
-                            
-                            # Discover and add pairs to monitor
-                            discovered_pairs = sec_scanner.discover_pairs()
-                            for pair_info in discovered_pairs:
-                                sec_scanner.add_pair_to_monitor(**pair_info)
-                            
-                            secondary_scanners[chain_name] = sec_scanner
-                
-                if secondary_scanners:
-                    secondary_enabled = True
-                    print(f"{Fore.GREEN}🚀 SECONDARY MARKET SCANNER: ENABLED")
-                    for chain_name, sec_scanner in secondary_scanners.items():
-                        stats = sec_scanner.get_stats()
-                        print(f"{Fore.GREEN}    - {chain_name.upper()}: Monitoring {stats.get('monitored_pairs', 0)} pairs")
-                    print()
-                    
-            except Exception as e:
-                print(f"{Fore.YELLOW}⚠️  Secondary scanner failed to initialize: {e}")
-                import traceback
-                traceback.print_exc()
-                secondary_enabled = False
+        print(f"{Fore.YELLOW}⚠️  On-chain secondary scanner DISABLED (full off-chain mode)")
+        print(f"{Fore.CYAN}💡 Using GeckoTerminal for both NEW and TRENDING coins\n")
         
         # ================================================
         # ACTIVITY SCANNER SETUP (2025-12-29)
+        # DISABLED: Going full off-chain (GeckoTerminal only)
         # ================================================
-        activity_integration = None
-        if ACTIVITY_SCANNER_AVAILABLE:
-            try:
-                activity_integration = ActivityIntegration(enabled=True)
-                
-                # Register scanner for each enabled EVM chain
-                for chain_name in evm_chains:
-                    chain_config = CHAIN_CONFIGS.get('chains', {}).get(chain_name, {})
-                    
-                    # Check if secondary scanner enabled for this chain (activity scanner piggybacks on this setting)
-                    if chain_config.get('secondary_scanner', {}).get('enabled', False):
-                        # Get web3 provider from adapter
-                        adapter = scanner.get_adapter(chain_name)
-                        if adapter and hasattr(adapter, 'w3'):
-                            scanner_instance = SecondaryActivityScanner(
-                                web3=adapter.w3,
-                                chain_name=chain_name,
-                                chain_config=chain_config
-                            )
-                            activity_integration.register_scanner(chain_name, scanner_instance)
-                            print(f"{Fore.CYAN}✅ [ACTIVITY] Registered scanner for {chain_name.upper()}")
-                
-                # Print status
-                if activity_integration and len(activity_integration.scanners) > 0:
-                    print(f"\n{Fore.CYAN}🔥 ACTIVITY SCANNER: ENABLED")
-                    activity_integration.print_status()
-                else:
-                    print(f"{Fore.YELLOW}⚠️  [ACTIVITY] No scanners registered")
-                    activity_integration = None
-                    
-            except Exception as e:
-                print(f"{Fore.YELLOW}⚠️  Activity scanner failed to initialize: {e}")
-                import traceback
-                traceback.print_exc()
-                activity_integration = None
-        else:
-            print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Activity scanner module not available")
+        activity_integration = None  # FORCE DISABLED
+        
+        print(f"{Fore.YELLOW}⚠️  On-chain activity scanner DISABLED (full off-chain mode)")
+        print(f"{Fore.CYAN}💡 GeckoTerminal trending pools will catch old coins with momentum\n")
         
         # ================================================
         # OFF-CHAIN SCREENER SETUP (2025-12-29)
