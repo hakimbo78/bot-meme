@@ -258,6 +258,9 @@ class OffChainScreenerIntegration:
         token_address = normalized.get('token_address', '')
         
         if not pair_address or not token_address:
+            # Silent drops are bad for debugging activity
+            if pair_address and not token_address:
+                print(f"[OFFCHAIN] Pair {pair_address[:10]}... dropped (Stable/Quote Pair)")
             return None
             
         # 2. FILTERING & SCORING

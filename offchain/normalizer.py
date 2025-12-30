@@ -73,12 +73,7 @@ class PairNormalizer:
         
         if base_address in QUOTE_TOKENS and quote_address in QUOTE_TOKENS:
             # Stable pair or noise. Return minimal dummy or None to filter later.
-            # We'll tag it as 'STABLE_PAIR' and ensure integration drops it.
-            major_token = base_token # Default
-            # The integration layer will drop it if we return it? 
-            # Integration checks: if deduplicator.is_duplicate...
-            # If we allow it, it becomes a duplicate.
-            # Let's set token_address to EMPTY so it gets dropped by normalizer check: "if not pair_address or not token_address: return None"
+            print(f"[NORMALIZER] Dropping stable pair: {base_address[:10]}... / {quote_address[:10]}...")
             major_token = {} 
         elif base_address in QUOTE_TOKENS:
             major_token = quote_token
