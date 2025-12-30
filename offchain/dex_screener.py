@@ -91,41 +91,48 @@ class DexScreenerAPI(BaseScreener):
             print(f"[DEXSCREENER] Request error: {e}")
             return None
     
-    def _get_search_query(self, chain: str) -> str:
+    def _get_search_queries(self, chain: str) -> list:
         """
-        Get the best search query for a chain to find trending/new pairs.
+        Get MULTIPLE search queries for a chain to find trending/new pairs.
         
-        Using Token Symbols (WETH) returns global results (dominated by Eth Mainnet).
-        Using Token Addresses targets the specific chain much more effectively.
+        ROOT CAUSE FIX:
+        - Old strategy: Query by WETH/SOL address → Only returns established pairs
+        - New strategy: Query by popular keywords + DEX names → Returns new coins
+        
+        This returns a LIST of queries to scan comprehensively.
         """
         chain = chain.lower()
+        
+        # Base queries: Popular meme/trending keywords
+        base_queries = ['pepe', 'doge', 'meme', 'ai', 'trump', 'cat', 'dog']
+        
         if chain == 'base':
-            # Base WETH Address
-            return '0x4200000000000000000000000000000000000006' 
+            # Base-specific: DEX names + keywords
+            dex_queries = ['uniswap', 'aerodrome', 'baseswap']
+            return base_queries + dex_queries
+            
         elif chain == 'solana':
-            # Wrapped SOL Address
-            return 'So11111111111111111111111111111111111111112' 
+            # Solana-specific: DEX names + keywords
+            dex_queries = ['raydium', 'orca', 'pump']  # pump.fun is popular
+            return base_queries + dex_queries
+            
         elif chain == 'ethereum':
-            # Mainnet WETH Address
-            return '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
-        elif chain == 'arbitrum':
-            # Arbitrum WETH Address
-            return '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'
-        elif chain == 'optimism':
-            # Optimism WETH Address (Same as Base)
-            return '0x4200000000000000000000000000000000000006'
-        elif chain == 'polygon':
-            # WMATIC Address
-            return '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'
-        elif chain == 'blast':
-            # Blast WETH Address
-            return '0x4300000000000000000000000000000000000004'
+            # Ethereum-specific
+            dex_queries = ['uniswap', 'sushiswap']
+            return base_queries + dex_queries
+            
         else:
-            return chain # Fallback
+            # Fallback: just use base queries
+            return base_queries
             
     async def fetch_trending_pairs(self, chain: str = "base", limit: int = 50) -> List[Dict]:
         """
         Fetch trending pairs by volume - WITH QUALITY FILTERS.
+        
+        NEW STRATEGY (ROOT CAUSE FIX):
+        - Use MULTIPLE queries (keywords + DEX names) instead of single WETH/SOL address
+        - This detects NEW coins that appear in DexScreener dashboard
+        - Aggregate results from all queries and deduplicate
         
         Improvements:
         - Pre-filter dead pairs ($0 volume)
@@ -134,49 +141,51 @@ class DexScreenerAPI(BaseScreener):
         - Only return quality pairs
         """
         chain = self._normalize_chain_name(chain)
-        query = self._get_search_query(chain)
+        queries = self._get_search_queries(chain)
         
-        print(f"[DEXSCREENER DEBUG] fetch_trending_pairs called for chain: {chain} using query: '{query}'")
+        print(f"[DEXSCREENER DEBUG] fetch_trending_pairs called for chain: {chain}")
+        print(f"[DEXSCREENER DEBUG] Using {len(queries)} queries: {queries}")
         
-        # Strategy: Use search but apply STRICT pre-filtering
+        # Strategy: Use MULTIPLE searches and aggregate results
         url = f"{self.BASE_URL}/search"
-        params = {
-            'q': query,  # Search by native token for broader coverage
-        }
         
-        print(f"[DEXSCREENER DEBUG] Making request to: {url} with params: {params}")
+        all_pairs = []
+        seen_addresses = set()
         
-        data = await self._rate_limited_request(url, params)
+        # Iterate through all queries
+        for query in queries:
+            params = {'q': query}
+            
+            print(f"[DEXSCREENER DEBUG] Query: '{query}'")
+            
+            data = await self._rate_limited_request(url, params)
+            
+            if not data or 'pairs' not in data:
+                continue
+            
+            pairs = data['pairs']
+            print(f"[DEXSCREENER DEBUG]   - Got {len(pairs)} pairs")
+            
+            # Filter by chain and deduplicate
+            for p in pairs:
+                if p.get('chainId', '').lower() == chain:
+                    addr = p.get('pairAddress', '')
+                    if addr and addr not in seen_addresses:
+                        seen_addresses.add(addr)
+                        all_pairs.append(p)
         
-        if not data:
-            print(f"[DEXSCREENER DEBUG] No data returned from API")
-            return []
-        
-        if 'pairs' not in data:
-            print(f"[DEXSCREENER DEBUG] Response has no 'pairs' key")
-            return []
-        
-        pairs = data['pairs']
-        print(f"[DEXSCREENER DEBUG] API returned {len(pairs)} total pairs")
+        print(f"[DEXSCREENER DEBUG] Total unique pairs from all queries: {len(all_pairs)}")
         
         # ============================================================
-        # PRE-FILTERING (NEW - Improve data quality)
+        # PRE-FILTERING (Improve data quality)
         # ============================================================
         
-        # Step 1: Filter by chain
-        chain_pairs = [
-            p for p in pairs 
-            if p.get('chainId', '').lower() == chain
-        ]
-        print(f"[DEXSCREENER DEBUG] After chain filter ({chain}): {len(chain_pairs)} pairs")
-        
-        # Step 2: PRE-FILTER LOW QUALITY (before sorting)
         quality_pairs = []
         filtered_dead = 0
         filtered_low_liq = 0
         filtered_no_data = 0
         
-        for p in chain_pairs:
+        for p in all_pairs:
             # Get volume (prefer 24h for stability)
             vol_24h = p.get('volume', {}).get('h24', 0) if isinstance(p.get('volume'), dict) else 0
             vol_24h = float(vol_24h) if vol_24h else 0
@@ -276,31 +285,47 @@ class DexScreenerAPI(BaseScreener):
     async def fetch_new_pairs(self, chain: str = "base", max_age_minutes: int = 60) -> List[Dict]:
         """
         Fetch recently created pairs - WITH QUALITY FILTERS.
+        
+        NEW STRATEGY (ROOT CAUSE FIX):
+        - Use MULTIPLE queries to find new coins
+        - Aggregate and deduplicate results
         """
         chain = self._normalize_chain_name(chain)
-        query = self._get_search_query(chain)
+        queries = self._get_search_queries(chain)
         
-        print(f"[DEXSCREENER DEBUG] fetch_new_pairs called for chain: {chain}, max_age: {max_age_minutes}min, query: '{query}'")
+        print(f"[DEXSCREENER DEBUG] fetch_new_pairs called for chain: {chain}, max_age: {max_age_minutes}min")
+        print(f"[DEXSCREENER DEBUG] Using {len(queries)} queries")
         
         url = f"{self.BASE_URL}/search"
-        params = {'q': query}
         
-        data = await self._rate_limited_request(url, params)
+        all_pairs = []
+        seen_addresses = set()
         
-        if not data or 'pairs' not in data:
-            return []
-        
-        pairs = data['pairs']
+        # Iterate through all queries
+        for query in queries:
+            params = {'q': query}
+            
+            data = await self._rate_limited_request(url, params)
+            
+            if not data or 'pairs' not in data:
+                continue
+            
+            pairs = data['pairs']
+            
+            # Filter by chain and deduplicate
+            for p in pairs:
+                if p.get('chainId', '').lower() == chain:
+                    addr = p.get('pairAddress', '')
+                    if addr and addr not in seen_addresses:
+                        seen_addresses.add(addr)
+                        all_pairs.append(p)
         
         cutoff_time = datetime.now() - timedelta(minutes=max_age_minutes)
         new_pairs = []
         filtered_dead = 0
         filtered_low_liq = 0
         
-        for pair in pairs:
-            if pair.get('chainId', '').lower() != chain:
-                continue
-            
+        for pair in all_pairs:
             created_at = pair.get('pairCreatedAt')
             if not created_at:
                 continue

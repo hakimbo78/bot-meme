@@ -1,0 +1,93 @@
+COMPREHENSIVE DEXSCREENER TEST
+================================================================================
+
+
+================================================================================
+STRATEGY 1: Search dengan query populer
+================================================================================
+
+Query 'pepe':
+  BASE: 4 pairs
+  SOLANA: 14 pairs
+  SOLANA new (<24h): 5
+
+Query 'doge':
+  BASE: 1 pairs
+  SOLANA: 3 pairs
+
+Query 'shib':
+  BASE: 5 pairs
+  SOLANA: 6 pairs
+
+Query 'meme':
+  BASE: 1 pairs
+  SOLANA: 18 pairs
+  SOLANA new (<24h): 3
+
+Query 'ai':
+  BASE: 3 pairs
+  SOLANA: 11 pairs
+
+Query 'trump':
+  BASE: 3 pairs
+  SOLANA: 21 pairs
+
+
+================================================================================
+STRATEGY 2: Get pairs by DEX
+================================================================================
+
+
+BASE:
+  uniswap: 17 pairs
+  aerodrome: 29 pairs
+  baseswap: 30 pairs
+
+SOLANA:
+  raydium: 30 pairs
+    New (<24h): 2
+  orca: 30 pairs
+    New (<24h): 2
+  jupiter: 0 pairs
+
+================================================================================
+STRATEGY 3: Broad search untuk volume tinggi
+================================================================================
+
+Query '0x': 30 total pairs
+  By chain:
+    cardano: 27
+    solana: 2
+    energi: 1
+
+Query 'token': 30 total pairs
+  By chain:
+    bsc: 11
+    base: 8
+    solana: 7
+    pulsechain: 3
+    ethereum: 1
+
+Query 'coin': 30 total pairs
+  By chain:
+    solana: 24
+    base: 5
+    ton: 1
+
+
+================================================================================
+ANALYSIS COMPLETE
+================================================================================
+
+KESIMPULAN:
+DexScreener API /search endpoint memiliki keterbatasan:
+1. Tidak ada endpoint khusus untuk 'new pairs' atau 'trending'
+2. Search query sangat terbatas (max 30 results)
+3. Hasil didominasi oleh pairs dengan volume tinggi (established)
+4. Koin baru dengan volume rendah tidak muncul di hasil search
+
+REKOMENDASI:
+- Gunakan multiple search queries dengan keyword populer
+- Scan lebih sering (setiap 10-15 detik)
+- Fokus pada DEX-specific queries
+- Pertimbangkan menggunakan DexScreener Pro API (paid)

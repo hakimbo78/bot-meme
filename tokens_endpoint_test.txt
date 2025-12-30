@@ -1,0 +1,33 @@
+TESTING /tokens/CHAIN ENDPOINT
+================================================================================
+
+
+================================================================================
+CHAIN: BASE
+================================================================================
+
+Status: 200
+Error: object of type 'NoneType' has no len()
+Traceback (most recent call last):
+  File "C:\Users\hakim\Downloads\ScriptTrading\bot-meme\test_tokens_endpoint.py", line 34, in test_tokens_endpoint
+    f.write(f"Total pairs: {len(pairs)}\n\n")
+                            ~~~^^^^^^^
+TypeError: object of type 'NoneType' has no len()
+
+
+================================================================================
+CHAIN: SOLANA
+================================================================================
+
+Status: 200
+Error: object of type 'NoneType' has no len()
+Traceback (most recent call last):
+  File "C:\Users\hakim\Downloads\ScriptTrading\bot-meme\test_tokens_endpoint.py", line 34, in test_tokens_endpoint
+    f.write(f"Total pairs: {len(pairs)}\n\n")
+                            ~~~^^^^^^^
+TypeError: object of type 'NoneType' has no len()
+
+
+================================================================================
+TEST COMPLETE
+================================================================================
