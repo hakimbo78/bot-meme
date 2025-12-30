@@ -8,6 +8,7 @@ import requests
 from web3 import Web3
 from functools import wraps
 from typing import List, Dict, Optional
+from colorama import Fore
 from .base_adapter import ChainAdapter
 
 # Import V3 modules
@@ -678,41 +679,54 @@ class EVMAdapter(ChainAdapter):
     
     def analyze_token(self, pair_data: Dict) -> Optional[Dict]:
         """
-        Enhanced analyze_token with V3 support.
+        Enhanced analyze_token with V3 support and flexible pair detection.
+        Can work with or without pair_address - will attempt to find main pair if not provided.
         """
         try:
             token_address = pair_data['token_address']
-            pair_address = pair_data['pair_address']
+            pair_address = pair_data.get('pair_address')
             block_number = pair_data.get('block_number', 0)
             dex_type = pair_data.get('dex_type', 'uniswap_v2')
+            timestamp = pair_data.get('timestamp', int(time.time()))
             
-            # Get metadata
+            # Get metadata (always available)
             metadata = self.get_token_metadata(token_address)
             if metadata is None:
                 metadata = {'name': 'UNKNOWN', 'symbol': '???', 'decimals': 18}
             
-            # Get liquidity (V3-aware)
-            if dex_type == 'uniswap_v3' and self.v3_liquidity_calc:
-                # V3 liquidity calculation
-                pool_data = self.v3_liquidity_calc.calculate_pool_liquidity(
-                    pair_address,
-                    pair_data.get('token0', token_address),
-                    pair_data.get('token1', self.weth),
-                    self.weth
-                )
-                liquidity_usd = pool_data.get('liquidity_usd', 0)
-                
-                # Add V3-specific fields
-                v3_risks = {}
-                if self.v3_risk_engine:
-                    v3_risks = self.v3_risk_engine.assess_pool_risks(pool_data)
-            else:
-                # V2 liquidity calculation
-                liquidity_usd = self.get_liquidity(pair_address, token_address)
-                v3_risks = {}
+            # Try to find pair if not provided
+            if not pair_address:
+                print(f"{Fore.YELLOW}⚠️  No pair address provided, attempting to find main WETH pair...")
+                pair_address = self._find_main_pair(token_address)
+                if pair_address:
+                    print(f"{Fore.GREEN}✅ Found pair: {pair_address}")
+                else:
+                    print(f"{Fore.YELLOW}⚠️  Could not find trading pair - proceeding with limited data")
             
-            if liquidity_usd is None:
-                liquidity_usd = 0
+            # Get liquidity (V3-aware) - only if we have a pair
+            liquidity_usd = 0
+            v3_risks = {}
+            
+            if pair_address:
+                if dex_type == 'uniswap_v3' and self.v3_liquidity_calc:
+                    # V3 liquidity calculation
+                    pool_data = self.v3_liquidity_calc.calculate_pool_liquidity(
+                        pair_address,
+                        pair_data.get('token0', token_address),
+                        pair_data.get('token1', self.weth),
+                        self.weth
+                    )
+                    liquidity_usd = pool_data.get('liquidity_usd', 0)
+                    
+                    # Add V3-specific fields
+                    if self.v3_risk_engine:
+                        v3_risks = self.v3_risk_engine.assess_pool_risks(pool_data)
+                else:
+                    # V2 liquidity calculation
+                    liquidity_usd = self.get_liquidity(pair_address, token_address)
+                
+                if liquidity_usd is None:
+                    liquidity_usd = 0
             
             # Get security data
             security = self.check_security(token_address)
@@ -725,15 +739,14 @@ class EVMAdapter(ChainAdapter):
                 }
             
             # Calculate age
-            import time
-            age_minutes = (int(time.time()) - pair_data['timestamp']) / 60
+            age_minutes = (int(time.time()) - timestamp) / 60
             
             # Build base result
             result = {
                 'name': metadata['name'],
                 'symbol': metadata['symbol'],
                 'address': token_address,
-                'pair_address': pair_address,
+                'pair_address': pair_address or 'N/A',
                 'block_number': block_number,
                 'age_minutes': age_minutes,
                 'liquidity_usd': liquidity_usd,
@@ -766,4 +779,52 @@ class EVMAdapter(ChainAdapter):
             return result
         except Exception as e:
             print(f"⚠️  {self.get_chain_prefix()} Error analyzing token: {e}")
+            return None
+    
+    def _find_main_pair(self, token_address: str) -> Optional[str]:
+        """
+        Attempt to find the main WETH trading pair for a token.
+        Returns pair address if found, None otherwise.
+        """
+        try:
+            if not self.factory:
+                return None
+            
+            token_checksum = Web3.to_checksum_address(token_address)
+            weth_checksum = Web3.to_checksum_address(self.weth)
+            
+            # Try to get pair from factory
+            # Note: This assumes Uniswap V2 style factory with getPair function
+            factory_abi = [
+                {
+                    "constant": True,
+                    "inputs": [
+                        {"name": "tokenA", "type": "address"},
+                        {"name": "tokenB", "type": "address"}
+                    ],
+                    "name": "getPair",
+                    "outputs": [{"name": "pair", "type": "address"}],
+                    "type": "function"
+                }
+            ]
+            
+            factory_contract = self.w3.eth.contract(
+                address=self.factory_addresses.get('uniswap_v2'),
+                abi=factory_abi
+            )
+            
+            pair_address = factory_contract.functions.getPair(
+                token_checksum,
+                weth_checksum
+            ).call()
+            
+            # Check if pair exists (not zero address)
+            zero_address = "0x0000000000000000000000000000000000000000"
+            if pair_address and pair_address.lower() != zero_address.lower():
+                return pair_address
+            
+            return None
+            
+        except Exception as e:
+            print(f"⚠️  {self.get_chain_prefix()} Error finding main pair: {e}")
             return None
