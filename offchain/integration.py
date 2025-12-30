@@ -272,23 +272,17 @@ class OffChainScreenerIntegration:
         normalized['offchain_score'] = score
         normalized['verdict'] = verdict
         
-        # 3. PAIR DEDUPLICATION (STRICT 15-MIN COOLDOWN)
+        # 3. TOKEN DEDUPLICATION (STRICT 15-MIN COOLDOWN)
         # Check cooldown BEFORE processing further
-        if self.deduplicator.is_duplicate(pair_address, chain):
-             print(f"[OFFCHAIN] {pair_address[:8]}... - PAIR DUPLICATE (15m cooldown)")
+        if self.deduplicator.is_duplicate(token_address, chain):
+             print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE (15m cooldown)")
              return None
         
         # 4. DETERMINE TIER
         tier = self._determine_tier(score)
         normalized['tier'] = tier
         
-        # 5. MOMENTUM CHECK (ensure fresh activity)
-        has_momentum = self._has_momentum(normalized)
-        if not has_momentum:
-            print(f"[OFFCHAIN] {pair_address[:8]}... - NO MOMENTUM (suppressed)")
-            return None
-        
-        # 6. SEND TELEGRAM ALERT (Tiered - LOW tier suppressed)
+        # 5. SEND TELEGRAM ALERT (Tiered - LOW tier suppressed)
         print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | Tier: {tier}")
         
         if tier in ['MID', 'HIGH']:
@@ -297,8 +291,8 @@ class OffChainScreenerIntegration:
             # LOW tier - log only, no Telegram
             print(f"[OFFCHAIN] 🔇 LOW TIER - Alert suppressed (logged only)")
         
-        # 7. GATEKEEPER
-        if verdict == 'VERIFY':
+        # 6. GATEKEEPER (HIGH tier only)
+        if verdict == 'VERIFY' and tier == 'HIGH':
              self.cache.set(pair_address, normalized)
              await self.pair_queue.put(normalized)
              self.stats['passed_to_queue'] += 1
@@ -315,13 +309,7 @@ class OffChainScreenerIntegration:
         else:
             return 'LOW'
     
-    def _has_momentum(self, pair: Dict) -> bool:
-        """Check if pair has valid momentum (OR logic)."""
-        pc5m = abs(pair.get('price_change_5m', 0) or 0)
-        pc1h = abs(pair.get('price_change_1h', 0) or 0)
-        tx5m = pair.get('tx_5m', 0)
-        
-        return (pc5m >= 5) or (pc1h >= 15) or (tx5m >= 5)
+
     
     def _calculate_offchain_score(self, normalized_pair: Dict) -> float:
         """
