@@ -82,6 +82,8 @@ class PairNormalizer:
             "chain": chain,
             "pair_address": pair_address,
             "token_address": token_address,
+            "token_name": base_token.get('name', 'UNKNOWN'),
+            "token_symbol": base_token.get('symbol', 'UNKNOWN'),
             "liquidity": liquidity,
             "volume_24h": volume_24h,
             "price_change_5m": price_change_5m,

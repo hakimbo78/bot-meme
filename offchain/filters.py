@@ -60,41 +60,37 @@ class OffChainFilter:
         """
         self.stats['total_evaluated'] += 1
         
+        pair_addr = pair.get('pair_address', 'UNKNOWN')[:10]
+        
         # 1. Level-0 Filter (Ultra Loose)
         passed_l0, l0_reason = self._check_level0_filter(pair)
         if not passed_l0:
             self.stats['level0_rejected'] += 1
+            self._log_drop(pair, f"LEVEL-0: {l0_reason}")
             return False, f"LEVEL-0: {l0_reason}", None
             
         # 2. Level-1 Filter (Momentum) & Revival Rule
         passed_l1, l1_reason = self._check_level1_and_revival(pair)
         if not passed_l1:
             self.stats['level1_rejected'] += 1
+            self._log_drop(pair, f"LEVEL-1: {l1_reason}")
             return False, f"LEVEL-1: {l1_reason}", None
             
-        # 3. Calculate Score
+        # 3. Calculate Score (DOES NOT BLOCK PROCESSING)
         score = self._calculate_score_v3(pair)
         pair['offchain_score'] = score
         
-        # 4. Check Minimum Score (Low Tier starts at 30)
-        min_score = self.tiers.get('low', {}).get('min_score', 30)
-        if score < min_score:
-            self.stats['low_score_rejected'] += 1
-            return False, f"Score too low ({score:.1f} < {min_score})", {'score': score}
-            
+        # Score is used ONLY for tier assignment, NOT for filtering
         self.stats['passed'] += 1
         self.stats['scores'].append(score)
         
         # Determine Verdict
-        verdict = "SKIP"
-        # Default verify threshold if not in config
+        verdict = "ALERT_ONLY"
         thresholds = self.scoring_config.get('thresholds', {})
         verify_threshold = thresholds.get('verify', 65)
         
         if score >= verify_threshold:
             verdict = "VERIFY"
-        elif score >= thresholds.get('low', 30):
-             verdict = "ALERT_ONLY"
              
         metadata = {
             'score': score,
@@ -127,9 +123,10 @@ class OffChainFilter:
     def _check_level1_and_revival(self, pair: Dict) -> Tuple[bool, Optional[str]]:
         """
         LEVEL-1 FILTER + REVIVAL RULE
+        
+        CRITICAL: Uses OR logic for momentum (NOT AND)
         """
         age_days = pair.get('age_days', 0)
-        # Handle None age
         if age_days is None: 
             age_days = 0.0
             
@@ -139,27 +136,21 @@ class OffChainFilter:
         
         # REVIVAL RULE: If age > 30 days
         if age_days > 30:
-            # Require (price_change_5m >= 5 OR tx_5m >= 5)
-            is_revival = (price_change_5m >= 5) or (tx_5m >= 5)
+            # Require fresh activity: (price_change_5m >= 5 OR tx_5m >= 5)
+            is_revival = (abs(price_change_5m) >= 5) or (tx_5m >= 5)
             if not is_revival:
                 return False, f"Old pair ({age_days:.1f}d) no revival momentum"
             return True, None
             
-        # LEVEL-1 FILTER (MOMENTUM)
-        # Allow if ANY is true:
-        # - price_change_5m >= 5
-        # - price_change_1h >= 15
-        # - tx_5m >= 5
-        
-        # Note: 'price_change_5m' might be 0 if not supported/fetched, but we use what we have.
-        
-        has_momentum = (
-            abs(price_change_5m) >= 5 or
-            abs(price_change_1h) >= 15 or
-            tx_5m >= 5
+        # MOMENTUM FILTER (OR LOGIC - CRITICAL)
+        # Pass if ANY condition is true:
+        momentum = (
+            abs(price_change_5m) >= 5
+            or abs(price_change_1h) >= 15
+            or tx_5m >= 5
         )
         
-        if not has_momentum:
+        if not momentum:
             return False, "No momentum (p5m<5, p1h<15, tx5m<5)"
             
         return True, None
@@ -230,5 +221,18 @@ class OffChainFilter:
             
         return min(100.0, score)
 
+    def _log_drop(self, pair: Dict, reason: str):
+        """Log pair drop with full context (MANDATORYDebugLogging)."""
+        print(
+            f"[MODE C DROP]\n"
+            f"  pair={pair.get('pair_address', 'UNKNOWN')[:10]}...\n"
+            f"  pc5m={pair.get('price_change_5m', 0):.2f}\n"
+            f"  pc1h={pair.get('price_change_1h', 0):.2f}\n"
+            f"  tx5m={pair.get('tx_5m', 0)}\n"
+            f"  liquidity=${pair.get('liquidity', 0):,.0f}\n"
+            f"  age_days={pair.get('age_days', 0):.2f}\n"
+            f"  reason={reason}"
+        )
+    
     def get_stats(self) -> Dict:
         return self.stats

@@ -240,10 +240,10 @@ class OffChainScreenerIntegration:
         
         Pipeline:
         1. Normalize
-        2. Filter & Score (Calculate score FIRST)
-        3. Token Deduplication (Suppress if duplicate AND score < 55)
-        4. Pair Deduplication (Strict 15m cooldown)
-        5. Telegram Alert (Tiered)
+        2. Filter & Score
+        3. Pair Deduplication (Strict 15m cooldown - enforced BEFORE token dedup)
+        4. Determine Tier
+        5. Telegram Alert (MID/HIGH only - LOW tier suppressed)
         6. Enqueue for On-Chain Verify
         """
         # 1. NORMALIZE
@@ -261,57 +261,43 @@ class OffChainScreenerIntegration:
             return None
             
         # 2. FILTERING & SCORING
-        # We must score BEFORE deduplication to allow high-score duplicates
         passed, reason, metadata = self.filter.apply_filters(normalized)
         
         if not passed:
             self.stats['filtered_out'] += 1
-            # print(f"[OFFCHAIN debugging] Filtered: {reason}")
             return None
             
         score = metadata.get('score', 0)
-        verdict = metadata.get('verdict', 'SKIP')
+        verdict = metadata.get('verdict', 'ALERT_ONLY')
         normalized['offchain_score'] = score
         normalized['verdict'] = verdict
         
-        # 3. TOKEN DEDUPLICATION
-        # Rule: If token seen within 30 minutes AND FINAL_SCORE < 55 → suppress
-        # Rule: If FINAL_SCORE >= 55 → allow even if duplicate
-        allow_duplicate_threshold = self.config.get('deduplication', {}).get('allow_duplicate_score_threshold', 55)
-        
-        if self.deduplicator.is_token_duplicate(token_address, chain):
-            if score < allow_duplicate_threshold:
-                 print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE (Score {score:.1f} < {allow_duplicate_threshold})")
-                 return None
-            else:
-                 print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE ALLOWED (Score {score:.1f} >= {allow_duplicate_threshold})")
-        
-        # 4. PAIR DEDUPLICATION
-        # Rule: Same pair max 1 alert per 15 minutes (Strict)
+        # 3. PAIR DEDUPLICATION (STRICT 15-MIN COOLDOWN)
+        # Check cooldown BEFORE processing further
         if self.deduplicator.is_duplicate(pair_address, chain):
              print(f"[OFFCHAIN] {pair_address[:8]}... - PAIR DUPLICATE (15m cooldown)")
              return None
-             
-        # Mark as seen (update deduplicator)
-        # Note: deduplicator.is_duplicate usually updates the timestamp if we don't handle it manually.
-        # Assuming is_duplicate does check-and-set or we rely on it functionality.
-        # If Deduplicator methods are "check only", we need to "set".
-        # Standard implementation of deduplicator usually caches on check or has separate method.
-        # Let's assume standard behavior or check if I need to update it.
-        # Looking at previous code, it just called is_duplicate.
-        # I'll assume is_duplicate handles tracking or I might strictly need to "track" it.
-        # IMPORTANT: If is_duplicate returns True, it means it's already there.
-        # If it returns False, it might automagically add it OR we need to add it.
-        # Given I can't see deduplicator.py, I will proceed assuming the previous pattern was correct, 
-        # but wait, I see `self.deduplicator.is_token_duplicate` being called.
-        # If I moved it here, I am calling it for every passed pair.
-        # If `is_token_duplicate` has side effects (updates time), calling it here is fine.
         
-        # 5. SEND TELEGRAM ALERT (Tiered V3)
-        print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | {verdict}")
-        await self._send_telegram_alert(normalized, chain)
+        # 4. DETERMINE TIER
+        tier = self._determine_tier(score)
+        normalized['tier'] = tier
         
-        # 6. GATEKEEPER
+        # 5. MOMENTUM CHECK (ensure fresh activity)
+        has_momentum = self._has_momentum(normalized)
+        if not has_momentum:
+            print(f"[OFFCHAIN] {pair_address[:8]}... - NO MOMENTUM (suppressed)")
+            return None
+        
+        # 6. SEND TELEGRAM ALERT (Tiered - LOW tier suppressed)
+        print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | Tier: {tier}")
+        
+        if tier in ['MID', 'HIGH']:
+            await self._send_telegram_alert(normalized, chain)
+        else:
+            # LOW tier - log only, no Telegram
+            print(f"[OFFCHAIN] 🔇 LOW TIER - Alert suppressed (logged only)")
+        
+        # 7. GATEKEEPER
         if verdict == 'VERIFY':
              self.cache.set(pair_address, normalized)
              await self.pair_queue.put(normalized)
@@ -319,6 +305,23 @@ class OffChainScreenerIntegration:
              return normalized
              
         return None
+    
+    def _determine_tier(self, score: float) -> str:
+        """Determine alert tier based on score."""
+        if score >= 70:
+            return 'HIGH'
+        elif score >= 50:
+            return 'MID'
+        else:
+            return 'LOW'
+    
+    def _has_momentum(self, pair: Dict) -> bool:
+        """Check if pair has valid momentum (OR logic)."""
+        pc5m = abs(pair.get('price_change_5m', 0) or 0)
+        pc1h = abs(pair.get('price_change_1h', 0) or 0)
+        tx5m = pair.get('tx_5m', 0)
+        
+        return (pc5m >= 5) or (pc1h >= 15) or (tx5m >= 5)
     
     def _calculate_offchain_score(self, normalized_pair: Dict) -> float:
         """
@@ -527,60 +530,31 @@ class OffChainScreenerIntegration:
     
     async def _send_telegram_alert(self, normalized: Dict, chain: str):
         """
-        Send Telegram alert for off-chain detected pair (Tiered V2).
+        Send Telegram alert for MID/HIGH tier pairs only.
+        LOW tier is already filtered out in _process_pair.
         """
         try:
-            # 1. Determine Tier
             score = normalized.get('offchain_score', 0)
-            verdict = normalized.get('verdict', 'SKIP')
+            verdict = normalized.get('verdict', 'ALERT_ONLY')
+            tier = normalized.get('tier', 'LOW')
             
-            tier = 'LOW'
-            if score >= 65: tier = 'HIGH'
-            elif score >= 45: tier = 'MID'
-            
-            # 2. Rate Limiting
-            now = datetime.now()
-            if not hasattr(self, '_alert_history'):
-                self._alert_history = {'LOW': [], 'MID': [], 'HIGH': []}
-            
-            # Clean old history
-            for t in self._alert_history:
-                cutoff = 300 if t == 'LOW' else 60
-                self._alert_history[t] = [ts for ts in self._alert_history[t] if (now - ts).total_seconds() < cutoff]
-            
-            # Check limits
-            should_send = True
-            if tier == 'LOW':
-                # Max 1 per 5 mins (V3)
-                if len(self._alert_history['LOW']) >= 1: should_send = False
-            elif tier == 'MID':
-                # Normal alert (assume low restrictions or pass)
-                if len(self._alert_history['MID']) >= 5: should_send = False # Loose cap for safety
-            
-            if not should_send:
-                print(f"[OFFCHAIN] 🔇 Alert Suppressed ({tier} Tier Rate Limit)")
-                return
-
-            # Record alert
-            self._alert_history[tier].append(now)
-
-            # 3. Build Message
+            # Build Message
             pair_address = normalized.get('pair_address', 'UNKNOWN')
             token_symbol = normalized.get('token_symbol', 'UNKNOWN')
             
             # Emojis based on Tier
-            emoji = "🟢" if tier == 'LOW' else "🟡" if tier == 'MID' else "🚨"
+            emoji = "🟡" if tier == 'MID' else "🚨"
             
-            message = f"{emoji} [MODE C V3] {tier} TIER ALERT {emoji}\n\n"
+            message = f"{emoji} [MODE C V3] {tier} TIER {emoji}\n\n"
             message += f"Chain: {chain.upper()}\n"
-            message += f"Token: {normalized.get('token_name')} ({token_symbol})\n"
             message += f"Score: {score:.1f}/100\n"
             message += f"Verdict: {verdict}\n\n"
             
             message += f"📊 Metrics:\n"
             message += f"• Liq: ${normalized.get('liquidity', 0):,.0f}\n"
             message += f"• Vol24: ${normalized.get('volume_24h', 0):,.0f}\n"
-            message += f"• Tx24: {normalized.get('tx_24h', 0)}\n"
+            message += f"• Tx5m: {normalized.get('tx_5m', 0)} | Tx24: {normalized.get('tx_24h', 0)}\n"
+            message += f"• PC5m: {normalized.get('price_change_5m', 0):.1f}% | PC1h: {normalized.get('price_change_1h', 0):.1f}%\n"
             message += f"• Age: {normalized.get('age_days', 0):.2f} days\n\n"
             
             message += f"🔗 DexScreener: https://dexscreener.com/{chain}/{pair_address}\n"
@@ -590,14 +564,14 @@ class OffChainScreenerIntegration:
             else:
                 message += "\n💤 OFF-CHAIN ONLY (RPC Saved)"
 
-            # 4. Send
+            # Send
             await self.telegram_notifier.bot.send_message(
                 chat_id=self.telegram_notifier.chat_id,
                 text=message,
                 parse_mode=None,
                 disable_web_page_preview=False
             )
-            print(f"[OFFCHAIN] 📱 Sent {tier} Tier Alert for {token_symbol}")
+            print(f"[OFFCHAIN] 📱 Sent {tier} Tier Alert")
             
         except Exception as e:
             print(f"[OFFCHAIN] Error sending alert: {e}")
