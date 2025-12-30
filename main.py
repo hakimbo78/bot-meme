@@ -880,25 +880,65 @@ async def main():
                                 if offchain_score >= verify_threshold:
                                     print(f"{Fore.GREEN}    🔍 Triggering on-chain verification...")
                                     
-                                    # Get chain config for this chain
-                                    chain_config = None
-                                    if chain_name != 'solana':
-                                        chain_config = scanner.get_chain_config(chain_name)
-                                    
-                                    # For now, log what would happen
-                                    # TODO: Implement full on-chain verification
-                                    # This would call existing analyzer but ONLY for high-score pairs
-                                    
-                                    print(f"{Fore.GREEN}    📊 Combined scoring would apply:")
-                                    print(f"{Fore.GREEN}       - Off-chain weight: {offchain_weight*100}%")
-                                    print(f"{Fore.GREEN}       - On-chain weight: {onchain_weight*100}%")
-                                    print(f"{Fore.GREEN}    ⚡ RPC SAVED: This pair passed 95% filter!")
+                                    # Get chain adapter
+                                    adapter = scanner.get_adapter(chain_name)
+                                    if not adapter and chain_name != 'solana':
+                                        print(f"{Fore.YELLOW}    ⚠️  No adapter for {chain_name}, skipping RPC verify")
+                                        continue
+
+                                    # 1. ANALYZE ON-CHAIN
+                                    onchain_analysis = {}
+                                    if chain_name == 'solana':
+                                        # Solana - use solana_scanner if available or fallback to off-chain data
+                                        # Currently Solana scoring is mostly off-chain driven in this branch
+                                        if solana_scanner:
+                                             # Try to get fresh enrichment if possible
+                                             onchain_analysis = await solana_scanner._create_unified_event_async_wrapper(pair_data) or {}
+                                    else:
+                                        # EVM - use full TokenAnalyzer
+                                        try:
+                                            analyzer = TokenAnalyzer(adapter=adapter)
+                                            onchain_analysis = analyzer.analyze_token(pair_data)
+                                        except Exception as e:
+                                            print(f"{Fore.YELLOW}    ⚠️  On-chain analysis error: {e}")
+                                            onchain_analysis = {}
+
+                                    if onchain_analysis:
+                                        # 2. SCORE ON-CHAIN
+                                        chain_config = None
+                                        if chain_name != 'solana':
+                                            chain_config = scanner.get_chain_config(chain_name)
+                                            onchain_score_data = scorer.score_token(onchain_analysis, chain_config)
+                                            onchain_score = onchain_score_data.get('score', 0)
+                                        else:
+                                            # Solana scoring
+                                            onchain_score_data = solana_score_engine.calculate_score(onchain_analysis)
+                                            onchain_score = onchain_score_data.get('score', 0)
+
+                                        # 3. COMBINED SCORING (Rule: Weight off-chain and on-chain)
+                                        final_score = (offchain_score * offchain_weight) + (onchain_score * onchain_weight)
+                                        
+                                        print(f"{Fore.GREEN}    📊 Final Score: {final_score:.1f} (Off: {offchain_score:.0f}, On: {onchain_score:.0f})")
+                                        
+                                        # 4. DECISION & ALERT
+                                        check_score = final_score
+                                        thresholds = chain_config.get('alert_thresholds', {}) if chain_config else solana_score_engine.get_thresholds()
+                                        
+                                        if check_score >= thresholds.get('TRADE', 75):
+                                            print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")
+                                            onchain_score_data['verdict'] = 'TRADE'
+                                            onchain_score_data['score'] = check_score
+                                            # Send updated alert if needed or just log
+                                            if telegram.enabled:
+                                                await telegram.send_message_async(f"🚀 *FINAL VALIDATION PASSED*\n{pair_data.get('token_symbol')} ({chain_name.upper()})\nFinal Score: {check_score:.1f}\nStatus: RPC VERIFIED ✅")
+                                        
+                                    print(f"{Fore.GREEN}    ⚡ RPC VERIFICATION COMPLETE")
                                     
                                     # Display off-chain statistics every 10 pairs
-                                    if offchain_screener.stats['passed_to_queue'] % 10 == 0:
+                                    if offchain_screener.stats.get('passed_to_queue', 0) % 10 == 0:
                                         stats = offchain_screener.get_stats()
-                                        pipeline = stats['pipeline']
-                                        if pipeline['total_raw_pairs'] > 0:
+                                        pipeline = stats.get('pipeline', {})
+                                        if pipeline.get('total_raw_pairs', 0) > 0:
                                             noise_reduction = (1 - pipeline['passed_to_queue'] / pipeline['total_raw_pairs']) * 100
                                             print(f"{Fore.CYAN}    📊 [OFFCHAIN STATS] Noise reduction: {noise_reduction:.1f}% | Passed: {pipeline['passed_to_queue']}/{pipeline['total_raw_pairs']}")
                                     

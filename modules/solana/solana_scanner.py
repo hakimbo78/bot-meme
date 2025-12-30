@@ -26,9 +26,14 @@ import asyncio
 from typing import Dict, List, Optional
 import requests
 
-from .solana_utils import solana_log
+from .solana_utils import solana_log, create_solana_client, is_valid_solana_address
 from .raw_solana_parser import RawSolanaParser
 from .token_state import TokenStateMachine
+from .pumpfun_scanner import PumpfunScanner
+from .raydium_scanner import RaydiumScanner
+from .jupiter_scanner import JupiterScanner
+from .metadata_resolver import MetadataResolver
+from .raydium_lp_detector import RaydiumLPDetector
 
 
 class SolanaScanner:
@@ -64,6 +69,17 @@ class SolanaScanner:
         # Token cache for unified events
         self._token_cache: Dict[str, Dict] = {}
         self._cache_ttl = 3600  # 1 hour cache
+
+        # Components
+        self.client = create_solana_client(self.rpc_url)
+        self.state_machine = TokenStateMachine()
+        self.metadata_resolver = MetadataResolver(self.client)
+        self.lp_detector = RaydiumLPDetector(self.client)
+        
+        # Sub-scanners
+        self.pumpfun = PumpfunScanner(self.config)
+        self.raydium = RaydiumScanner(self.config)
+        self.jupiter = JupiterScanner(self.config)
         
     def connect(self) -> bool:
         """

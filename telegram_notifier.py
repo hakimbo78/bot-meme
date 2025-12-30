@@ -164,6 +164,14 @@ class TelegramNotifier:
 • Confidence: {operator_hint.get('confidence', 'Snapshot only')}
 """
     
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        """Escape special characters for Telegram Markdown V1."""
+        if not text:
+            return ""
+        # Characters to escape: _ * [ `
+        return text.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+
     def _format_security_status(self, score_data: dict, token_data: dict) -> str:
         """Format security validation status for message."""
         lines = []
@@ -248,6 +256,17 @@ class TelegramNotifier:
         operator_section = self._format_operator_hint(operator_hint)
         security_status = self._format_security_status(score_data, token_data)
         
+        # Escape dynamic fields
+        # NOTE: Fields inside backticks should NOT be escaped in Telegram Markdown V1
+        name = str(token_data.get('name', 'UNKNOWN'))
+        symbol = str(token_data.get('symbol', '???'))
+        address = str(token_data.get('address', 'UNKNOWN'))
+        
+        risk_flags_list = []
+        for flag in score_data.get('risk_flags', []):
+            risk_flags_list.append('• ' + self._escape_markdown(str(flag)))
+        risk_flags_str = '\n'.join(risk_flags_list) if risk_flags_list else '• None ✅'
+
         # MARKET INTEL: Format insights
         insights_section = ""
         
@@ -273,9 +292,9 @@ class TelegramNotifier:
         conviction = token_data.get('conviction_insight')
         
         if conviction and conviction.get('conviction_score', 0) > 0:
-            score = conviction['conviction_score']
-            verdict = conviction['verdict']
-            insights_section += f"🧠 Conviction Score: {score}/100 ({verdict})\n"
+            score_intel = conviction['conviction_score']
+            verdict_intel = conviction['verdict']
+            insights_section += f"🧠 Conviction Score: {score_intel}/100 ({verdict_intel})\n"
             
         if narrative and narrative.get('confidence', 0) > 0.6:
              insights_section += f"🌊 Narrative: {narrative['narrative']} ({narrative['trend']})\n"
@@ -285,27 +304,30 @@ class TelegramNotifier:
 
         if insights_section:
             # Escape special characters for Markdown
-            insights_section = insights_section.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
+            insights_section = self._escape_markdown(insights_section)
             insights_section = "💡 *Market Intelligence:*\n" + insights_section + "\n"
         
+        # Verdict needs escaping if it has special chars
+        verdict = self._escape_markdown(str(score_data.get('verdict', 'UNKNOWN')))
+
         message = f"""{emoji} *{chain_prefix} {dex_tag}{alert_level} ALERT* {emoji}{realert_tag}
 
-*Token:* `{token_data.get('name')}` ({token_data.get('symbol')})
+*Token:* `{name}` ({symbol})
 *Chain:* {chain_prefix}
-*Address:* `{token_data.get('address')}`
-*Score:* *{score_data['score']}/100*
+*Address:* `{address}`
+*Score:* *{score_data['score']:.1f}/100*
 
 📊 *Metrics:*
 • Age: {token_data.get('age_minutes', 0):.1f} min
 • Liquidity: ${token_data.get('liquidity_usd', 0):,.0f}
 
 🔍 *Risk Flags:*
-{chr(10).join(['• ' + flag for flag in score_data.get('risk_flags', [])]) if score_data.get('risk_flags') else '• None ✅'}
+{risk_flags_str}
 
 {insights_section}🛡️ *Security Status:*
 {security_status}
 {operator_section}
-*Verdict:* {score_data['verdict']}
+*Verdict:* {verdict}
 
 ⚠️ _Informational only. No automated trading._
 """
@@ -321,6 +343,7 @@ class TelegramNotifier:
             return True
         except TelegramError as e:
             print(f"Telegram send error: {e}")
+            print(f"FAILED MESSAGE:\n{message}")
             return False
     
     async def send_secondary_alert_async(self, signal_data: dict):
