@@ -618,17 +618,50 @@ class EVMAdapter(ChainAdapter):
     
     @retry_with_backoff(max_retries=2, base_delay=1)
     def _check_renounced(self, token_address: str) -> bool:
-        """Check if ownership is renounced"""
+        """
+        Check if ownership is renounced or contract has no owner.
+        
+        Returns True if:
+        1. Contract has no owner() function (safest - no owner at all)
+        2. Owner is zero address (0x0000...0000)
+        3. Owner is dead address (0x0000...dEaD)
+        """
         try:
             token_address = Web3.to_checksum_address(token_address)
             token_contract = self.w3.eth.contract(address=token_address, abi=ERC20_ABI)
-            owner = token_contract.functions.owner().call()
             
-            zero_address = "0x0000000000000000000000000000000000000000"
-            dead_address = "0x000000000000000000000000000000000000dEaD"
-            
-            return owner.lower() in [zero_address.lower(), dead_address.lower()]
-        except:
+            try:
+                # Try to call owner() function
+                owner = token_contract.functions.owner().call()
+                
+                # Check if owner is renounced (zero or dead address)
+                zero_address = "0x0000000000000000000000000000000000000000"
+                dead_address = "0x000000000000000000000000000000000000dEaD"
+                
+                return owner.lower() in [zero_address.lower(), dead_address.lower()]
+                
+            except Exception as owner_call_error:
+                # If owner() function doesn't exist or fails to call
+                # This is actually GOOD - means contract has no owner function
+                # Therefore no one can control it (safest scenario)
+                error_msg = str(owner_call_error).lower()
+                
+                # Check if error is due to missing function (not network error)
+                if any(indicator in error_msg for indicator in [
+                    'execution reverted',
+                    'function not found', 
+                    'no function',
+                    'invalid opcode',
+                    'abi'
+                ]):
+                    # No owner function = No owner = Safe!
+                    return True
+                
+                # If it's a network error, return False (unknown)
+                return False
+                
+        except Exception as e:
+            # Address validation or contract creation failed
             return False
     
     @retry_with_backoff(max_retries=2, base_delay=1)
