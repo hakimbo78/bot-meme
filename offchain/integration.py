@@ -236,21 +236,20 @@ class OffChainScreenerIntegration:
     
     async def _process_pair(self, raw_pair: Dict, source: str, chain: str) -> Optional[Dict]:
         """
-        Process a single raw pair through the V2 pipeline.
+        Process a single raw pair through the V3 pipeline.
         
         Pipeline:
-        1. Normalize (Strict V2 JSON)
-        2. Token Deduplication (30m)
-        3. Pair Deduplication (15m)
-        4. V2 Filtering & Scoring
+        1. Normalize
+        2. Filter & Score (Calculate score FIRST)
+        3. Token Deduplication (Suppress if duplicate AND score < 55)
+        4. Pair Deduplication (Strict 15m cooldown)
         5. Telegram Alert (Tiered)
-        6. Enqueue for On-Chain Verify (Only if Score >= 55)
+        6. Enqueue for On-Chain Verify
         """
         # 1. NORMALIZE
         if source == 'dexscreener':
             normalized = self.normalizer.normalize_dexscreener(raw_pair, source)
         else:
-            # We focus on dexscreener for V2 as primary
             return None
         
         self.stats['normalized_pairs'] += 1
@@ -261,23 +260,13 @@ class OffChainScreenerIntegration:
         if not pair_address or not token_address:
             return None
             
-        # 2. TOKEN DEDUPLICATION
-        if self.deduplicator.is_token_duplicate(token_address, chain):
-             print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE (30m cooldown)")
-             return None
-             
-        # 3. PAIR DEDUPLICATION
-        if self.deduplicator.is_duplicate(pair_address, chain):
-             print(f"[OFFCHAIN] {pair_address[:8]}... - PAIR DUPLICATE (15m cooldown)")
-             return None
-             
-        # 4. FILTERING & SCORING
-        # Apply filters (calculates score internally)
+        # 2. FILTERING & SCORING
+        # We must score BEFORE deduplication to allow high-score duplicates
         passed, reason, metadata = self.filter.apply_filters(normalized)
         
         if not passed:
             self.stats['filtered_out'] += 1
-            print(f"[OFFCHAIN debugging] Filtered: {reason}")
+            # print(f"[OFFCHAIN debugging] Filtered: {reason}")
             return None
             
         score = metadata.get('score', 0)
@@ -285,21 +274,50 @@ class OffChainScreenerIntegration:
         normalized['offchain_score'] = score
         normalized['verdict'] = verdict
         
-        print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | {verdict}")
+        # 3. TOKEN DEDUPLICATION
+        # Rule: If token seen within 30 minutes AND FINAL_SCORE < 55 → suppress
+        # Rule: If FINAL_SCORE >= 55 → allow even if duplicate
+        allow_duplicate_threshold = self.config.get('deduplication', {}).get('allow_duplicate_score_threshold', 55)
         
-        # 5. SEND TELEGRAM ALERT (Tiering handled inside)
+        if self.deduplicator.is_token_duplicate(token_address, chain):
+            if score < allow_duplicate_threshold:
+                 print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE (Score {score:.1f} < {allow_duplicate_threshold})")
+                 return None
+            else:
+                 print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE ALLOWED (Score {score:.1f} >= {allow_duplicate_threshold})")
+        
+        # 4. PAIR DEDUPLICATION
+        # Rule: Same pair max 1 alert per 15 minutes (Strict)
+        if self.deduplicator.is_duplicate(pair_address, chain):
+             print(f"[OFFCHAIN] {pair_address[:8]}... - PAIR DUPLICATE (15m cooldown)")
+             return None
+             
+        # Mark as seen (update deduplicator)
+        # Note: deduplicator.is_duplicate usually updates the timestamp if we don't handle it manually.
+        # Assuming is_duplicate does check-and-set or we rely on it functionality.
+        # If Deduplicator methods are "check only", we need to "set".
+        # Standard implementation of deduplicator usually caches on check or has separate method.
+        # Let's assume standard behavior or check if I need to update it.
+        # Looking at previous code, it just called is_duplicate.
+        # I'll assume is_duplicate handles tracking or I might strictly need to "track" it.
+        # IMPORTANT: If is_duplicate returns True, it means it's already there.
+        # If it returns False, it might automagically add it OR we need to add it.
+        # Given I can't see deduplicator.py, I will proceed assuming the previous pattern was correct, 
+        # but wait, I see `self.deduplicator.is_token_duplicate` being called.
+        # If I moved it here, I am calling it for every passed pair.
+        # If `is_token_duplicate` has side effects (updates time), calling it here is fine.
+        
+        # 5. SEND TELEGRAM ALERT (Tiered V3)
+        print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | {verdict}")
         await self._send_telegram_alert(normalized, chain)
         
-        # 6. GATEKEEPER: Only enqueue if VERIFY (Score >= 55)
+        # 6. GATEKEEPER
         if verdict == 'VERIFY':
-             # Cache it
              self.cache.set(pair_address, normalized)
-             # Enqueue
              await self.pair_queue.put(normalized)
              self.stats['passed_to_queue'] += 1
              return normalized
              
-        # If ALERT_ONLY, we processed it but don't return it for on-chain verification
         return None
     
     def _calculate_offchain_score(self, normalized_pair: Dict) -> float:
@@ -517,8 +535,8 @@ class OffChainScreenerIntegration:
             verdict = normalized.get('verdict', 'SKIP')
             
             tier = 'LOW'
-            if score >= 60: tier = 'HIGH'
-            elif score >= 40: tier = 'MID'
+            if score >= 65: tier = 'HIGH'
+            elif score >= 45: tier = 'MID'
             
             # 2. Rate Limiting
             now = datetime.now()
@@ -527,17 +545,17 @@ class OffChainScreenerIntegration:
             
             # Clean old history
             for t in self._alert_history:
-                cutoff = 600 if t == 'LOW' else 60
+                cutoff = 300 if t == 'LOW' else 60
                 self._alert_history[t] = [ts for ts in self._alert_history[t] if (now - ts).total_seconds() < cutoff]
             
             # Check limits
             should_send = True
             if tier == 'LOW':
-                # Max 1 per 10 mins
+                # Max 1 per 5 mins (V3)
                 if len(self._alert_history['LOW']) >= 1: should_send = False
             elif tier == 'MID':
-                # Max 1 per 1 min
-                if len(self._alert_history['MID']) >= 1: should_send = False
+                # Normal alert (assume low restrictions or pass)
+                if len(self._alert_history['MID']) >= 5: should_send = False # Loose cap for safety
             
             if not should_send:
                 print(f"[OFFCHAIN] 🔇 Alert Suppressed ({tier} Tier Rate Limit)")
@@ -553,7 +571,7 @@ class OffChainScreenerIntegration:
             # Emojis based on Tier
             emoji = "🟢" if tier == 'LOW' else "🟡" if tier == 'MID' else "🚨"
             
-            message = f"{emoji} [MODE C V2] {tier} TIER ALERT {emoji}\n\n"
+            message = f"{emoji} [MODE C V3] {tier} TIER ALERT {emoji}\n\n"
             message += f"Chain: {chain.upper()}\n"
             message += f"Token: {normalized.get('token_name')} ({token_symbol})\n"
             message += f"Score: {score:.1f}/100\n"

@@ -1,10 +1,11 @@
 """
-MODE C V2: DEGEN SNIPER FILTERS
+MODE C V3: DEGEN SNIPER FILTERS
 
 Hybrid off-chain–first filtering system.
 Score-based gating: 
-- Low (25-39), Mid (40-59), High (>=60).
-- On-chain verify ONLY if >= 55.
+- Low (30-44): Rate limited.
+- Mid (45-64): Normal alert.
+- High (>=65): On-chain verify.
 
 Normalized Data Input:
 {
@@ -15,6 +16,7 @@ Normalized Data Input:
   "volume_24h": 0,
   "price_change_5m": 0,
   "price_change_1h": 0,
+  "tx_5m": 0,
   "tx_24h": 0,
   "age_days": 0,
   "offchain_score": 0,
@@ -28,7 +30,7 @@ from datetime import datetime
 
 class OffChainFilter:
     """
-    MODE C V2: DEGEN SNIPER Filter & Scorer
+    MODE C V3: DEGEN SNIPER Filter & Scorer
     """
     
     def __init__(self, config: Dict = None):
@@ -36,13 +38,14 @@ class OffChainFilter:
         
         # Extract configuration sections
         self.global_guardrails = self.config.get('global_guardrails', {})
-        self.scoring_config = self.config.get('scoring_v2', {})
+        self.scoring_config = self.config.get('scoring_v3', {})
         self.tiers = self.config.get('telegram_tiers', {})
         
         # Stats
         self.stats = {
             'total_evaluated': 0,
-            'guardrail_rejected': 0,
+            'level0_rejected': 0,
+            'level1_rejected': 0,
             'low_score_rejected': 0,
             'passed': 0,
             'scores': []
@@ -50,25 +53,31 @@ class OffChainFilter:
     
     def apply_filters(self, pair: Dict) -> Tuple[bool, Optional[str], Optional[Dict]]:
         """
-        Apply V2 filters and calculate score.
+        Apply V3 filters and calculate score.
         
         Returns:
             (passed: bool, reason: str or None, metadata: dict or None)
         """
         self.stats['total_evaluated'] += 1
         
-        # 1. Global Guardrails (Mandatory)
-        passed_rails, rail_reason = self._check_global_guardrails(pair)
-        if not passed_rails:
-            self.stats['guardrail_rejected'] += 1
-            return False, f"GUARDRAIL: {rail_reason}", None
+        # 1. Level-0 Filter (Ultra Loose)
+        passed_l0, l0_reason = self._check_level0_filter(pair)
+        if not passed_l0:
+            self.stats['level0_rejected'] += 1
+            return False, f"LEVEL-0: {l0_reason}", None
             
-        # 2. Calculate Score
-        score = self._calculate_score_v2(pair)
+        # 2. Level-1 Filter (Momentum) & Revival Rule
+        passed_l1, l1_reason = self._check_level1_and_revival(pair)
+        if not passed_l1:
+            self.stats['level1_rejected'] += 1
+            return False, f"LEVEL-1: {l1_reason}", None
+            
+        # 3. Calculate Score
+        score = self._calculate_score_v3(pair)
         pair['offchain_score'] = score
         
-        # 3. Check Minimum Score (Low Tier starts at 25)
-        min_score = self.tiers.get('low', {}).get('min_score', 25)
+        # 4. Check Minimum Score (Low Tier starts at 30)
+        min_score = self.tiers.get('low', {}).get('min_score', 30)
         if score < min_score:
             self.stats['low_score_rejected'] += 1
             return False, f"Score too low ({score:.1f} < {min_score})", {'score': score}
@@ -79,11 +88,12 @@ class OffChainFilter:
         # Determine Verdict
         verdict = "SKIP"
         # Default verify threshold if not in config
-        verify_threshold = self.scoring_config.get('thresholds', {}).get('verify', 55)
+        thresholds = self.scoring_config.get('thresholds', {})
+        verify_threshold = thresholds.get('verify', 65)
         
         if score >= verify_threshold:
             verdict = "VERIFY"
-        elif score >= 25:
+        elif score >= thresholds.get('low', 30):
              verdict = "ALERT_ONLY"
              
         metadata = {
@@ -94,81 +104,130 @@ class OffChainFilter:
         
         return True, None, metadata
 
-    def _check_global_guardrails(self, pair: Dict) -> Tuple[bool, Optional[str]]:
-        """Check mandatory global guardrails."""
-        # liquidity
+    def _check_level0_filter(self, pair: Dict) -> Tuple[bool, Optional[str]]:
+        """
+        LEVEL-0 FILTER (ULTRA LOOSE):
+        - liquidity >= 500
+        - tx_5m >= 1
+        """
+        # Liquidity
         liq = pair.get('liquidity', 0)
-        min_liq = self.global_guardrails.get('min_liquidity_usd', 5000)
+        min_liq = self.global_guardrails.get('min_liquidity_usd', 500)
         if liq < min_liq:
             return False, f"Liquidity too low (${liq} < ${min_liq})"
             
-        # volume 24h
-        vol24 = pair.get('volume_24h', 0)
-        if self.global_guardrails.get('require_h24_volume', True) and vol24 <= 0:
-            return False, "Zero 24h volume"
+        # Tx 5m
+        tx_5m = pair.get('tx_5m', 0)
+        min_tx = self.global_guardrails.get('min_tx_5m', 1)
+        if tx_5m < min_tx:
+            return False, f"Inactive (tx_5m={tx_5m})"
             
-        # Age
+        return True, None
+        
+    def _check_level1_and_revival(self, pair: Dict) -> Tuple[bool, Optional[str]]:
+        """
+        LEVEL-1 FILTER + REVIVAL RULE
+        """
         age_days = pair.get('age_days', 0)
-        max_age = self.global_guardrails.get('max_age_hours', 24) / 24.0 # Convert hours to days
-        # If age is None (unknown), we might pass or fail. Let's pass but be cautious.
-        if age_days is not None and age_days > max_age:
-             # Check if it has very high volume to justify
-             if vol24 < 50000: # Arbitrary old-pair threshold
-                 return False, f"Old pair ({age_days:.1f}d) with low volume"
-                 
+        # Handle None age
+        if age_days is None: 
+            age_days = 0.0
+            
+        price_change_5m = pair.get('price_change_5m', 0) or 0
+        price_change_1h = pair.get('price_change_1h', 0) or 0
+        tx_5m = pair.get('tx_5m', 0)
+        
+        # REVIVAL RULE: If age > 30 days
+        if age_days > 30:
+            # Require (price_change_5m >= 5 OR tx_5m >= 5)
+            is_revival = (price_change_5m >= 5) or (tx_5m >= 5)
+            if not is_revival:
+                return False, f"Old pair ({age_days:.1f}d) no revival momentum"
+            return True, None
+            
+        # LEVEL-1 FILTER (MOMENTUM)
+        # Allow if ANY is true:
+        # - price_change_5m >= 5
+        # - price_change_1h >= 15
+        # - tx_5m >= 5
+        
+        # Note: 'price_change_5m' might be 0 if not supported/fetched, but we use what we have.
+        
+        has_momentum = (
+            abs(price_change_5m) >= 5 or
+            abs(price_change_1h) >= 15 or
+            tx_5m >= 5
+        )
+        
+        if not has_momentum:
+            return False, "No momentum (p5m<5, p1h<15, tx5m<5)"
+            
         return True, None
 
-    def _calculate_score_v2(self, pair: Dict) -> float:
+    def _calculate_score_v3(self, pair: Dict) -> float:
         """
-        Calculate 0-100 score based on normalized V2 metrics.
+        Calculate 0-100 score based on V3 components.
         """
-        weights = self.scoring_config.get('weights', {})
-        
-        liq = pair.get('liquidity', 0)
-        vol = pair.get('volume_24h', 0)
-        tx = pair.get('tx_24h', 0)
-        price_1h = pair.get('price_change_1h', 0)
+        points_config = self.scoring_config.get('points', {})
         
         score = 0.0
         
-        # Liquidity (30%)
-        # Target: 5k = 5pts, 100k = 30pts
-        w_liq = weights.get('liquidity', 0.30) * 100
-        if liq >= 100000: score += w_liq
-        elif liq >= 50000: score += w_liq * 0.8
-        elif liq >= 20000: score += w_liq * 0.6
-        elif liq >= 10000: score += w_liq * 0.4
-        elif liq >= 5000:  score += w_liq * 0.2
+        # 1. Price Change 5m (0-30)
+        p5m_cap = points_config.get('price_change_5m', 30)
+        p5m = abs(pair.get('price_change_5m', 0) or 0)
         
-        # Volume (30%)
-        # Target: 2k = 5pts, 100k = 30pts
-        w_vol = weights.get('volume', 0.30) * 100
-        if vol >= 100000: score += w_vol
-        elif vol >= 50000: score += w_vol * 0.8
-        elif vol >= 20000: score += w_vol * 0.6
-        elif vol >= 10000: score += w_vol * 0.4
-        elif vol >= 2000:  score += w_vol * 0.2
+        # Linear scaling up to cap? Or buckets?
+        # User didn't specify buckets, so I'll create reasonable ones or linear.
+        # Let's use buckets similar to V2 but adapted.
+        if p5m >= 50: score += p5m_cap
+        elif p5m >= 20: score += p5m_cap * 0.8
+        elif p5m >= 10: score += p5m_cap * 0.6
+        elif p5m >= 5: score += p5m_cap * 0.4
+        else: score += p5m_cap * 0.1 * (p5m/5.0) # Small partial credit
         
-        # Price Change 1h (20%)
-        # Target: 5% = 5pts, 100% = 20pts
-        w_price = weights.get('price_change', 0.20) * 100
-        abs_p = abs(price_1h)
-        if abs_p >= 100: score += w_price
-        elif abs_p >= 50: score += w_price * 0.8
-        elif abs_p >= 20: score += w_price * 0.6
-        elif abs_p >= 10: score += w_price * 0.4
-        elif abs_p >= 5:  score += w_price * 0.2
+        # 2. Price Change 1h (0-20)
+        p1h_cap = points_config.get('price_change_1h', 20)
+        p1h = abs(pair.get('price_change_1h', 0) or 0)
+        if p1h >= 100: score += p1h_cap
+        elif p1h >= 50: score += p1h_cap * 0.8
+        elif p1h >= 20: score += p1h_cap * 0.6
+        elif p1h >= 15: score += p1h_cap * 0.4
+        else: score += p1h_cap * 0.1
         
-        # Tx Count 24h (20%)
-        # Target: 50 = 5pts, 500 = 20pts
-        w_tx = weights.get('tx_count', 0.20) * 100
-        if tx >= 500: score += w_tx
-        elif tx >= 200: score += w_tx * 0.8
-        elif tx >= 100: score += w_tx * 0.6
-        elif tx >= 50:  score += w_tx * 0.4
-        elif tx >= 20:  score += w_tx * 0.2
+        # 3. Tx 5m (0-20)
+        tx_cap = points_config.get('tx_5m', 20)
+        tx = pair.get('tx_5m', 0)
+        if tx >= 50: score += tx_cap
+        elif tx >= 20: score += tx_cap * 0.8
+        elif tx >= 10: score += tx_cap * 0.6
+        elif tx >= 5: score += tx_cap * 0.4
+        elif tx >= 1: score += tx_cap * 0.2
         
-        # Cap at 100
+        # 4. Liquidity (0-10)
+        liq_cap = points_config.get('liquidity', 10)
+        liq = pair.get('liquidity', 0)
+        if liq >= 50000: score += liq_cap
+        elif liq >= 10000: score += liq_cap * 0.8
+        elif liq >= 5000: score += liq_cap * 0.6
+        elif liq >= 2000: score += liq_cap * 0.4
+        elif liq >= 500: score += liq_cap * 0.2
+        
+        # 5. Volume 24h (0-10)
+        vol_cap = points_config.get('volume_24h', 10)
+        vol = pair.get('volume_24h', 0)
+        if vol >= 100000: score += vol_cap
+        elif vol >= 50000: score += vol_cap * 0.8
+        elif vol >= 10000: score += vol_cap * 0.6
+        elif vol >= 5000: score += vol_cap * 0.4
+        elif vol >= 1000: score += vol_cap * 0.2
+        
+        # 6. Revival Bonus (+10)
+        # If age > 30d AND momentum true (momentum already checked if we passed filters)
+        revival_bonus = points_config.get('revival_bonus', 10)
+        age = pair.get('age_days', 0)
+        if age and age > 30:
+            score += revival_bonus
+            
         return min(100.0, score)
 
     def get_stats(self) -> Dict:

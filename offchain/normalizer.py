@@ -58,7 +58,9 @@ class PairNormalizer:
         
         txns = raw_pair.get('txns', {})
         h24_txns = txns.get('h24', {})
+        m5_txns = txns.get('m5', {})
         tx_24h = (h24_txns.get('buys', 0) + h24_txns.get('sells', 0)) if h24_txns else 0
+        tx_5m = (m5_txns.get('buys', 0) + m5_txns.get('sells', 0)) if m5_txns else 0
         
         # Age
         created_at = raw_pair.get('pairCreatedAt')
@@ -85,6 +87,7 @@ class PairNormalizer:
             "price_change_5m": price_change_5m,
             "price_change_1h": price_change_1h,
             "tx_24h": tx_24h,
+            "tx_5m": tx_5m,
             "age_days": age_days,
             "offchain_score": 0, # To be calculated by filter
             "event_type": event_type,

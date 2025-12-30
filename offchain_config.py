@@ -17,10 +17,10 @@ API COMPLIANCE:
 """
 
 # MODE C: DEGEN SNIPER Configuration
-# MODE C V2: DEGEN SNIPER CONFIGURATION (OFF-CHAIN FIRST)
+# MODE C V3: DEGEN SNIPER CONFIGURATION (OFF-CHAIN FIRST)
 DEGEN_SNIPER_CONFIG = {
     'enabled': True,
-    'mode_name': 'DEGEN_SNIPER_V2',
+    'mode_name': 'DEGEN_SNIPER_V3',
     
     'enabled_chains': ['base', 'ethereum', 'solana'],
     
@@ -30,29 +30,32 @@ DEGEN_SNIPER_CONFIG = {
     },
     
     # ================================================================
-    # GLOBAL GUARDRAILS (MANDATORY)
+    # GLOBAL GUARDRAILS (LEVEL-0)
     # ================================================================
     'global_guardrails': {
-        'min_liquidity_usd': 5000,          # Increased from 3k
-        'require_h24_volume': True,
-        'max_age_hours': 24,                # Hard cutoff
+        'min_liquidity_usd': 500,           # Ultra loose (Level-0)
+        'min_tx_5m': 1,                     # Level-0 rule
+        'require_h24_volume': False,        # Not strictly required by Level-0
+        'max_age_hours': None,              # Removed for Revival Rule
     },
     
     # ================================================================
-    # SCORING V2 (0-100 Scale)
+    # SCORING V3 (0-100 Scale - Point System)
     # ================================================================
-    'scoring_v2': {
-        'weights': {
-            'liquidity': 0.30,
-            'volume': 0.30,
-            'price_change': 0.20,
-            'tx_count': 0.20
+    'scoring_v3': {
+        'points': {
+            'price_change_5m': 30,
+            'price_change_1h': 20,
+            'tx_5m': 20,
+            'liquidity': 10,
+            'volume_24h': 10,
+            'revival_bonus': 10
         },
         'thresholds': {
-            'low': 25,
-            'mid': 40,
-            'high': 60,
-            'verify': 55  # Trigger on-chain verification
+            'low': 30,
+            'mid': 45,
+            'high': 65,
+            'verify': 65  # Trigger on-chain verification
         }
     },
     
@@ -62,6 +65,7 @@ DEGEN_SNIPER_CONFIG = {
     'deduplication': {
         'pair_cooldown_minutes': 15,    # 15 min pair dedup
         'token_cooldown_minutes': 30,   # 30 min token dedup
+        'allow_duplicate_score_threshold': 55 # Allow duplicate if score >= 55
     },
     
     # ================================================================
@@ -69,17 +73,17 @@ DEGEN_SNIPER_CONFIG = {
     # ================================================================
     'telegram_tiers': {
         'low': {
-            'min_score': 25,
-            'max_score': 39,
-            'rate_limit': 600  # 1 per 10 mins
+            'min_score': 30,
+            'max_score': 44,
+            'rate_limit': 300  # 1 per 5 mins per chain (approx, exact logic in integration)
         },
         'mid': {
-            'min_score': 40,
-            'max_score': 59,
-            'rate_limit': 60   # 1 per 1 min
+            'min_score': 45,
+            'max_score': 64,
+            'rate_limit': 0    # Normal alert (no specific rate limit mentioned, assume immediate or standard)
         },
         'high': {
-            'min_score': 60,
+            'min_score': 65,
             'max_score': 100,
             'rate_limit': 0    # No limit
         }
