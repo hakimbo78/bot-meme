@@ -40,129 +40,55 @@ class PairNormalizer:
     
     def normalize_dexscreener(self, raw_pair: Dict, source: str = "dexscreener") -> Dict:
         """
-        Normalize DexScreener pair data.
-        
-        Args:
-            raw_pair: Raw pair data from DexScreener API
-            source: Data source identifier
-            
-        Returns:
-            Normalized pair event dict
+        Normalize DexScreener pair data into STRICT V2 format.
         """
-        # ================================================================
-        # PRICE CHANGE EXTRACTION (H1/H24 ONLY)
-        # ================================================================
-        # DexScreener PUBLIC API provides: h1, h6, h24 (m5 is unreliable)
-        price_change = raw_pair.get('priceChange', {})
-        price_change_1h = self._safe_float(price_change.get('h1', 0))
-        price_change_6h = self._safe_float(price_change.get('h6', 0))
-        price_change_24h = self._safe_float(price_change.get('h24', 0))
-        
-        # ================================================================
-        # VOLUME EXTRACTION (H1/H24 ONLY)
-        # ================================================================
-        volume = raw_pair.get('volume', {})
-        
-        vol_1h_raw = volume.get('h1')
-        vol_24h_raw = volume.get('h24', 0)
-        
-        # Extract h1 and h24 volumes directly from API
-        volume_1h = self._safe_float(vol_1h_raw) if vol_1h_raw and vol_1h_raw > 0 else None
-        volume_24h = self._safe_float(vol_24h_raw, 0)
-        
-        # Extract liquidity
-        liquidity_obj = raw_pair.get('liquidity', {})
-        liquidity = self._safe_float(liquidity_obj.get('usd', 0))
-        
-        # ================================================================
-        # TRANSACTION COUNT EXTRACTION (H1/H24 ONLY)
-        # ================================================================
-        tx_obj = raw_pair.get('txns', {})
-        h1_txns = tx_obj.get('h1', {})
-        h24_txns = tx_obj.get('h24', {})
-        
-        # Extract h1 and h24 transaction counts (buys + sells) directly from API
-        tx_1h_raw = h1_txns.get('buys', 0) + h1_txns.get('sells', 0) if h1_txns else 0
-        tx_24h_raw = h24_txns.get('buys', 0) + h24_txns.get('sells', 0) if h24_txns else 0
-        
-        tx_1h = tx_1h_raw if tx_1h_raw > 0 else None
-        tx_24h = tx_24h_raw
-        
-        # Extract addresses
+        # Extract core fields
+        chain = self._normalize_chain(raw_pair.get('chainId', 'unknown'))
         pair_address = raw_pair.get('pairAddress', '')
         base_token = raw_pair.get('baseToken', {})
-        quote_token = raw_pair.get('quoteToken', {})
+        token_address = base_token.get('address', '')
         
-        token0 = base_token.get('address', '')
-        token1 = quote_token.get('address', '')
+        # Metrics
+        liquidity = self._safe_float(raw_pair.get('liquidity', {}).get('usd', 0))
+        volume_24h = self._safe_float(raw_pair.get('volume', {}).get('h24', 0))
         
-        # Extract chain and DEX
-        chain = self._normalize_chain(raw_pair.get('chainId', 'unknown'))
-        dex_id = raw_pair.get('dexId', 'unknown')
+        price_change = raw_pair.get('priceChange', {})
+        price_change_5m = self._safe_float(price_change.get('m5', 0)) # DexScreener might not have this, default 0
+        price_change_1h = self._safe_float(price_change.get('h1', 0))
         
-        # Calculate confidence score (0.0 - 1.0)
-        confidence = self._calculate_confidence(
-            liquidity=liquidity,
-            volume_24h=volume_24h,
-            tx_count=tx_24h,
-            has_price_change=bool(price_change_1h)
-        )
+        txns = raw_pair.get('txns', {})
+        h24_txns = txns.get('h24', {})
+        tx_24h = (h24_txns.get('buys', 0) + h24_txns.get('sells', 0)) if h24_txns else 0
         
-        # Determine event type
-        event_type = self._determine_event_type(
-            price_change_1h=price_change_1h,
-            volume_1h=volume_1h,
-            tx_1h=tx_1h,
-            created_at=raw_pair.get('pairCreatedAt')
-        )
-        
-        # Calculate age in minutes
-        age_minutes = None
+        # Age
         created_at = raw_pair.get('pairCreatedAt')
+        age_days = 0.0
         if created_at:
             try:
-                created_time = datetime.fromtimestamp(created_at / 1000)
-                age_minutes = (datetime.now() - created_time).total_seconds() / 60
+                age_ms = datetime.now().timestamp() * 1000 - created_at
+                age_days = age_ms / (1000 * 60 * 60 * 24)
+                if age_days < 0: age_days = 0
             except:
                 pass
+                
+        # Event Type (simple logic for now)
+        event_type = "SECONDARY_MARKET"
+        if age_days < 1.0:
+            event_type = "NEW_PAIR"
         
         return {
-            # Core identifiers
             "chain": chain,
-            "dex": dex_id,
             "pair_address": pair_address,
-            "token0": token0,
-            "token1": token1,
-            
-            # Price metrics
-            "price_change_1h": price_change_1h,
-            "price_change_6h": price_change_6h,
-            "price_change_24h": price_change_24h,
-            "current_price": self._safe_float(raw_pair.get('priceUsd', 0)),
-            
-            # Volume metrics
-            "volume_1h": volume_1h,
-            "volume_24h": volume_24h,
-            
-            # Liquidity
+            "token_address": token_address,
             "liquidity": liquidity,
-            
-            # Transaction counts
-            "tx_1h": tx_1h,
+            "volume_24h": volume_24h,
+            "price_change_5m": price_change_5m,
+            "price_change_1h": price_change_1h,
             "tx_24h": tx_24h,
-            
-            # Metadata
-            "source": source,
-            "confidence": confidence,
+            "age_days": age_days,
+            "offchain_score": 0, # To be calculated by filter
             "event_type": event_type,
-            "age_minutes": age_minutes,
-            
-            # Token info (for display)
-            "token_name": base_token.get('name', 'UNKNOWN'),
-            "token_symbol": base_token.get('symbol', 'UNKNOWN'),
-            
-            # Raw data (optional, for debugging)
-            "_raw": raw_pair,
+            "source": source
         }
     
     def normalize_dextools(self, raw_pair: Dict, source: str = "dextools") -> Dict:

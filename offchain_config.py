@@ -17,129 +17,72 @@ API COMPLIANCE:
 """
 
 # MODE C: DEGEN SNIPER Configuration
+# MODE C V2: DEGEN SNIPER CONFIGURATION (OFF-CHAIN FIRST)
 DEGEN_SNIPER_CONFIG = {
-    # Feature flag
     'enabled': True,
-    'mode_name': 'DEGEN_SNIPER',
+    'mode_name': 'DEGEN_SNIPER_V2',
     
-    # Enabled chains
     'enabled_chains': ['base', 'ethereum', 'solana'],
     
-    # DexScreener API settings
     'dexscreener': {
         'rate_limit_per_minute': 300,
         'min_request_interval_seconds': 0.2,
     },
     
     # ================================================================
-    # GLOBAL GUARDRAILS (MANDATORY - REJECT IMMEDIATELY)
+    # GLOBAL GUARDRAILS (MANDATORY)
     # ================================================================
     'global_guardrails': {
-        'min_liquidity_usd': 3000,          # Absolute minimum
-        'require_h24_volume': True,          # volume.h24 must be > 0
-        'max_age_hours_if_not_trending': 24, # Reject if age > 24h AND not trending
-        'require_core_fields': True,         # Must have rank and core DexScreener fields
+        'min_liquidity_usd': 5000,          # Increased from 3k
+        'require_h24_volume': True,
+        'max_age_hours': 24,                # Hard cutoff
     },
     
     # ================================================================
-    # LEVEL-0: VIABILITY CHECK (VERY LOOSE)
+    # SCORING V2 (0-100 Scale)
     # ================================================================
-    # Purpose: Quick pass if pair shows ANY potential
-    # Pass if ANY of these conditions are met:
-    'level_0_viability': {
-        'min_liquidity_usd': 5000,    # OR liquidity >= $5k
-        'min_volume_h24': 2000,       # OR volume.h24 >= $2k
-    },
-    
-    # ================================================================
-    # LEVEL-1: EARLY MOMENTUM TRIGGERS (ANY)
-    # ================================================================
-    # Trigger if ANY early movement detected
-    'level_1_momentum': {
-        'min_txns_h1': 1,           # OR txns.h1 >= 1
-        'min_volume_h1': 10,        # OR volume.h1 >= $10
-        'detect_any_price_change_h1': True,  # OR priceChange.h1 != 0
-    },
-    
-    # ================================================================
-    # LEVEL-2: STRUCTURAL QUALITY (ANTI-SPAM)
-    # ================================================================
-    # Require at least 2 of the following to pass
-    'level_2_quality': {
-        'require_count': 2,  # Need at least 2 conditions to be true
-        'conditions': {
-            'liquidity_usd': 10000,           # liquidity >= $10k
-            'volume_h24': 10000,              # volume.h24 >= $10k
-            'txns_h24': 20,                   # txns.h24 >= 20
-            'abs_price_change_h24': 5,        # abs(priceChange.h24) >= 5%
+    'scoring_v2': {
+        'weights': {
+            'liquidity': 0.30,
+            'volume': 0.30,
+            'price_change': 0.20,
+            'tx_count': 0.20
         },
+        'thresholds': {
+            'low': 25,
+            'mid': 40,
+            'high': 60,
+            'verify': 55  # Trigger on-chain verification
+        }
     },
     
     # ================================================================
-    # BONUS EARLY SIGNALS (add +1 score each)
-    # ================================================================
-    'bonus_signals': {
-        'fresh_lp': {
-            'enabled': True,
-            'condition': 'liquidity > volume_h24',  # Fresh LP indicator
-        },
-        'h1_h24_txn_ratio': {
-            'enabled': True,
-            'min_ratio': 0.2,  # txns.h1 / max(txns.h24, 1) >= 0.2
-        },
-        'solana_active': {
-            'enabled': True,
-            'chain': 'solana',
-            'min_txns_h24': 10,  # Solana AND txns.h24 >= 10
-        },
-    },
-    
-    # ================================================================
-    # SCORING SYSTEM
-    # ================================================================
-    'scoring': {
-        'level_1_trigger_points': 1,     # +1 if Level-1 triggered
-        'level_2_pass_points': 2,        # +2 if Level-2 passed
-        'max_bonus_points': 2,           # Max +2 from bonus signals
-        'min_score_to_pass': 3,          # Need score >= 3 to pass
-    },
-    
-    # ================================================================
-    # DEDUPLICATION (SMART, NON-SPAM)
+    # DEDUPLICATION
     # ================================================================
     'deduplication': {
-        'base_cooldown_seconds': 120,  # 2 minutes base cooldown
-        
-        # Bypass cooldown if ANY of these changes detected:
-        'bypass_conditions': {
-            'txns_h1_increased': True,              # txns.h1 increased (any amount)
-            'volume_h1_increased': 5,               # volume.h1 increased >= $5
-            'abs_price_change_h1_delta': 0.1,       # abs(priceChange.h1) changed >= 0.1%
-        },
+        'pair_cooldown_minutes': 15,    # 15 min pair dedup
+        'token_cooldown_minutes': 30,   # 30 min token dedup
     },
     
     # ================================================================
-    # CHAIN-SPECIFIC RULES
+    # TELEGRAM TIERING
     # ================================================================
-    'chain_rules': {
-        'solana': {
-            'ignore_zero_volume_h1': True,  # Don't fail on volume.h1 = 0
-            'prefer_txns': True,            # Prefer txns.h24 and liquidity over volume
+    'telegram_tiers': {
+        'low': {
+            'min_score': 25,
+            'max_score': 39,
+            'rate_limit': 600  # 1 per 10 mins
         },
-        'base': {
-            'prefer_txns_h1_growth': True,  # Prefer txns.h1 growth
+        'mid': {
+            'min_score': 40,
+            'max_score': 59,
+            'rate_limit': 60   # 1 per 1 min
         },
-        'ethereum': {
-            'min_liquidity_usd': 15000,     # Higher minimum for Ethereum
-        },
-    },
-    
-    # ================================================================
-    # ALERT RATE LIMITING
-    # ================================================================
-    'rate_limiting': {
-        'max_alerts_per_pair_per_10min': 1,   # Max 1 alert per pair per 10 min
-        'max_alerts_per_chain_per_hour': 10,  # Max 10 alerts per chain per hour
+        'high': {
+            'min_score': 60,
+            'max_score': 100,
+            'rate_limit': 0    # No limit
+        }
     },
     
     # ================================================================
@@ -148,10 +91,8 @@ DEGEN_SNIPER_CONFIG = {
     'output': {
         'include_chain': True,
         'include_pair_address': True,
-        'include_metrics': ['liquidity_usd', 'volume_h1', 'volume_h24', 
-                           'txns_h1', 'txns_h24', 'price_change_h1', 'price_change_h24'],
+        'include_metrics': True,
         'include_score': True,
-        'include_reason_flags': True,  # EARLY_TX, FRESH_LP, WARMUP, etc.
     },
 }
 

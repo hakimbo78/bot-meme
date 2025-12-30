@@ -236,83 +236,71 @@ class OffChainScreenerIntegration:
     
     async def _process_pair(self, raw_pair: Dict, source: str, chain: str) -> Optional[Dict]:
         """
-        Process a single raw pair through the pipeline.
+        Process a single raw pair through the V2 pipeline.
         
         Pipeline:
-        1. Normalize
-        2. Check deduplication
-        3. Apply filters
-        4. Cache
-        5. Enqueue for downstream processing
-        
-        Args:
-            raw_pair: Raw pair data from API
-            source: Data source ('dexscreener' or 'dextools')
-            chain: Chain identifier
-            
-        Returns:
-            Normalized pair if passed all checks, None otherwise
+        1. Normalize (Strict V2 JSON)
+        2. Token Deduplication (30m)
+        3. Pair Deduplication (15m)
+        4. V2 Filtering & Scoring
+        5. Telegram Alert (Tiered)
+        6. Enqueue for On-Chain Verify (Only if Score >= 55)
         """
         # 1. NORMALIZE
         if source == 'dexscreener':
             normalized = self.normalizer.normalize_dexscreener(raw_pair, source)
-        elif source == 'dextools':
-            normalized = self.normalizer.normalize_dextools(raw_pair, source)
         else:
+            # We focus on dexscreener for V2 as primary
             return None
         
         self.stats['normalized_pairs'] += 1
         
         pair_address = normalized.get('pair_address', '')
-        if not pair_address:
+        token_address = normalized.get('token_address', '')
+        
+        if not pair_address or not token_address:
             return None
-        
-        # 2. DEDUPLICATION (with momentum-based re-evaluation)
-        volume_1h = normalized.get('volume_1h')
-        price_change_1h = normalized.get('price_change_1h')
-        tx_1h = normalized.get('tx_1h')
-        
-        if self.deduplicator.is_duplicate(pair_address, chain, volume_1h, price_change_1h, tx_1h):
-            self.stats['deduplicated'] += 1
-            print(f"[OFFCHAIN DEBUG] {pair_address[:10]}... - DUPLICATE (cooldown active, no momentum increase)")
-            return None
-        
-        # 3. FILTERING
-        # DEBUG: Log pair data before filter (use h1 metrics)
-        vol_1h = normalized.get('volume_1h', 0) or 0
-        vol_24h = normalized.get('volume_24h', 0) or 0
-        tx_1h_val = normalized.get('tx_1h', 0) or 0
-        price_1h = normalized.get('price_change_1h', 0) or 0
-        print(f"[OFFCHAIN DEBUG] Processing pair {pair_address[:10]}... | Liq: ${normalized.get('liquidity', 0):,.0f} | Vol1h: ${vol_1h:,.0f} | Tx1h: {tx_1h_val:.0f} | Δ1h: {price_1h:+.1f}%")
-        
+            
+        # 2. TOKEN DEDUPLICATION
+        if self.deduplicator.is_token_duplicate(token_address, chain):
+             print(f"[OFFCHAIN] {token_address[:8]}... - TOKEN DUPLICATE (30m cooldown)")
+             return None
+             
+        # 3. PAIR DEDUPLICATION
+        if self.deduplicator.is_duplicate(pair_address, chain):
+             print(f"[OFFCHAIN] {pair_address[:8]}... - PAIR DUPLICATE (15m cooldown)")
+             return None
+             
+        # 4. FILTERING & SCORING
+        # Apply filters (calculates score internally)
         passed, reason, metadata = self.filter.apply_filters(normalized)
+        
         if not passed:
             self.stats['filtered_out'] += 1
-            # Logging is already done in filter, no need to duplicate
+            print(f"[OFFCHAIN debugging] Filtered: {reason}")
             return None
+            
+        score = metadata.get('score', 0)
+        verdict = metadata.get('verdict', 'SKIP')
+        normalized['offchain_score'] = score
+        normalized['verdict'] = verdict
         
-        # Store filter metadata in normalized pair
-        if metadata:
-            normalized['filter_metadata'] = metadata
-
+        print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | {verdict}")
         
-        # 4. CACHE (for future lookups)
-        self.cache.set(pair_address, normalized)
-        
-        # 5. CALCULATE OFF-CHAIN SCORE
-        offchain_score = self._calculate_offchain_score(normalized)
-        normalized['offchain_score'] = offchain_score
-        
-        # 6. ENQUEUE
-        await self.pair_queue.put(normalized)
-        self.stats['passed_to_queue'] += 1
-        
-        print(f"[OFFCHAIN] ✅ {source.upper()} | {chain.upper()} | {pair_address[:10]}... | Score: {offchain_score:.1f} | {normalized.get('event_type')}")
-        
-        # 7. SEND TELEGRAM ALERT
+        # 5. SEND TELEGRAM ALERT (Tiering handled inside)
         await self._send_telegram_alert(normalized, chain)
         
-        return normalized
+        # 6. GATEKEEPER: Only enqueue if VERIFY (Score >= 55)
+        if verdict == 'VERIFY':
+             # Cache it
+             self.cache.set(pair_address, normalized)
+             # Enqueue
+             await self.pair_queue.put(normalized)
+             self.stats['passed_to_queue'] += 1
+             return normalized
+             
+        # If ALERT_ONLY, we processed it but don't return it for on-chain verification
+        return None
     
     def _calculate_offchain_score(self, normalized_pair: Dict) -> float:
         """
@@ -521,119 +509,77 @@ class OffChainScreenerIntegration:
     
     async def _send_telegram_alert(self, normalized: Dict, chain: str):
         """
-        Send Telegram alert for off-chain detected pair.
-        
-        Args:
-            normalized: Normalized pair data
-            chain: Chain name
+        Send Telegram alert for off-chain detected pair (Tiered V2).
         """
         try:
-            # Extract data
+            # 1. Determine Tier
+            score = normalized.get('offchain_score', 0)
+            verdict = normalized.get('verdict', 'SKIP')
+            
+            tier = 'LOW'
+            if score >= 60: tier = 'HIGH'
+            elif score >= 40: tier = 'MID'
+            
+            # 2. Rate Limiting
+            now = datetime.now()
+            if not hasattr(self, '_alert_history'):
+                self._alert_history = {'LOW': [], 'MID': [], 'HIGH': []}
+            
+            # Clean old history
+            for t in self._alert_history:
+                cutoff = 600 if t == 'LOW' else 60
+                self._alert_history[t] = [ts for ts in self._alert_history[t] if (now - ts).total_seconds() < cutoff]
+            
+            # Check limits
+            should_send = True
+            if tier == 'LOW':
+                # Max 1 per 10 mins
+                if len(self._alert_history['LOW']) >= 1: should_send = False
+            elif tier == 'MID':
+                # Max 1 per 1 min
+                if len(self._alert_history['MID']) >= 1: should_send = False
+            
+            if not should_send:
+                print(f"[OFFCHAIN] 🔇 Alert Suppressed ({tier} Tier Rate Limit)")
+                return
+
+            # Record alert
+            self._alert_history[tier].append(now)
+
+            # 3. Build Message
             pair_address = normalized.get('pair_address', 'UNKNOWN')
-            token0 = normalized.get('token0', 'UNKNOWN')
             token_symbol = normalized.get('token_symbol', 'UNKNOWN')
-            token_name = normalized.get('token_name', 'UNKNOWN')
-            offchain_score = normalized.get('offchain_score', 0)
             
-            # Metrics (H1/H24 ONLY)
-            liquidity = normalized.get('liquidity', 0)
-            volume_1h = normalized.get('volume_1h')
-            volume_24h = normalized.get('volume_24h', 0)
-            tx_1h = normalized.get('tx_1h', 0) or 0
+            # Emojis based on Tier
+            emoji = "🟢" if tier == 'LOW' else "🟡" if tier == 'MID' else "🚨"
             
-            price_change_1h = normalized.get('price_change_1h', 0) or 0
-            price_change_24h = normalized.get('price_change_24h', 0) or 0
-            
-            age_minutes = normalized.get('age_minutes')
-            event_type = normalized.get('event_type', 'UNKNOWN')
-            dex = normalized.get('dex', 'unknown')
-            
-            # Determine volume to display (prefer h1)
-            if volume_1h and volume_1h > 0:
-                volume_display = f"Vol1h: ${volume_1h:,.0f}"
-            else:
-                volume_display = f"Vol24h: ${volume_24h:,.0f}"
-            
-            # Build alert message (similar to on-chain format)
-            message = f"🌐 [{chain.upper()}] OFFCHAIN ALERT 🌐\n\n"
-            
-            message += f"Token: {token_name} ({token_symbol})\n"
+            message = f"{emoji} [MODE C V2] {tier} TIER ALERT {emoji}\n\n"
             message += f"Chain: {chain.upper()}\n"
-            message += f"Token Address: `{token0}`\n"
-            message += f"Pair Address: `{pair_address}`\n"
-            message += f"DEX: {dex.upper()}\n"
-            message += f"Score: {offchain_score:.1f}/100 (Off-chain only)\n\n"
+            message += f"Token: {normalized.get('token_name')} ({token_symbol})\n"
+            message += f"Score: {score:.1f}/100\n"
+            message += f"Verdict: {verdict}\n\n"
             
             message += f"📊 Metrics:\n"
-            if age_minutes:
-                if age_minutes < 60:
-                    message += f"• Age: {age_minutes:.1f} min\n"
-                elif age_minutes < 1440:
-                    message += f"• Age: {age_minutes/60:.1f} hours\n"
-                else:
-                    message += f"• Age: {age_minutes/1440:.1f} days\n"
-            message += f"• Liquidity: ${liquidity:,.0f}\n"
-            message += f"• {volume_display} | Tx1h: {tx_1h:.0f}\n"
+            message += f"• Liq: ${normalized.get('liquidity', 0):,.0f}\n"
+            message += f"• Vol24: ${normalized.get('volume_24h', 0):,.0f}\n"
+            message += f"• Tx24: {normalized.get('tx_24h', 0)}\n"
+            message += f"• Age: {normalized.get('age_days', 0):.2f} days\n\n"
             
-            if price_change_1h != 0 or price_change_24h != 0:
-                message += f"• Price: "
-                changes = []
-                if price_change_1h != 0:
-                    changes.append(f"Δ1h: {price_change_1h:+.1f}%")
-                if price_change_24h != 0:
-                    changes.append(f"Δ24h: {price_change_24h:+.1f}%")
-                message += ", ".join(changes) + "\n"
+            message += f"🔗 DexScreener: https://dexscreener.com/{chain}/{pair_address}\n"
             
-            message += f"\n🔍 Detection:\n"
-            message += f"• Source: DexScreener\n"
-            message += f"• Event Type: {event_type}\n"
-            message += f"• Off-chain Score: {offchain_score:.1f}/100\n\n"
-            
-            if offchain_score < 60:
-                message += "⏭️ SKIPPED (score < 60)\n"
-                message += "✅ RPC calls SAVED - No on-chain verification triggered\n\n"
-                message += "💡 Note: Score too low for on-chain verification\n"
+            if verdict == 'VERIFY':
+                message += "\n🔍 TRIGGERING ON-CHAIN VERIFICATION..."
             else:
-                message += "🔍 TRIGGERING ON-CHAIN VERIFICATION\n"
-                message += "⏳ Full analysis in progress\n\n"
-            
-            # Add links (use plain text URLs, no markdown)
-            message += f"\n🔗 Links:\n"
-            if chain.lower() == 'base':
-                message += f"BaseScan: https://basescan.org/address/{token0}\n"
-                message += f"DexScreener: https://dexscreener.com/base/{pair_address}\n"
-            elif chain.lower() == 'ethereum':
-                message += f"Etherscan: https://etherscan.io/address/{token0}\n"
-                message += f"DexScreener: https://dexscreener.com/ethereum/{pair_address}\n"
-            
-            message += f"\nVerdict: {'⏭️ SKIP' if offchain_score < 60 else '🔍 VERIFY'}"
-            
-            # Send alert in PLAIN TEXT mode (no markdown parsing)
-            # Use bot directly to avoid parse_mode issues
-            try:
-                await self.telegram_notifier.bot.send_message(
-                    chat_id=self.telegram_notifier.chat_id,
-                    text=message,
-                    parse_mode=None,  # NO markdown parsing
-                    disable_web_page_preview=False  # Allow URL previews
-                )
-                print(f"[OFFCHAIN] 📱 Telegram alert sent for {pair_address[:10]}...")
-            except Exception as send_error:
-                print(f"[OFFCHAIN] Telegram send failed: {send_error}")
-                # Fallback: try without any formatting
-                try:
-                    simple_msg = f"🌐 OFFCHAIN ALERT\nToken: {token_symbol}\nPair: {pair_address}\nScore: {offchain_score:.1f}"
-                    await self.telegram_notifier.bot.send_message(
-                        chat_id=self.telegram_notifier.chat_id,
-                        text=simple_msg,
-                        parse_mode=None
-                    )
-                except:
-                    pass
+                message += "\n💤 OFF-CHAIN ONLY (RPC Saved)"
+
+            # 4. Send
+            await self.telegram_notifier.bot.send_message(
+                chat_id=self.telegram_notifier.chat_id,
+                text=message,
+                parse_mode=None,
+                disable_web_page_preview=False
+            )
+            print(f"[OFFCHAIN] 📱 Sent {tier} Tier Alert for {token_symbol}")
             
         except Exception as e:
-            print(f"[OFFCHAIN] Error sending Telegram alert: {e}")
-            import traceback
-            traceback.print_exc()
-
-
+            print(f"[OFFCHAIN] Error sending alert: {e}")
