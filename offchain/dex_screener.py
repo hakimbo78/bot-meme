@@ -95,24 +95,31 @@ class DexScreenerAPI(BaseScreener):
         """
         Get the best search query for a chain to find trending/new pairs.
         
-        Using just "base" or "solana" restricts results to pairs with that text.
-        Searching for the native token (WETH, SOL) returns 90% of pairs.
+        Using Token Symbols (WETH) returns global results (dominated by Eth Mainnet).
+        Using Token Addresses targets the specific chain much more effectively.
         """
         chain = chain.lower()
         if chain == 'base':
-            return 'WETH' # Most pairs on Base are vs WETH
+            # Base WETH Address
+            return '0x4200000000000000000000000000000000000006' 
         elif chain == 'solana':
-            return 'SOL' # Most pairs on Solana are vs SOL  
+            # Wrapped SOL Address
+            return 'So11111111111111111111111111111111111111112' 
         elif chain == 'ethereum':
-            return 'WETH'
+            # Mainnet WETH Address
+            return '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
         elif chain == 'arbitrum':
-            return 'WETH'
+            # Arbitrum WETH Address
+            return '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'
         elif chain == 'optimism':
-            return 'WETH'
+            # Optimism WETH Address (Same as Base)
+            return '0x4200000000000000000000000000000000000006'
         elif chain == 'polygon':
-            return 'MATIC'
+            # WMATIC Address
+            return '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'
         elif chain == 'blast':
-            return 'WETH'
+            # Blast WETH Address
+            return '0x4300000000000000000000000000000000000004'
         else:
             return chain # Fallback
             
