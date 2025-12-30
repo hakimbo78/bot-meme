@@ -102,85 +102,64 @@ class OffChainFilter:
 
     def _check_level0_filter(self, pair: Dict) -> Tuple[bool, Optional[str]]:
         """
-        LEVEL-0 FILTER (ULTRA LOOSE):
-        - liquidity >= 500
-        - tx_5m >= 1 (RELAXED with conditional logic)
+        LEVEL-0 FILTER (HARD KILL ONLY)
         
-        PATCHES APPLIED:
-        - PATCH 1: Conditional inactivity (not absolute)
-        - PATCH 2: Age-based bypass for new pairs
-        - PATCH 3: Solana-specific exception
-        """
-        # Liquidity
-        liq = pair.get('liquidity', 0)
-        min_liq = self.global_guardrails.get('min_liquidity_usd', 500)
-        if liq < min_liq:
-            return False, f"Liquidity too low (${liq} < ${min_liq})"
-            
-        # Tx 5m - RELAXED LOGIC
-        tx_5m = pair.get('tx_5m', 0)
-        min_tx = self.global_guardrails.get('min_tx_5m', 1)
+        DROP ONLY if pair is a TOTAL ZOMBIE:
+        - age_days > 30
+        - AND price_change_5m == 0
+        - AND price_change_1h == 0
+        - AND tx_5m == 0
         
-        if tx_5m < min_tx:
-            age_days = pair.get('age_days', 0)
-            if age_days is None:
-                age_days = 0.0
-            price_change_1h = pair.get('price_change_1h', 0) or 0
-            chain = pair.get('chain', '').lower()
-            volume_24h = pair.get('volume_24h', 0)
-            
-            # PATCH 2: Age-based bypass - new pairs frequently have no tx_5m yet
-            if age_days <= 0.5:
-                # Allow new pairs to pass without tx_5m requirement
-                return True, None
-                
-            # PATCH 3: Solana-specific exception - delayed tx_5m reporting
-            if chain == "solana" and liq >= 50000 and volume_24h >= 50000:
-                # Solana pairs with strong liquidity/volume can pass despite missing tx_5m
-                return True, None
-            
-            # PATCH 1: Conditional inactivity - only reject if old + flat + no activity
-            if age_days > 1 and price_change_1h <= 0:
-                return False, f"Fully inactive (old={age_days:.1f}d, flat, tx_5m={tx_5m})"
-            
-            # Otherwise allow: dormant/early/revival pairs can pass
-            # (they have either: young age OR positive price movement)
-            return True, None
-            
-        return True, None
-        
-    def _check_level1_and_revival(self, pair: Dict) -> Tuple[bool, Optional[str]]:
-        """
-        LEVEL-1 FILTER + REVIVAL RULE
-        
-        CRITICAL: Uses OR logic for momentum (NOT AND)
+        This represents a completely dead pair with no signs of life.
+        Fresh pairs with zero activity ALWAYS PASS.
         """
         age_days = pair.get('age_days', 0)
-        if age_days is None: 
+        if age_days is None:
             age_days = 0.0
             
         price_change_5m = pair.get('price_change_5m', 0) or 0
         price_change_1h = pair.get('price_change_1h', 0) or 0
         tx_5m = pair.get('tx_5m', 0)
         
-        # REVIVAL RULE: If age > 30 days
-        if age_days > 30:
-            # Require fresh activity: (price_change_5m >= 5 OR tx_5m >= 5)
-            is_revival = (abs(price_change_5m) >= 5) or (tx_5m >= 5)
-            if not is_revival:
-                return False, f"Old pair ({age_days:.1f}d) no revival momentum"
-            return True, None
-            
-        # MOMENTUM FILTER (OR LOGIC - CRITICAL)
-        # Pass if ANY condition is true:
-        momentum = (
-            abs(price_change_5m) >= 5
-            or abs(price_change_1h) >= 15
-            or tx_5m >= 5
+        # Only drop total zombies: old + completely inactive
+        is_zombie = (
+            age_days > 30
+            and price_change_5m == 0
+            and price_change_1h == 0
+            and tx_5m == 0
         )
         
-        if not momentum:
-            return False, "No momentum (p5m<5, p1h<15, tx5m<5)"
+        if is_zombie:
+            return False, f"ZOMBIE (age={age_days:.1f}d, no activity)"
+            
+        return True, None
+        
+    def _check_level1_and_revival(self, pair: Dict) -> Tuple[bool, Optional[str]]:
+        """
+        LEVEL-1 FILTER (IGNITION CHECK)
+        
+        PASS if ANY activity signal is present:
+        - price_change_5m > 0
+        - OR price_change_1h > 0
+        - OR tx_5m >= 1
+        
+        DROP ONLY if all metrics are zero/inactive.
+        No percentage thresholds. No revival rules.
+        MODE C allows extremely early signals.
+        """
+        price_change_5m = pair.get('price_change_5m', 0) or 0
+        price_change_1h = pair.get('price_change_1h', 0) or 0
+        tx_5m = pair.get('tx_5m', 0)
+        
+        # Pass if ANY ignition signal detected
+        has_ignition = (
+            price_change_5m > 0
+            or price_change_1h > 0
+            or tx_5m >= 1
+        )
+        
+        if not has_ignition:
+            return False, "No ignition (pc5m=0, pc1h=0, tx5m=0)"
             
         return True, None
 
