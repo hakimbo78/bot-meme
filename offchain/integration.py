@@ -254,11 +254,27 @@ class OffChainScreenerIntegration:
         5. Telegram Alert (MID/HIGH only - LOW tier suppressed)
         6. Enqueue for On-Chain Verify
         """
+        from typing import Optional # Added missing import
         # 1. NORMALIZE
         if source == 'dexscreener':
             normalized = self.normalizer.normalize_dexscreener(raw_pair, source)
+        elif source == 'geckoterminal':
+            normalized = self.normalizer.normalize_dexscreener(raw_pair, source)  # Same format
         else:
-            return None
+            normalized = self.normalizer.normalize_dextools(raw_pair, source)
+        
+        # DEBUG: Log first 3 pairs to see actual values
+        if self.stats['normalized_pairs'] < 3:
+            print(f"[OFFCHAIN DEBUG] Normalized pair sample:")
+            print(f"  pair_address: {normalized.get('pair_address', 'UNKNOWN')[:20]}")
+            print(f"  token_symbol: {normalized.get('token_symbol', 'UNKNOWN')}")
+            print(f"  liquidity: ${normalized.get('liquidity', 0):,.0f}")
+            print(f"  volume_24h: ${normalized.get('volume_24h', 0):,.0f}")
+            print(f"  price_change_5m: {normalized.get('price_change_5m', 0):.2f}%")
+            print(f"  price_change_1h: {normalized.get('price_change_1h', 0):.2f}%")
+            print(f"  tx_5m: {normalized.get('tx_5m', 0)}")
+            print(f"  tx_24h: {normalized.get('tx_24h', 0)}")
+            print(f"  age_days: {normalized.get('age_days', 0):.2f}")
         
         self.stats['normalized_pairs'] += 1
         
