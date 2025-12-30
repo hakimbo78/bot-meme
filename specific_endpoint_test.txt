@@ -1,0 +1,145 @@
+TESTING SPECIFIC ENDPOINTS
+================================================================================
+
+
+================================================================================
+Endpoint: https://api.dexscreener.com/latest/dex/pairs/solana/latest
+================================================================================
+
+Status: 200
+Response keys: ['schemaVersion', 'pairs', 'pair']
+
+Full response:
+{
+  "schemaVersion": "1.0.0",
+  "pairs": null,
+  "pair": null
+}
+
+Pairs type: <class 'NoneType'>
+Pairs value: None
+
+Pair (singular) type: <class 'NoneType'>
+Pair value: None
+
+================================================================================
+Endpoint: https://api.dexscreener.com/latest/dex/pairs/solana/new
+================================================================================
+
+Status: 200
+Response keys: ['schemaVersion', 'pairs', 'pair']
+
+Full response:
+{
+  "schemaVersion": "1.0.0",
+  "pairs": null,
+  "pair": null
+}
+
+Pairs type: <class 'NoneType'>
+Pairs value: None
+
+Pair (singular) type: <class 'NoneType'>
+Pair value: None
+
+================================================================================
+Endpoint: https://api.dexscreener.com/latest/dex/pairs/base/latest
+================================================================================
+
+Status: 200
+Response keys: ['schemaVersion', 'pairs', 'pair']
+
+Full response:
+{
+  "schemaVersion": "1.0.0",
+  "pairs": null,
+  "pair": null
+}
+
+Pairs type: <class 'NoneType'>
+Pairs value: None
+
+Pair (singular) type: <class 'NoneType'>
+Pair value: None
+
+================================================================================
+Endpoint: https://api.dexscreener.com/latest/dex/pairs/base/new
+================================================================================
+
+Status: 200
+Response keys: ['schemaVersion', 'pairs', 'pair']
+
+Full response:
+{
+  "schemaVersion": "1.0.0",
+  "pairs": null,
+  "pair": null
+}
+
+Pairs type: <class 'NoneType'>
+Pairs value: None
+
+Pair (singular) type: <class 'NoneType'>
+Pair value: None
+
+================================================================================
+TESTING WITH ACTUAL PAIR ADDRESS
+================================================================================
+
+Testing with pair address: 3ceKnrpPPUuz9FVsDJuYfTqbK5ia6KND7SQwcnRJ38KC
+
+URL: https://api.dexscreener.com/latest/dex/pairs/solana/3ceKnrpPPUuz9FVsDJuYfTqbK5ia6KND7SQwcnRJ38KC
+Status: 200
+Keys: ['schemaVersion', 'pairs', 'pair']
+{
+  "schemaVersion": "1.0.0",
+  "pairs": [
+    {
+      "chainId": "solana",
+      "dexId": "raydium",
+      "url": "https://dexscreener.com/solana/3ceknrpppuuz9fvsdjuyftqbk5ia6knd7sqwcnrj38kc",
+      "pairAddress": "3ceKnrpPPUuz9FVsDJuYfTqbK5ia6KND7SQwcnRJ38KC",
+      "labels": [
+        "CPMM"
+      ],
+      "baseToken": {
+        "address": "6Qd6mmFR84jzg24S3851TWNGeTTFrfPko76UiHyRMDMT",
+        "name": "SolARBa",
+        "symbol": "SolARBa"
+      },
+      "quoteToken": {
+        "address": "So11111111111111111111111111111111111111112",
+        "name": "Wrapped SOL",
+        "symbol": "SOL"
+      },
+      "priceNative": "0.02337",
+      "priceUsd": "2.88",
+      "txns": {
+        "m5": {
+          "buys": 0,
+          "sells": 0
+        },
+        "h1": {
+          "buys": 26926,
+          "sells": 763
+        },
+        "h6": {
+          "buys": 29034,
+          "sells": 913
+        },
+        "h24": {
+          "buys": 56008,
+          "sells": 1672
+        }
+      },
+      "volume
+
+================================================================================
+CONCLUSION
+================================================================================
+
+The /pairs/{chain}/latest and /pairs/{chain}/new endpoints:
+- Return 200 status
+- But 'pairs' is None
+- They expect a PAIR ADDRESS, not 'latest' or 'new'
+- These are NOT endpoints for getting latest/new pairs

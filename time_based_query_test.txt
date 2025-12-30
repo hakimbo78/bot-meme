@@ -1,0 +1,169 @@
+TESTING TIME-BASED QUERY APPROACHES
+================================================================================
+
+
+================================================================================
+TEST 1: Time-based query parameters
+================================================================================
+
+
+Params: {'q': 'solana', 'age': '24h'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'maxAge': '24h'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'createdAfter': '2024-12-30'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'new': 'true'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'recent': 'true'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'sort': 'createdAt'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'orderBy': 'createdAt'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+Params: {'q': 'solana', 'filter': 'new'}
+Status: 200
+Pairs returned: 30
+Actually new (<24h): 0
+
+================================================================================
+TEST 2: Check for API documentation
+================================================================================
+
+
+https://docs.dexscreener.com
+Status: 200
+Found documentation!
+Content preview: <!DOCTYPE html><html lang="en" class="rounded-corners theme-clean no-tint sidebar-default sidebar-list-default links-default depth-subtle __variable_52a63a __variable_80f980 __variable_c5e58d font-Inter dark"><head><meta charSet="utf-8"/><link rel="preconnect" href="https://static-2v.gitbook.com" crossorigin=""/><link rel="preconnect" href="https://api.gitbook.com/cache/"/><link rel="preconnect" href="https://ka-p.fontawesome.com/releases/v6.6.0/"/><link rel="preconnect" href="https://static-2v.
+
+https://dexscreener.com/docs
+Status: 200
+Found documentation!
+Content preview: <!DOCTYPE html>
+    <html lang="en" data-theme="dark">
+      <head>
+        <link rel="stylesheet" type="text/css" href="/assets/static/src_presentation_components_nav-link_nav-link-24958f2e.3Tmj03nP.css">
+        <link rel="stylesheet" type="text/css" href="/assets/static/src_presentation_components_nav-main_nav-main.D5BAVvvr.css">
+        <link rel="stylesheet" type="text/css" href="/assets/static/src_presentation_components_change-percentage_change-percentage.De5TmJFb.css">
+        <link rel=
+
+https://api.dexscreener.com/docs
+Status: 404
+
+https://dexscreener.com/api
+Status: 200
+Found documentation!
+Content preview: <!DOCTYPE html>
+    <html lang="en" data-theme="dark">
+      <head>
+        <link rel="stylesheet" type="text/css" href="/assets/static/src_presentation_components_nav-link_nav-link-24958f2e.3Tmj03nP.css">
+        <link rel="stylesheet" type="text/css" href="/assets/static/src_presentation_components_nav-main_nav-main.D5BAVvvr.css">
+        <link rel="stylesheet" type="text/css" href="/assets/static/src_presentation_components_change-percentage_change-percentage.De5TmJFb.css">
+        <link rel=
+
+================================================================================
+TEST 3: What does the dashboard actually use?
+================================================================================
+
+Dashboard URL: https://dexscreener.com/solana
+This page shows NEW pairs in real-time
+Let's try to find what API it calls...
+
+
+https://api.dexscreener.com/latest/dex/pairs/solana
+Status: 404
+
+https://api.dexscreener.com/token-profiles/latest/solana
+Status: 404
+
+https://api.dexscreener.com/orders/latest/solana
+Status: 404
+
+https://io.dexscreener.com/dex/latest/pairs/solana
+Status: 403
+
+https://io.dexscreener.com/latest/dex/pairs/solana
+Status: 403
+
+================================================================================
+TEST 4: WebSocket / Streaming endpoints
+================================================================================
+
+Dashboard might use WebSocket for real-time updates
+Potential WebSocket endpoints:
+- wss://io.dexscreener.com
+- wss://api.dexscreener.com
+(WebSocket testing requires different approach)
+
+
+================================================================================
+TEST 5: Alternative token endpoints
+================================================================================
+
+
+https://api.dexscreener.com/latest/dex/tokens/new
+Status: 200
+Success! Keys: ['schemaVersion', 'pairs']
+
+https://api.dexscreener.com/latest/dex/tokens/recent
+Status: 200
+Success! Keys: ['schemaVersion', 'pairs']
+
+https://api.dexscreener.com/latest/dex/tokens/latest
+Status: 200
+Success! Keys: ['schemaVersion', 'pairs']
+
+================================================================================
+FINAL CONCLUSION
+================================================================================
+
+After extensive testing, DexScreener FREE API:
+
+❌ NO time-based query parameters
+❌ NO 'new pairs' endpoint
+❌ NO 'recent' or 'latest' endpoint that works
+❌ NO way to filter by creation time via API
+
+The FREE API is SEVERELY LIMITED:
+1. Only /search endpoint available
+2. Requires a search query (keyword)
+3. Returns max 30 results
+4. No time-based filtering
+
+DASHBOARD vs API:
+- Dashboard shows ALL new pairs (likely uses WebSocket or internal API)
+- Public FREE API is intentionally limited
+- Time-based queries require DexScreener PRO (paid)
+
+RECOMMENDATION:
+Since user wants FREE + NO keywords + time-based:
+This is IMPOSSIBLE with DexScreener FREE API
+
+ALTERNATIVES:
+1. Use GeckoTerminal API (FREE, has better endpoints)
+2. Use Birdeye API (FREE tier available)
+3. Use DEXTools API (has free tier)
+4. Scrape DexScreener website (not recommended)
+5. Use on-chain data (user doesn't want this)
+

@@ -1,0 +1,268 @@
+TESTING GECKOTERMINAL API (FREE ALTERNATIVE)
+================================================================================
+
+GeckoTerminal API: https://www.geckoterminal.com
+Documentation: https://www.geckoterminal.com/dex-api
+
+
+================================================================================
+TEST 1: Recently added pools (NEW PAIRS!)
+================================================================================
+
+
+[SOLANA]
+----------------------------------------
+URL: https://api.geckoterminal.com/api/v2/networks/solana/new_pools
+Status: 200
+
+✅ Found 20 new pools!
+
+  1. FAST / USD1
+      Address: 5hCkSjL84qXVPVrrDGPK...
+      Age: 0.0h
+      Volume 24h: $549
+      Liquidity: $0
+
+  2. PPPS / SOL
+      Address: 5xgkdaNFuLXn6mZ9BXee...
+      Age: 0.0h
+      Volume 24h: $0
+      Liquidity: $0
+
+  3. Duck / SOL
+      Address: GDa8r4F4gzWHmPYJh3Eu...
+      Age: 0.0h
+      Volume 24h: $119
+      Liquidity: $0
+
+  4. Pudgo / SOL
+      Address: hzaJnhWh8ppi1eHCSN5r...
+      Age: 0.0h
+      Volume 24h: $182
+      Liquidity: $0
+
+  5. PFP / SOL
+      Address: 8Qw8o6RCy9cDvsR9uZGG...
+      Age: 0.0h
+      Volume 24h: $12,390
+      Liquidity: $0
+
+Full JSON of first pool:
+{
+  "id": "solana_5hCkSjL84qXVPVrrDGPKUg54n7Q9SWJHhbXCqD2xz3v6",
+  "type": "pool",
+  "attributes": {
+    "base_token_price_usd": "0.000004672156921054872198052013686989523625520366204569020795589452",
+    "base_token_price_native_currency": "0.0000000376158993173284",
+    "quote_token_price_usd": "0.99867407749162484393157869025992236349583827465523366084133377",
+    "quote_token_price_native_currency": "0.00804040279136626",
+    "base_token_price_quote_token": "0.000004678360064",
+    "quote_token_price_base_token": "213750.114640016",
+    "address": "5hCkSjL84qXVPVrrDGPKUg54n7Q9SWJHhbXCqD2xz3v6",
+    "name": "FAST / USD1",
+    "pool_created_at": "2025-12-30T22:19:36Z",
+    "fdv_usd": null,
+    "market_cap_usd": null,
+    "price_change_percentage": {
+      "m5": "0",
+      "m15": "0",
+      "m30": "0",
+      "h1": "0",
+      "h6": "0",
+      "h24": "0"
+    },
+    "transactions": {
+      "m5": {
+        "buys": 1,
+        "sells": 0,
+        "buyers": 1,
+        "sellers": 0
+      },
+ 
+
+
+[BASE]
+----------------------------------------
+URL: https://api.geckoterminal.com/api/v2/networks/base/new_pools
+Status: 200
+
+✅ Found 20 new pools!
+
+  1. [invalid] / USDC 1%
+      Address: 0x00ed1c40c242b959c3...
+      Age: 0.0h
+      Volume 24h: $1
+      Liquidity: $0
+
+  2. LICKED / USDC 1%
+      Address: 0xb72ae3720889ad9174...
+      Age: 0.0h
+      Volume 24h: $1
+      Liquidity: $0
+
+  3. PEPECHU / WETH
+      Address: 0xfafed3cf201a8ecfef...
+      Age: 0.0h
+      Volume 24h: $20
+      Liquidity: $166,126
+
+  4. BabyDoge / WETH
+      Address: 0xe003bd9942c8a4a5d7...
+      Age: 0.0h
+      Volume 24h: $0
+      Liquidity: $0
+
+  5. ARSENAL WITH THE BIG WIN!!COYG!! / USDC 1%
+      Address: 0x7885c705090cdda081...
+      Age: 0.0h
+      Volume 24h: $0
+      Liquidity: $0
+
+Full JSON of first pool:
+{
+  "id": "base_0x00ed1c40c242b959c3983ca6961e92f8873d998d8fe63c28979a7e654c25f200",
+  "type": "pool",
+  "attributes": {
+    "base_token_price_usd": "0.000000126709317104015",
+    "base_token_price_native_currency": "0.0",
+    "quote_token_price_usd": "1.00032552700877",
+    "quote_token_price_native_currency": "NaN",
+    "base_token_price_quote_token": null,
+    "quote_token_price_base_token": null,
+    "address": "0x00ed1c40c242b959c3983ca6961e92f8873d998d8fe63c28979a7e654c25f200",
+    "name": "[invalid] / USDC 1%",
+    "pool_created_at": "2025-12-30T22:19:27Z",
+    "fdv_usd": "126.7093171",
+    "market_cap_usd": null,
+    "price_change_percentage": {
+      "m5": "0",
+      "m15": "0",
+      "m30": "0",
+      "h1": "0",
+      "h6": "0",
+      "h24": "0"
+    },
+    "transactions": {
+      "m5": {
+        "buys": 1,
+        "sells": 0,
+        "buyers": 1,
+        "sellers": 0
+      },
+      "m15": {
+        "buys": 1,
+        "sells": 0,
+        "buyers": 1,
+        "sellers": 0
+     
+
+
+[ETH]
+----------------------------------------
+URL: https://api.geckoterminal.com/api/v2/networks/eth/new_pools
+Status: 200
+
+✅ Found 20 new pools!
+
+  1. 2026 / WETH
+      Address: 0xb0672439771ca324cf...
+      Age: 0.2h
+      Volume 24h: $4,480
+      Liquidity: $11,444
+
+  2. AXE / WETH
+      Address: 0x1070ac7ac0b5d3c777...
+      Age: 0.2h
+      Volume 24h: $1,649
+      Liquidity: $8,268
+
+  3. DOGE / WETH
+      Address: 0x60d7b429d3c6fe69a2...
+      Age: 0.3h
+      Volume 24h: $1,781
+      Liquidity: $9,007
+
+  4. 🦊STFX / WETH
+      Address: 0x1f4f78109da68a4eb1...
+      Age: 0.6h
+      Volume 24h: $2,143
+      Liquidity: $0
+
+  5. PEPE / WETH 1%
+      Address: 0x0de5cb3de089b0b640...
+      Age: 0.6h
+      Volume 24h: $856
+      Liquidity: $3,643
+
+Full JSON of first pool:
+{
+  "id": "eth_0xb0672439771ca324cfe1b46df2d78500a14059cd",
+  "type": "pool",
+  "attributes": {
+    "base_token_price_usd": "0.0000105186929282139",
+    "base_token_price_native_currency": "0.00000000343494895885203",
+    "quote_token_price_usd": "2962.91480309814",
+    "quote_token_price_native_currency": "1.0",
+    "base_token_price_quote_token": "0.000000003434948959",
+    "quote_token_price_base_token": "291125141.007686",
+    "address": "0xb0672439771ca324cfe1b46df2d78500a14059cd",
+    "name": "2026 / WETH",
+    "pool_created_at": "2025-12-30T22:10:47Z",
+    "fdv_usd": "10810.99248",
+    "market_cap_usd": null,
+    "price_change_percentage": {
+      "m5": "10.268",
+      "m15": "242.642",
+      "m30": "242.642",
+      "h1": "242.642",
+      "h6": "242.642",
+      "h24": "242.642"
+    },
+    "transactions": {
+      "m5": {
+        "buys": 9,
+        "sells": 7,
+        "buyers": 9,
+        "sellers": 6
+      },
+      "m15": {
+        "buys": 40,
+        "sells": 13,
+        "buyers
+
+
+================================================================================
+TEST 2: Trending pools
+================================================================================
+
+
+[SOLANA] Trending pools
+Status: 200
+Found 20 trending pools
+
+[BASE] Trending pools
+Status: 200
+Found 20 trending pools
+
+================================================================================
+CONCLUSION
+================================================================================
+
+GeckoTerminal API:
+✅ FREE (no API key required)
+✅ Has /new_pools endpoint (EXACTLY what we need!)
+✅ Returns pools sorted by creation time
+✅ No keyword search required
+✅ Works for Solana, Base, Ethereum, and more
+
+RECOMMENDATION:
+Replace DexScreener with GeckoTerminal for:
+1. Getting new pairs (time-based, no keywords)
+2. Getting trending pairs
+3. Better API design
+
+This is EXACTLY what the user wants:
+- FREE ✅
+- Time-based query ✅
+- No keywords needed ✅
+- No on-chain scanning ✅

@@ -62,8 +62,10 @@ class OffChainScreenerIntegration:
         self.config = config or {}
         
         # Initialize components
-        self.dexscreener = DexScreenerAPI(self.config.get('dexscreener', {}))
-        self.dextools = DexToolsAPI(self.config.get('dextools', {}))
+        # REPLACED: DexScreener -> GeckoTerminal (better API, time-based queries)
+        from .geckoterminal_api import GeckoTerminalAPI
+        self.geckoterminal = GeckoTerminalAPI(self.config.get('geckoterminal', {}))
+        self.dextools = DexToolsAPI(self.config.get('dextools', {}))\r
         
         self.normalizer = PairNormalizer()
         self.filter = OffChainFilter(self.config.get('filters', {}))
@@ -93,6 +95,7 @@ class OffChainScreenerIntegration:
         }
         
         print("[OFFCHAIN] OffChainScreenerIntegration initialized")
+        print(f"[OFFCHAIN] API: GeckoTerminal (time-based, no keywords)")
         print(f"[OFFCHAIN] Enabled chains: {self.enabled_chains}")
         print(f"[OFFCHAIN] DEXTools: {'ENABLED' if self.dextools_enabled else 'DISABLED'}")
     
@@ -100,19 +103,19 @@ class OffChainScreenerIntegration:
         """
         Start all off-chain scanner tasks.
         
-        Creates background tasks for DexScreener and optionally DEXTools.
+        Creates background tasks for GeckoTerminal and optionally DEXTools.
         """
         tasks = []
         
-        # DexScreener scanner task (MANDATORY)
-        dexscreener_task = asyncio.create_task(
-            self.scheduler.schedule_dexscreener(
-                self._scan_dexscreener,
+        # GeckoTerminal scanner task (MANDATORY - replaced DexScreener)
+        geckoterminal_task = asyncio.create_task(
+            self.scheduler.schedule_dexscreener(  # Reuse scheduler (rename later)
+                self._scan_geckoterminal,
                 self.enabled_chains
             ),
-            name="offchain-dexscreener"
+            name="offchain-geckoterminal"
         )
-        tasks.append(dexscreener_task)
+        tasks.append(geckoterminal_task)
         
         # DEXTools scanner task (OPTIONAL)
         if self.dextools_enabled and self.dextools.enabled:
@@ -136,9 +139,12 @@ class OffChainScreenerIntegration:
         
         return tasks
     
-    async def _scan_dexscreener(self, chains: List[str]) -> List[Dict]:
+    async def _scan_geckoterminal(self, chains: List[str]) -> List[Dict]:
         """
-        Scan DexScreener for new/trending pairs.
+        Scan GeckoTerminal for new pools (TIME-BASED, NO KEYWORDS).
+        
+        This is the MAIN scanning method - gets recently created pools
+        sorted by creation time, exactly what the user requested!
         
         Args:
             chains: List of chains to scan
@@ -148,21 +154,22 @@ class OffChainScreenerIntegration:
         """
         all_passed_pairs = []
         
-        print(f"[OFFCHAIN DEBUG] _scan_dexscreener called with chains: {chains}")
+        print(f"[OFFCHAIN DEBUG] _scan_geckoterminal called with chains: {chains}")
         
         for chain in chains:
             try:
                 print(f"[OFFCHAIN DEBUG] Scanning chain: {chain}")
                 
-                # Fetch trending pairs and new pairs
-                trending = await self.dexscreener.fetch_trending_pairs(chain, limit=50)
-                print(f"[OFFCHAIN DEBUG] Trending pairs: {len(trending)}")
+                # Fetch NEW pools (time-based, no keywords!)
+                new_pools = await self.geckoterminal.fetch_new_pools(chain, limit=20)
+                print(f"[OFFCHAIN DEBUG] New pools: {len(new_pools)}")
                 
-                new_pairs = await self.dexscreener.fetch_new_pairs(chain, max_age_minutes=60)
-                print(f"[OFFCHAIN DEBUG] New pairs: {len(new_pairs)}")
+                # Optionally fetch trending pools too
+                trending = await self.geckoterminal.fetch_trending_pools(chain, limit=20)
+                print(f"[OFFCHAIN DEBUG] Trending pools: {len(trending)}")
                 
                 # Combine (deduplicate by pair_address)
-                all_pairs = trending + new_pairs
+                all_pairs = new_pools + trending
                 print(f"[OFFCHAIN DEBUG] Combined (before dedup): {len(all_pairs)}")
                 
                 seen_addresses = set()
@@ -183,9 +190,9 @@ class OffChainScreenerIntegration:
                 for idx, raw_pair in enumerate(unique_pairs, 1):
                     try:
                         pair_addr = raw_pair.get('pairAddress', 'UNKNOWN')
-                        print(f"[OFFCHAIN DEBUG] [{idx}/{len(unique_pairs)}] Processing raw pair: {pair_addr[:10]}...")
+                        print(f"[OFFCHAIN DEBUG] [{idx}/{len(unique_pairs)}] Processing pool: {pair_addr[:10]}...")
                         
-                        passed_pair = await self._process_pair(raw_pair, 'dexscreener', chain)
+                        passed_pair = await self._process_pair(raw_pair, 'geckoterminal', chain)
                         if passed_pair:
                             all_passed_pairs.append(passed_pair)
                             processed += 1
@@ -197,12 +204,13 @@ class OffChainScreenerIntegration:
                 print(f"[OFFCHAIN DEBUG] Processed {processed} pairs that passed filters")
                 
             except Exception as e:
-                print(f"[OFFCHAIN] DexScreener scan error for {chain}: {e}")
+                print(f"[OFFCHAIN ERROR] Failed to scan {chain}: {e}")
                 import traceback
                 traceback.print_exc()
         
         print(f"[OFFCHAIN DEBUG] Total passed pairs across all chains: {len(all_passed_pairs)}")
         return all_passed_pairs
+
     
     async def _scan_dextools(self, chains: List[str]) -> List[Dict]:
         """

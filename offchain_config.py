@@ -1,7 +1,8 @@
 """
 MODE C: DEGEN SNIPER CONFIGURATION
 
-EXTREMELY AGGRESSIVE off-chain DexScreener filtering for ultra-early detection.
+EXTREMELY AGGRESSIVE off-chain filtering for ultra-early detection.
+NOW USING GECKOTERMINAL API (time-based queries, no keywords needed).
 
 This mode is designed with strict guardrails to avoid spam while catching the earliest movements.
 
@@ -12,11 +13,11 @@ GUARDRAILS:
 - Alerts must be human-actionable
 
 API COMPLIANCE:
-- Uses ONLY h1 and h24 metrics (no 5m support)
-- 100% DexScreener public API compliant
+- Uses GeckoTerminal FREE API
+- Time-based queries (no keyword search)
+- Rate limit: 30 requests/minute
 """
 
-# MODE C: DEGEN SNIPER Configuration
 # MODE C V3: DEGEN SNIPER CONFIGURATION (OFF-CHAIN FIRST)
 DEGEN_SNIPER_CONFIG = {
     'enabled': True,
@@ -24,9 +25,10 @@ DEGEN_SNIPER_CONFIG = {
     
     'enabled_chains': ['base', 'ethereum', 'solana'],
     
-    'dexscreener': {
-        'rate_limit_per_minute': 300,
-        'min_request_interval_seconds': 0.2,
+    # REPLACED: DexScreener -> GeckoTerminal
+    'geckoterminal': {
+        'rate_limit_per_minute': 30,           # FREE tier limit
+        'min_request_interval_seconds': 2.0,   # Conservative (30 req/min = 2s interval)
     },
     
     # ================================================================

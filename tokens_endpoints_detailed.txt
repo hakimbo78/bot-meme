@@ -1,0 +1,55 @@
+DETAILED TEST: /tokens/* ENDPOINTS
+================================================================================
+
+
+================================================================================
+ENDPOINT: https://api.dexscreener.com/latest/dex/tokens/new
+================================================================================
+
+Status: 200
+
+Response keys: ['schemaVersion', 'pairs']
+Schema version: 1.0.0
+
+Pairs type: <class 'NoneType'>
+Pairs is None: True
+Pairs is NULL
+
+================================================================================
+ENDPOINT: https://api.dexscreener.com/latest/dex/tokens/recent
+================================================================================
+
+Status: 200
+
+Response keys: ['schemaVersion', 'pairs']
+Schema version: 1.0.0
+
+Pairs type: <class 'NoneType'>
+Pairs is None: True
+Pairs is NULL
+
+================================================================================
+ENDPOINT: https://api.dexscreener.com/latest/dex/tokens/latest
+================================================================================
+
+Status: 200
+
+Response keys: ['schemaVersion', 'pairs']
+Schema version: 1.0.0
+
+Pairs type: <class 'NoneType'>
+Pairs is None: True
+Pairs is NULL
+
+================================================================================
+CONCLUSION
+================================================================================
+
+If these endpoints return actual pairs:
+✅ We found a way to get new tokens WITHOUT keywords!
+✅ This is EXACTLY what the user wants!
+✅ Time-based query is POSSIBLE!
+
+If these endpoints return NULL:
+❌ These endpoints don't work for public API
+❌ Need to find alternative solution

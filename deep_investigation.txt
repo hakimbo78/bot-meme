@@ -1,0 +1,136 @@
+DEEP INVESTIGATION: DexScreener API
+================================================================================
+
+
+================================================================================
+STRATEGY 1: Get ALL pairs for a chain
+================================================================================
+
+
+Testing: https://api.dexscreener.com/latest/dex/pairs/solana
+Status: 404
+Error: <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot GET /latest/dex/pairs/solana</pre>
+<script>(function(){function c(){var b=a.contentDocume
+
+Testing: https://api.dexscreener.com/latest/dex/tokens/solana
+Status: 200
+Keys: ['schemaVersion', 'pairs']
+
+Testing: https://api.dexscreener.com/latest/dex/search?q=solana
+Status: 200
+Keys: ['schemaVersion', 'pairs']
+Pairs count: 30
+Sample pair: SOLANA
+
+================================================================================
+STRATEGY 2: Very broad search terms
+================================================================================
+
+
+Query: ''
+  Status: 400
+
+Query: ' '
+  Status: 400
+
+Query: 'a'
+  Status: 400
+
+Query: 'token'
+  Pairs: 30
+  Chains: {'bsc': 11, 'base': 8, 'ethereum': 1, 'solana': 7, 'pulsechain': 3}
+
+Query: 'coin'
+  Pairs: 30
+  Chains: {'base': 4, 'solana': 25, 'ton': 1}
+
+Query: 'sol'
+  Pairs: 30
+  Chains: {'solana': 5, 'base': 4, 'bsc': 8, 'pulsechain': 1, 'osmosis': 2, 'injective': 1, 'polygon': 1, 'arbitrum': 2, 'cronos': 1, 'avalanche': 2, 'polkadot': 1, 'near': 1, 'berachain': 1}
+
+================================================================================
+STRATEGY 3: Look for latest/new endpoints
+================================================================================
+
+
+https://api.dexscreener.com/latest/dex/pairs/latest
+  Status: 404
+
+https://api.dexscreener.com/latest/dex/pairs/new
+  Status: 404
+
+https://api.dexscreener.com/latest/dex/pairs/solana/latest
+  Status: 200
+  Keys: ['schemaVersion', 'pairs', 'pair']
+  Error: object of type 'NoneType' has no len()
+
+https://api.dexscreener.com/latest/dex/pairs/solana/new
+  Status: 200
+  Keys: ['schemaVersion', 'pairs', 'pair']
+  Error: object of type 'NoneType' has no len()
+
+https://api.dexscreener.com/latest/dex/new/solana
+  Status: 404
+
+https://api.dexscreener.com/latest/dex/latest/solana
+  Status: 404
+
+================================================================================
+STRATEGY 4: API Schema/Documentation
+================================================================================
+
+
+https://api.dexscreener.com/
+  Status: 404
+
+https://api.dexscreener.com/latest
+  Status: 404
+
+https://api.dexscreener.com/latest/dex
+  Status: 404
+
+================================================================================
+STRATEGY 5: What does DexScreener Dashboard use?
+================================================================================
+
+Dashboard URL: https://dexscreener.com/solana
+This shows ALL new pairs in real-time
+They must have an endpoint for this!
+
+Possible dashboard endpoints:
+
+https://api.dexscreener.com/latest/dex/pairs/solana?sort=createdAt
+  Status: 404
+
+https://api.dexscreener.com/latest/dex/pairs/solana?orderBy=createdAt
+  Status: 404
+
+https://api.dexscreener.com/latest/dex/pairs/solana?limit=100
+  Status: 404
+
+================================================================================
+CONCLUSION
+================================================================================
+
+DexScreener FREE API has SEVERE limitations:
+1. No endpoint to get ALL pairs for a chain
+2. /search endpoint returns max 30 results
+3. Results are FILTERED by relevance to query
+4. No 'latest' or 'new' endpoint available
+
+IMPLICATION:
+- Keyword strategy will MISS random-named coins
+- We can only detect coins matching our keywords
+- This is a FUNDAMENTAL limitation of the FREE API
+
+ALTERNATIVES:
+1. DexScreener Pro API (paid) - has more endpoints
+2. Direct blockchain scanning (expensive, CU-heavy)
+3. Use multiple data sources (Birdeye, DEXTools, etc.)
