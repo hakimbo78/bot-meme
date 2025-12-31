@@ -100,12 +100,13 @@ class OKXDexClient:
         return await self._get_okx_quote(chain, from_token, to_token, amount, slippage)
 
     async def _get_okx_quote(self, chain, from_token, to_token, amount, slippage):
+        import requests # Use requests for consistent URL encoding vs Signature
+        
         chain_id = self.CHAIN_IDS.get(chain.lower())
         if not chain_id:
             logger.error(f"Unsupported chain: {chain}")
             return None
         
-        # Build path and params manually to sign correctly
         path_base = "/api/v5/dex/aggregator/quote"
         
         params = {
@@ -116,10 +117,6 @@ class OKXDexClient:
             'slippage': str(slippage),
         }
         
-        # Construct query string for signing
-        # Sort params if OKX requires? Usually not strictly for V5 GET but good practice
-        # Aiohttp handles params, but for signature we need the EXACT string.
-        # Simplest way: build query string manually
         from urllib.parse import urlencode
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
@@ -128,20 +125,20 @@ class OKXDexClient:
         url = f"https://www.okx.com{request_path}"
         
         try:
-            session = await self._get_session()
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get('code') == '0':
-                         return data.get('data', [{}])[0]
-                    else:
-                         logger.error(f"[OKX] API Error: {data.get('msg')}")
-                         return None
+            # Blocking call is acceptable here for ensuring Auth works
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == '0':
+                        return data.get('data', [{}])[0]
                 else:
-                    logger.error(f"[OKX] HTTP Error: {response.status}")
-                    text = await response.text()
-                    logger.error(f"[OKX] Response: {text}")
-                    return None
+                        logger.error(f"[OKX] API Error: {data.get('msg')}")
+                        return None
+            else:
+                logger.error(f"[OKX] HTTP Error: {response.status_code}")
+                logger.error(f"[OKX] Response: {response.text}")
+                return None
         except Exception as e:
             logger.error(f"[OKX] Exception in get_quote: {e}")
             return None
@@ -171,22 +168,23 @@ class OKXDexClient:
         
         headers = self._get_headers('GET', request_path)
         url = f"https://www.okx.com{request_path}"
+        logger.info(f"DEBUG FINAL SWAP URL: {url}")
         
         try:
-            session = await self._get_session()
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get('code') == '0':
-                         return data.get('data', [{}])[0]
-                    else:
-                         logger.error(f"[OKX] API Error in swap: {data.get('msg')}")
-                         return None
+            import requests
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == '0':
+                        return data.get('data', [{}])[0]
                 else:
-                    logger.error(f"[OKX] Swap data HTTP error: {response.status}")
-                    text = await response.text()
-                    logger.error(f"[OKX] Response: {text}")
-                    return None
+                        logger.error(f"[OKX] API Error in swap: {data.get('msg')}")
+                        return None
+            else:
+                logger.error(f"[OKX] Swap data HTTP error: {response.status_code}")
+                logger.error(f"[OKX] Response: {response.text}")
+                return None
         except Exception as e:
             logger.error(f"[OKX] Exception in get_swap_data: {e}")
             return None
