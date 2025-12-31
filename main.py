@@ -542,12 +542,12 @@ async def main():
                             # Must convert float to int string
                             amount_in = str(int(pos['entry_amount']))
                             
-                            quote = await okx_client.get_swap_quote(
-                                chain_id=pos['chain'],
+                            quote = await okx_client.get_quote(
+                                chain=pos['chain'],
                                 from_token=pos['token_address'],
                                 to_token=native_token,
                                 amount=amount_in,
-                                user_wallet=pos['wallet_address']
+                                slippage=0.01
                             )
                             
                             if not quote: continue
