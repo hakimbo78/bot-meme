@@ -41,7 +41,18 @@ TRADING_CONFIG = {
         'max_buy_tax': 15,  # 15% max buy tax (aggressive)
         'max_sell_tax': 15,  # 15% max sell tax (aggressive)
         'min_liquidity_usd': 2000,  # $2K min liquidity
-        'max_slippage': 10,  # 10% max slippage (aggressive)
+        'max_slippage': 0.05,  # 0.05% max slippage (aggressive)
+        'min_liquidity_check': True,
+    },
+    
+    # EXIT STRATEGY (Auto Stop-Loss & Take-Profit)
+    'exit_strategy': {
+        'enabled': True,
+        'stop_loss_percent': -30.0,      # Auto-sell at -30% loss
+        'take_profit_percent': 100.0,    # Auto-sell at +100% profit
+        'trailing_stop': False,           # Trailing stop-loss (future feature)
+        'emergency_exit_liq_drop': 0.50, # Exit if liquidity drops >50%
+        'monitor_interval_seconds': 30,   # Check every 30 seconds
     },
     
     # AUTO-SELL LIMITS

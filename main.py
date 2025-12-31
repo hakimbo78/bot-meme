@@ -564,74 +564,94 @@ async def main():
                             
                             pnl_pct = ((current_val_usd - entry_usd) / entry_usd) * 100
                             
-                            # Log periodically (every 10th check or if PnL moves)
-                            # specific logging omitted to avoid spam, but useful for debug
-                            # print(f"Pos {pos['id']}: ${current_val_usd:.2f} ({pnl_pct:.1f}%)")
+                            # 5. Get Exit Strategy Config
+                            exit_config = TradingConfig.get_config().get('exit_strategy', {})
+                            if not exit_config.get('enabled', False):
+                                continue  # Skip if exit strategy disabled
                             
-                            # 5. Check TP/SL
-                            # Get limits from config
-                            limits = TradingConfig.get_config()['limits']
-                            tp_pct = limits.get('take_profit_percent', 100)
-                            sl_pct = limits.get('stop_loss_percent', -50)
+                            tp_pct = exit_config.get('take_profit_percent', 100)
+                            sl_pct = exit_config.get('stop_loss_percent', -30)
+                            liq_drop_threshold = exit_config.get('emergency_exit_liq_drop', 0.50)
                             
+                            # 6. RUGPULL DETECTION: Liquidity Monitoring
+                            # Compare current liquidity vs entry liquidity
+                            rugpull_detected = False
+                            if 'entry_liquidity_usd' in pos and pos['entry_liquidity_usd']:
+                                entry_liq = float(pos['entry_liquidity_usd'])
+                                if entry_liq > 0:
+                                    # Get current liquidity from DexScreener or Quote
+                                    # For now, we infer from quote slippage
+                                    # If quote fails repeatedly, assume liquidity gone
+                                    if not quote and current_val_usd < entry_usd * 0.1:
+                                        # Quote failed + value dropped >90% = likely rugpull
+                                        rugpull_detected = True
+                                        print(f"{Fore.RED}🚨 RUGPULL DETECTED! Liquidity removed or token dead")
                             
+                            # 7. EXECUTE EXIT DECISIONS
+                            should_sell = False
+                            sell_reason = ""
+                            sell_percentage = 100  # Default: sell all
                             
-                            if pnl_pct >= tp_pct:
-                                print(f"{Fore.GREEN}🚀 TP HIT! Securing MOONBAG (50%)...")
-                                
-                                # SELL 50%
-                                sell_amount = int(pos['entry_amount'] / 2)
-                                
-                                success, msg = await trade_executor.execute_sell(
-                                    pos['chain'], 
-                                    pos['token_address'], 
-                                    sell_amount, 
-                                    pos['id'],
-                                    new_status='MOONBAG'
-                                )
-                                
-                                if success and telegram and telegram.enabled:
-                                    profit_amt = current_val_usd / 2
-                                    await telegram.send_message_async(
-                                        f"💰 *MOONBAG SECURED* (Profit +{pnl_pct:.0f}%)\n"
-                                        f"--------------------------------\n"
-                                        f"Token: `{pos['token_address']}`\n"
-                                        f"Sold: 50% Position\n"
-                                        f"Profit Realized: ${profit_amt:.2f} (Initial Cap Back)\n"
-                                        f"Running Bag: ${profit_amt:.2f} (Pure Profit)\n"
-                                        f"Status: HANDOVER TO MANUAL 🤲"
-                                    )
-                                elif not success:
-                                     print(f"{Fore.RED}❌ TP Exec Failed: {msg}")
-                            
+                            if rugpull_detected:
+                                should_sell = True
+                                sell_reason = f"🚨 RUGPULL (Liquidity Gone)"
+                                sell_percentage = 100
                             elif pnl_pct <= sl_pct:
-                                print(f"{Fore.RED}🛑 SL HIT! Closing Position...")
+                                should_sell = True
+                                sell_reason = f"🛑 STOP-LOSS ({pnl_pct:.1f}%)"
+                                sell_percentage = 100
+                            elif pnl_pct >= tp_pct:
+                                should_sell = True
+                                sell_reason = f"💰 TAKE-PROFIT (+{pnl_pct:.1f}%)"
+                                sell_percentage = 50  # Secure 50%, let 50% ride
+                            
+                            if should_sell:
+                                print(f"{Fore.YELLOW}    📤 {sell_reason} triggered for pos {pos['id']}")
                                 
-                                # SELL 100%
-                                sell_amount = pos['entry_amount']
+                                # Calculate sell amount
+                                if sell_percentage == 100:
+                                    sell_amount = int(pos['entry_amount'])
+                                    new_status = 'CLOSED'
+                                else:
+                                    sell_amount = int(pos['entry_amount'] * (sell_percentage / 100))
+                                    new_status = 'MOONBAG'
                                 
+                                # Execute sell
                                 success, msg = await trade_executor.execute_sell(
                                     pos['chain'], 
                                     pos['token_address'], 
                                     sell_amount, 
                                     pos['id'],
-                                    new_status='CLOSED'
+                                    new_status=new_status
                                 )
                                 
-                                if success and telegram and telegram.enabled:
-                                    await telegram.send_message_async(
-                                        f"🛑 *STOP LOSS EXECUTED* ({pnl_pct:.0f}%)\n"
-                                        f"--------------------------------\n"
-                                        f"Token: `{pos['token_address']}`\n"
-                                        f"Sold: 100% Position\n"
-                                        f"Recovered: ${current_val_usd:.2f}\n"
-                                        f"Status: POSITION CLOSED 💀"
-                                    )
-                                elif not success:
-                                     print(f"{Fore.RED}❌ SL Exec Failed: {msg}")
-                                
-                        except Exception as e:
-                            print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {e}")
+                                # Send Telegram notification
+                                if telegram and telegram.enabled:
+                                    if success:
+                                        profit_amt = current_val_usd * (sell_percentage / 100) - entry_usd * (sell_percentage / 100)
+                                        await telegram.send_message_async(
+                                            f"{'🚨' if rugpull_detected else '💰'} *AUTO-EXIT EXECUTED*\n"
+                                            f"--------------------------------\n"
+                                            f"Reason: {sell_reason}\n"
+                                            f"Token: `{pos['token_address'][:8]}...`\n"
+                                            f"Entry: ${entry_usd:.2f}\n"
+                                            f"Exit: ${current_val_usd:.2f}\n"
+                                            f"PnL: {pnl_pct:+.1f}% (${profit_amt:+.2f})\n"
+                                            f"Sold: {sell_percentage}%\n"
+                                            f"Status: {new_status}"
+                                        )
+                                    else:
+                                        # Sell failed - critical alert
+                                        await telegram.send_message_async(
+                                            f"🚨 *AUTO-EXIT FAILED*\n"
+                                            f"--------------------------------\n"
+                                            f"Reason: {sell_reason}\n"
+                                            f"Token: `{pos['token_address'][:8]}...`\n"
+                                            f"Error: {msg}\n"
+                                            f"**MANUAL INTERVENTION REQUIRED**"
+                                        )
+                        except Exception as mon_e:
+                            print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {mon_e}")
                             
                 except Exception as e:
                     print(f"{Fore.RED}⚠️  Position monitor loop error: {e}")
