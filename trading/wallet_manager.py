@@ -130,7 +130,7 @@ class WalletManager:
         
         # Build transaction dict
         tx_to_sign = {
-            'to': tx_dict.get('to'),
+            'to': Web3.to_checksum_address(tx_dict.get('to')),  # Ensure checksum format
             'value': int(tx_dict.get('value', '0')),  # OKX returns string
             'data': tx_dict.get('data', '0x'),
             'gas': int(tx_dict.get('gas', '200000')),  # OKX uses 'gas' not 'gasLimit'
@@ -159,8 +159,13 @@ class WalletManager:
 
         logger.info(f"TX TO SIGN: {tx_to_sign}")
 
-        signed_tx = account.sign_transaction(tx_to_sign)
-        return signed_tx.rawTransaction.hex()
+        try:
+            signed_tx = account.sign_transaction(tx_to_sign)
+            logger.info(f"Transaction signed successfully")
+            return signed_tx.rawTransaction.hex()
+        except Exception as e:
+            logger.error(f"EVM signing exception: {type(e).__name__}: {e}")
+            raise
 
     def sign_transaction_solana(self, tx_base64: str) -> str:
         """
