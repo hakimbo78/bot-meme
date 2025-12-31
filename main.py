@@ -1220,8 +1220,8 @@ async def main():
                                                             f"Reason: {msg}\n"
                                                             f"Action: Check wallet/RPC."
                                                         )
-                                                except Exception as trade_e:
-                                                    print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
+                                            except Exception as trade_e:
+                                                print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
                                         
                                     print(f"{Fore.GREEN}    ⚡ RPC VERIFICATION COMPLETE")
                                     
