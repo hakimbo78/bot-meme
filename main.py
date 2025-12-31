@@ -1285,13 +1285,20 @@ async def main():
                                                         error_action = "DEX API temporarily unavailable"
                                                     
                                                     if telegram.enabled:
+                                                        # Escape special chars to prevent Telegram parse errors
+                                                        def esc(t): return str(t).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                                                        
+                                                        alert_title = "❌ *AUTO-BUY BLOCKED*"
+                                                        if "disabled" in msg.lower():
+                                                            alert_title = "⚠️ *SIGNAL SKIPPED* (Chain Disabled)"
+                                                            
                                                         await telegram.send_message_async(
-                                                            f"❌ *AUTO-BUY BLOCKED*\n"
+                                                            f"{alert_title}\n"
                                                             f"--------------------------------\n"
-                                                            f"Token: {pair_data.get('token_symbol')}\n"
-                                                            f"Chain: {chain_name.upper()}\n"
+                                                            f"Token: {esc(pair_data.get('token_symbol'))}\n"
+                                                            f"Chain: {esc(chain_name.upper())}\n"
                                                             f"Category: {error_category}\n"
-                                                            f"Reason: {msg[:100]}\n"
+                                                            f"Reason: {esc(msg[:100])}\n"
                                                             f"Action: {error_action}"
                                                         )
                                             except Exception as trade_e:
