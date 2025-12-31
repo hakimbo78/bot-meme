@@ -60,7 +60,7 @@ class TradeExecutor:
             return False, f"Chain {chain} is disabled"
         
         # Check position limits
-        open_positions = self.position_tracker.get_open_positions()
+        open_positions = self.pt.get_open_positions()
         max_positions = ConfigManager.get_config()['trading'].get('max_open_positions', 10)
         
         if len(open_positions) >= max_positions:
