@@ -1297,9 +1297,9 @@ async def main():
                                                             f"--------------------------------\n"
                                                             f"Token: {esc(pair_data.get('token_symbol'))}\n"
                                                             f"Chain: {esc(chain_name.upper())}\n"
-                                                            f"Category: {error_category}\n"
+                                                            f"Category: {esc(error_category)}\n"
                                                             f"Reason: {esc(msg[:100])}\n"
-                                                            f"Action: {error_action}"
+                                                            f"Action: {esc(error_action)}"
                                                         )
                                             except Exception as trade_e:
                                                 print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
