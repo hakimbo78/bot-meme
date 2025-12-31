@@ -29,7 +29,7 @@ TRADING_CONFIG = {
     
     # TRADING SETTINGS
     'trading': {
-        'budget_per_trade_usd': 10.0,  # $10 for testing
+        'budget_per_trade_usd': 2.0,  # $2 for safe testing
         'max_open_positions': 10,
         'max_position_per_token': 1,  # Only 1 position per token
         'min_signal_score': 55,  # Only trade MID/HIGH tier

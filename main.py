@@ -1140,7 +1140,10 @@ async def main():
                                             # Default fallback thresholds
                                             thresholds = {'INFO': 40, 'WATCH': 60, 'TRADE': 75}
                                         
-                                        if check_score >= thresholds.get('TRADE', 75):
+                                        # Use TradingConfig as authoritative source for TRADING threshold
+                                        trade_threshold = TradingConfig.get_config()['trading'].get('min_signal_score', thresholds.get('TRADE', 75))
+                                        
+                                        if check_score >= trade_threshold:
                                             print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")
                                             onchain_score_data['verdict'] = 'TRADE'
                                             onchain_score_data['score'] = check_score
