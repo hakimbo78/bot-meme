@@ -289,7 +289,7 @@ class OKXDexClient:
             'fromTokenAddress': from_token,
             'toTokenAddress': to_token,
             'amount': amount,
-            'slippage': str(slippage),
+            'slippage': str(float(slippage) / 100), # Convert % (e.g 15.0) to decimal (0.15)
             'userWalletAddress': user_wallet,
         }
         

@@ -110,7 +110,7 @@ class TradeExecutor:
             input_token, 
             token_address, 
             raw_amount, 
-            0.05, # 5% Slippage
+            15.0, # 15% Slippage (Targeting High Volatility Degen Tokens)
             wallet_address
         )
         
@@ -195,7 +195,7 @@ class TradeExecutor:
                 token_address,
                 native_token,
                 amount_str,
-                10.0, # 10% Slippage
+                15.0, # 15% Slippage (For reliable exit)
                 wallet_address
             )
             
