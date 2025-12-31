@@ -46,7 +46,8 @@ class TokenSnifferAnalyzer:
             'ethereum': '1',
             'base': '8453',
             'bsc': '56',
-            'polygon': '137'
+            'polygon': '137',
+            'solana': 'solana'
         }
         return chain_ids.get(self.chain_name, '1')
     
@@ -110,6 +111,12 @@ class TokenSnifferAnalyzer:
         }
         
         try:
+            # Skip honeypot.is and simulation for Solana (EVM tool)
+            if self.chain_name == 'solana':
+                swap_result['details'].append("ℹ️ Swap simulation skipped for Solana (EVM tool)")
+                # Return neutral result so it doesn't fail
+                return swap_result
+
             # Try honeypot.is API
             url = f"{self.honeypot_api}?address={token_address}&chainID={self._get_goplus_chain_id()}"
             response = requests.get(url, timeout=10)
@@ -176,7 +183,11 @@ class TokenSnifferAnalyzer:
         
         try:
             # Use GoPlus API for contract analysis
-            url = f"{self.goplus_api}?contract_addresses={token_address}"
+            if self.chain_name == 'solana':
+                 url = f"https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses={token_address}"
+            else:
+                 url = f"{self.goplus_api}?contract_addresses={token_address}"
+                 
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
@@ -250,7 +261,11 @@ class TokenSnifferAnalyzer:
         
         try:
             # Use GoPlus API for holder analysis
-            url = f"{self.goplus_api}?contract_addresses={token_address}"
+            if self.chain_name == 'solana':
+                 url = f"https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses={token_address}"
+            else:
+                 url = f"{self.goplus_api}?contract_addresses={token_address}"
+
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
@@ -323,7 +338,11 @@ class TokenSnifferAnalyzer:
         
         try:
             # Use GoPlus API for liquidity analysis
-            url = f"{self.goplus_api}?contract_addresses={token_address}"
+            if self.chain_name == 'solana':
+                 url = f"https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses={token_address}"
+            else:
+                 url = f"{self.goplus_api}?contract_addresses={token_address}"
+
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
