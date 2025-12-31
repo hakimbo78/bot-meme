@@ -119,6 +119,8 @@ class WalletManager:
         # OKX response has: data, from, gas, gasPrice, maxPriorityFeePerGas, to, value (all strings)
         # web3.py needs: to, value, data, gas, nonce, chainId, and either gasPrice OR (maxFeePerGas + maxPriorityFeePerGas)
         
+        from web3 import Web3
+        
         # Chain ID mapping
         chain_ids = {
             'base': 8453,
