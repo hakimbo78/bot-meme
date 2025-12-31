@@ -15,13 +15,13 @@ TRADING_CONFIG = {
         },
         'base': {
             'enabled': True,
-            'rpc_url': 'https://mainnet.base.org',
+            'rpc_url': 'https://base-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm',
             'native_token': 'ETH',
             'min_native_balance': 0.001,  # Min ETH for gas
         },
         'ethereum': {
-            'enabled': False,  # Disabled by default (high gas)
-            'rpc_url': 'https://eth.llamarpc.com',
+            'enabled': True,  # Disabled by default (high gas)
+            'rpc_url': 'https://eth-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm',
             'native_token': 'ETH',
             'min_native_balance': 0.01,
         },
