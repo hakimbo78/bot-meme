@@ -164,7 +164,7 @@ class WalletManager:
         try:
             signed_tx = account.sign_transaction(tx_to_sign)
             logger.info(f"Transaction signed successfully")
-            return signed_tx.rawTransaction.hex()
+            return signed_tx.raw_transaction.hex()  # snake_case for newer web3.py
         except Exception as e:
             logger.error(f"EVM signing exception: {type(e).__name__}: {e}")
             raise
