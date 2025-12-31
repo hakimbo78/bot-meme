@@ -115,28 +115,49 @@ class WalletManager:
         
         # DEBUG: Log what OKX sent us
         logger.info(f"EVM TX DICT KEYS: {list(tx_dict.keys())}")
-        logger.info(f"EVM TX DICT: {tx_dict}")
         
-        # OKX returns comprehensive tx data, but we need to ensure fields are correct for web3.py
-        # Usually requires: to, value, data, gas, gasPrice/maxFeePerGas, nonce, chainId
+        # OKX response has: data, from, gas, gasPrice, maxPriorityFeePerGas, to, value (all strings)
+        # web3.py needs: to, value, data, gas, nonce, chainId, and either gasPrice OR (maxFeePerGas + maxPriorityFeePerGas)
         
-        # Basic mapping - in production need to refine based on OKX response format
+        # Chain ID mapping
+        chain_ids = {
+            'base': 8453,
+            'ethereum': 1,
+            'bsc': 56,
+            'arbitrum': 42161
+        }
+        chain_id = chain_ids.get(chain.lower(), 1)
+        
+        # Build transaction dict
         tx_to_sign = {
             'to': tx_dict.get('to'),
-            'value': int(tx_dict.get('value', 0)),
-            'data': tx_dict.get('data'),
-            'gas': int(tx_dict.get('gasLimit', 200000)),
-            'nonce': int(tx_dict.get('nonce', 0)),
-            'chainId': int(tx_dict.get('chainId', 1)),
+            'value': int(tx_dict.get('value', '0')),  # OKX returns string
+            'data': tx_dict.get('data', '0x'),
+            'gas': int(tx_dict.get('gas', '200000')),  # OKX uses 'gas' not 'gasLimit'
+            'chainId': chain_id,
+            'nonce': 0,  # Placeholder - in production, fetch from RPC
         }
+        
+        # Gas pricing
+        if 'maxPriorityFeePerGas' in tx_dict:
+            # EIP-1559 transaction
+            max_priority_fee = int(tx_dict['maxPriorityFeePerGas'])
+            
+            # OKX might not provide maxFeePerGas, calculate it
+            if 'gasPrice' in tx_dict:
+                base_fee = int(tx_dict['gasPrice']) - max_priority_fee
+                max_fee = base_fee + (max_priority_fee * 2)  # Conservative estimate
+            else:
+                max_fee = max_priority_fee * 3  # Fallback
+                
+            tx_to_sign['maxFeePerGas'] = max_fee
+            tx_to_sign['maxPriorityFeePerGas'] = max_priority_fee
+            tx_to_sign['type'] = 2  # EIP-1559
+        elif 'gasPrice' in tx_dict:
+            # Legacy transaction
+            tx_to_sign['gasPrice'] = int(tx_dict['gasPrice'])
 
-        # Handle gas fees (EIP-1559 vs Legacy)
-        if 'maxFeePerGas' in tx_dict:
-            tx_to_sign['maxFeePerGas'] = int(tx_dict['maxFeePerGas'])
-            tx_to_sign['maxPriorityFeePerGas'] = int(tx_dict.get('maxPriorityFeePerGas', 0))
-            tx_to_sign['type'] = 2
-        else:
-            tx_to_sign['gasPrice'] = int(tx_dict.get('gasPrice', 0))
+        logger.info(f"TX TO SIGN: {tx_to_sign}")
 
         signed_tx = account.sign_transaction(tx_to_sign)
         return signed_tx.rawTransaction.hex()
