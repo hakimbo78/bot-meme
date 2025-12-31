@@ -9,6 +9,7 @@ import os
 from dotenv import load_dotenv
 from colorama import Fore, Style, init
 from trading.position_tracker import PositionTracker
+from trading.trading_db import TradingDB
 from trading.okx_client import OKXDexClient
 from trading.config_manager import ConfigManager
 
@@ -19,7 +20,8 @@ async def monitor_positions():
     """Monitor all open positions with live P&L calculation"""
     
     # Initialize
-    position_tracker = PositionTracker()
+    db = TradingDB()
+    position_tracker = PositionTracker(db)
     okx_client = OKXDexClient()
     
     # Get all open positions

@@ -6,13 +6,16 @@ Shows position count and basic stats from DB
 
 from colorama import Fore, init
 from trading.position_tracker import PositionTracker
+from trading.trading_db import TradingDB
 
 init(autoreset=True)
 
 def quick_status():
     """Quick position status from database"""
     
-    position_tracker = PositionTracker()
+    # Initialize DB and PositionTracker
+    db = TradingDB()
+    position_tracker = PositionTracker(db)
     
     # Get all positions
     all_positions = position_tracker.db._get_conn().execute(
