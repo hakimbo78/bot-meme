@@ -160,21 +160,19 @@ class OKXDexClient:
         return await self._get_okx_swap(chain, from_token, to_token, amount, slippage, user_wallet)
 
     async def _get_jupiter_swap(self, from_token, to_token, amount, slippage, user_wallet):
-        """Get swap instructions from Jupiter API (Solana)."""
+        """Get swap instructions from Jupiter API (Solana) - Sync version fallback."""
         try:
+            import requests
             # 1. Get Quote
-            # Jupiter expects amount in integer (lamports/units)
-            # Slippage in BPS (basis points). 1% = 100 bps
             slippage_bps = int(slippage * 100)
-            
             quote_url = f"{self.JUPITER_URL}/quote?inputMint={from_token}&outputMint={to_token}&amount={amount}&slippageBps={slippage_bps}"
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(quote_url) as response:
-                    if response.status != 200:
-                        logger.error(f"[Jupiter] Quote failed: {await response.text()}")
-                        return None
-                    quote_data = await response.json()
+            # Use requests (Sync) to verify if it resolves DNS better than aiohttp in this env
+            response = requests.get(quote_url)
+            if response.status_code != 200:
+                logger.error(f"[Jupiter] Quote failed: {response.text}")
+                return None
+            quote_data = response.json()
             
             # 2. Get Swap Transaction
             swap_url = f"{self.JUPITER_URL}/swap"
@@ -184,18 +182,16 @@ class OKXDexClient:
                 "wrapAndUnwrapSol": True
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(swap_url, json=payload) as response:
-                    if response.status != 200:
-                        logger.error(f"[Jupiter] Swap failed: {await response.text()}")
-                        return None
-                    swap_resp = await response.json()
+            response = requests.post(swap_url, json=payload)
+            if response.status_code != 200:
+                logger.error(f"[Jupiter] Swap failed: {response.text}")
+                return None
+            swap_resp = response.json()
                     
-            # 3. Format to match OKX structure expected by executor
-            # Jupiter returns 'swapTransaction' (base64)
+            # 3. Format
             return {
                 'tx': {
-                    'data': swap_resp['swapTransaction'] # Base64 string
+                    'data': swap_resp['swapTransaction'] 
                 },
                 'routerResult': {
                     'toTokenAmount': quote_data.get('outAmount', '0')
