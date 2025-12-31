@@ -37,7 +37,7 @@ DEGEN_SNIPER_CONFIG = {
     # ================================================================
     'global_guardrails': {
         'min_liquidity_usd': 20000,          # Was 500 → 4x stricter (HYBRID)
-        'min_tx_5m': 3,                     # Was 1 → 3x stricter (HYBRID)
+        'min_tx_5m': 5,                     # Was 1 → 3x stricter (HYBRID)
         'min_volume_24h': 10000,             # NEW requirement (HYBRID)
         'require_h24_volume': True,         # Enforce volume check (HYBRID)
         'max_age_hours': None,              # Removed for Revival Rule
