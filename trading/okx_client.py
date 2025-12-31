@@ -32,6 +32,13 @@ class OKXDexClient:
         self.api_key = None
         self.secret_key = None
         self.passphrase = None
+        
+        # Rate limiting: Max 60 requests per minute
+        from collections import deque
+        self._request_times = deque(maxlen=60)
+        self._rate_limit_lock = asyncio.Lock()
+        self._min_request_interval = 2.0  # Increased to 2s to be safe
+        
         self._load_credentials()
 
     def _load_credentials(self):
@@ -54,6 +61,33 @@ class OKXDexClient:
             logger.info(f"Loaded Web3 API Key: {self.web3_api_key[:4]}...{self.web3_api_key[-4:]}")
         else:
             logger.warning("OKX Web3 API Key NOT FOUND - DEX trading will fail")
+
+    async def _rate_limit(self):
+        """Enforce rate limiting to prevent 429 errors"""
+        async with self._rate_limit_lock:
+            from time import time
+            
+            current_time = time()
+            
+            # Remove requests older than 60 seconds
+            while self._request_times and current_time - self._request_times[0] > 60:
+                self._request_times.popleft()
+            
+            # If we've made 60 requests in the last minute, wait
+            if len(self._request_times) >= 60:
+                sleep_time = 60 - (current_time - self._request_times[0]) + 1
+                if sleep_time > 0:
+                    logger.warning(f"Rate limit reached, waiting {sleep_time:.1f}s")
+                    await asyncio.sleep(sleep_time)
+            
+            # Enforce minimum interval between requests
+            if self._request_times:
+                time_since_last = current_time - self._request_times[-1]
+                if time_since_last < self._min_request_interval:
+                    await asyncio.sleep(self._min_request_interval - time_since_last)
+            
+            # Record this request
+            self._request_times.append(time())
 
     def _get_timestamp(self):
         from datetime import datetime, timezone
@@ -104,6 +138,7 @@ class OKXDexClient:
             await self.session.close()
 
     async def get_quote(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float = 0.01) -> Optional[Dict]:
+        await self._rate_limit()
         # Force OKX for all chains
         return await self._get_okx_quote(chain, from_token, to_token, amount, slippage)
 
@@ -158,6 +193,7 @@ class OKXDexClient:
             return None
 
     async def get_swap_data(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
+        await self._rate_limit()
         if chain.lower() == 'solana':
             return await self._get_jupiter_swap(from_token, to_token, amount, slippage, user_wallet)
         return await self._get_okx_swap(chain, from_token, to_token, amount, slippage, user_wallet)
