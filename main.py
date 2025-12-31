@@ -1211,14 +1211,36 @@ async def main():
                                                         )
                                                 else:
                                                     print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
+                                                    
+                                                    # Parse error for better user feedback
+                                                    error_category = "Unknown Error"
+                                                    error_action = "Check logs"
+                                                    
+                                                    if "Position limit reached" in msg:
+                                                        error_category = "🚫 Position Limit"
+                                                        error_action = "Close existing positions or increase max_open_positions in config"
+                                                    elif "Slippage" in msg or "0x177e" in str(msg):
+                                                        error_category = "📈 High Slippage"
+                                                        error_action = "Token too volatile or low liquidity. Skipped for safety."
+                                                    elif "insufficient funds" in msg.lower() or "AccountNotFound" in msg:
+                                                        error_category = "💰 Insufficient Balance"
+                                                        error_action = "Top up wallet with more SOL/ETH"
+                                                    elif "disabled" in msg.lower():
+                                                        error_category = "⛔ Chain/Trading Disabled"
+                                                        error_action = "Enable in trading_config.py"
+                                                    elif "Failed to fetch swap data" in msg:
+                                                        error_category = "🔌 API Connection"
+                                                        error_action = "DEX API temporarily unavailable"
+                                                    
                                                     if telegram.enabled:
                                                         await telegram.send_message_async(
-                                                            f"❌ *AUTO-BUY FAILED*\n"
+                                                            f"❌ *AUTO-BUY BLOCKED*\n"
                                                             f"--------------------------------\n"
                                                             f"Token: {pair_data.get('token_symbol')}\n"
                                                             f"Chain: {chain_name.upper()}\n"
-                                                            f"Reason: {msg}\n"
-                                                            f"Action: Check wallet/RPC."
+                                                            f"Category: {error_category}\n"
+                                                            f"Reason: {msg[:100]}\n"
+                                                            f"Action: {error_action}"
                                                         )
                                             except Exception as trade_e:
                                                 print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
