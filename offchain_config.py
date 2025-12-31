@@ -23,7 +23,7 @@ DEGEN_SNIPER_CONFIG = {
     'enabled': True,
     'mode_name': 'DEGEN_SNIPER_V3',
     
-    'enabled_chains': ['base'],
+    'enabled_chains': ['base', 'solana'],
     #'enabled_chains': ['base', 'ethereum', 'solana'],
     
     # REPLACED: DexScreener -> GeckoTerminal
