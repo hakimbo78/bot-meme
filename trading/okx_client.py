@@ -189,8 +189,9 @@ class OKXDexClient:
                 logger.error(f"[OKX] Response: {response.text}")
                 return None
         except Exception as e:
+            # Raise exception for network/unexpected errors so main loop skips instead of panicking
             logger.error(f"[OKX] Exception in get_quote: {e}")
-            return None
+            raise e
 
     async def get_swap_data(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
         await self._rate_limit()
