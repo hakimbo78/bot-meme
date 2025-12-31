@@ -206,9 +206,9 @@ class OKXDexClient:
         # Note: public.jupiterapi.com typically exposes /quote directly without /v6 prefix, 
         # but to keep logic simple we try standard paths first or adapt.
         endpoints = [
-            "https://quote-api.jup.ag/v6", # Official
-            "https://public.jupiterapi.com", # Backup (QuickNode Public)
-            "https://jupiter-api.raydium.io/v6", # Raydium wrapper? (Hypothetical, better stick to confirmed)
+            "https://public.jupiterapi.com", # PRIMARY (QuickNode Public - More reliable DNS)
+            # "https://quote-api.jup.ag/v6", # Official (DISABLED: DNS Resolution Issues on VPS)
+            # "https://jupiter-api.raydium.io/v6", # Raydium (DISABLED: DNS Resolution Issues)
         ]
 
         import requests
