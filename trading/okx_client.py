@@ -202,3 +202,8 @@ class OKXDexClient:
         except Exception as e:
             logger.error(f"[OKX] Exception in get_swap_data: {e}")
             return None
+
+    async def close(self):
+        """Close client session."""
+        if self.session and not self.session.closed:
+            await self.session.close()

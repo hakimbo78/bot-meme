@@ -73,16 +73,16 @@ async def main():
         
         # 4. Execute Trade
         print(f"{Fore.YELLOW}🚀 Executing BUY...")
-        success = await executor.execute_buy(
+        success, msg = await executor.execute_buy(
             chain=args.chain,
             token_address=args.token,
             signal_score=999.0 # Manual trade score
         )
 
         if success:
-            print(f"{Fore.GREEN}✅ TRADE SUCCESSFUL!")
+            print(f"{Fore.GREEN}✅ TRADE SUCCESSFUL! Tx: {msg}")
         else:
-            print(f"{Fore.RED}❌ TRADE FAILED. Check logs.")
+            print(f"{Fore.RED}❌ TRADE FAILED: {msg}")
 
     except Exception as e:
         print(f"{Fore.RED}❌ Error: {e}")
