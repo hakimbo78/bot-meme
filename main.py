@@ -504,11 +504,11 @@ async def main():
                         try:
                             # 0. CHECK MANUAL SELL (Balance Check)
                             # Detect if user sold tokens externally to close position in DB
-                            if trade_executor and trade_executor.wallet_manager:
-                                # Run sync method in thread to avoid blocking loop? 
-                                # For now direct call is acceptable as we added it as sync, but ideally to_thread
+                            if trade_executor and trade_executor.wm:
                                 try:
-                                    current_balance = trade_executor.wallet_manager.get_token_balance(pos['chain'], pos['token_address'])
+                                    # Check if position was manually sold
+                                    # Get current token balance
+                                    current_balance = trade_executor.wm.get_token_balance(pos['chain'], pos['token_address'])
                                     
                                     # If valid balance (>=0) and < 5% of entry amount (meaning >95% sold)
                                     if current_balance >= 0 and current_balance < (pos['entry_amount'] * 0.05):
