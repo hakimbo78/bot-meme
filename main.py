@@ -533,13 +533,32 @@ async def main():
                             tp_pct = limits.get('take_profit_percent', 100)
                             sl_pct = limits.get('stop_loss_percent', -50)
                             
+                            
                             if pnl_pct >= tp_pct:
                                 print(f"{Fore.GREEN}🚀 TP HIT for {pos['token_address']}! PnL: {pnl_pct:.1f}%")
-                                await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                success = await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                
+                                if success and telegram and telegram.enabled:
+                                    await telegram.send_message_async(
+                                        f"💰 *TAKE PROFIT EXECUTED* ✅\n"
+                                        f"Chain: {pos['chain'].upper()}\n"
+                                        f"Contract: `{pos['token_address']}`\n"
+                                        f"PnL: +{pnl_pct:.1f}%\n"
+                                        f"Value: ${current_val_usd:.2f}"
+                                    )
                             
                             elif pnl_pct <= sl_pct:
                                 print(f"{Fore.RED}🛑 SL HIT for {pos['token_address']}! PnL: {pnl_pct:.1f}%")
-                                await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                success = await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                
+                                if success and telegram and telegram.enabled:
+                                    await telegram.send_message_async(
+                                        f"🛑 *STOP LOSS EXECUTED* ⚠️\n"
+                                        f"Chain: {pos['chain'].upper()}\n"
+                                        f"Contract: `{pos['token_address']}`\n"
+                                        f"PnL: {pnl_pct:.1f}%\n"
+                                        f"Remaining Value: ${current_val_usd:.2f}"
+                                    )
                                 
                         except Exception as e:
                             print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {e}")
