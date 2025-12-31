@@ -147,10 +147,18 @@ class OffChainFilter:
             
         # Check Quality Guardrails (Enhanced Filters)
         quality_check = self.global_guardrails.get('quality_check', {})
+        
+        # 1. Socials Check
         if quality_check.get('socials_check', False):
             # Only drop if we are SURE there are no socials (has_socials is explicitly False)
             if pair.get('has_socials') is False:
                 return False, "NO_SOCIALS (Requirement: Telegram/X/Web)"
+        
+        # 2. Minimum Unique Buyers Proxy (Tx Buys 5m)
+        min_buyers = quality_check.get('min_unique_buyers_5m', 0)
+        buys_5m = pair.get('buys_5m', 0)
+        if min_buyers > 0 and buys_5m < min_buyers:
+            return False, f"LOW_BUYERS (buys={buys_5m} < {min_buyers})"
             
         return True, None
         
