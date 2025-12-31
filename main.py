@@ -1244,8 +1244,17 @@ async def main():
                                                         if telegram.enabled:
                                                             await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: High Supply Concentration (Top 10: {top10:.1f}%)")
                                                         continue
+
+                                                    # 3. Check Liquidity Lock (Anti-Rugpull)
+                                                    liq_analysis = sec_data.get('liquidity_analysis', {})
+                                                    locked_pct = liq_analysis.get('liquidity_locked_percent', 0)
+                                                    if locked_pct < 80: # Allow small unlocked portion, but require majority locked/burned
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Liquidity Not Locked ({locked_pct:.0f}% < 80%)")
+                                                        if telegram.enabled:
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: Liquidity Not Locked (Risk of Pull)")
+                                                        continue
                                                         
-                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%)")
+                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%, LiqLocked: {locked_pct:.0f}%)")
                                                 except Exception as sec_e:
                                                     print(f"{Fore.YELLOW}    ⚠️ Security Check Skipped: {sec_e}")
 
