@@ -287,7 +287,8 @@ class WalletManager:
         chain = chain.lower()
         if chain in ['base', 'ethereum', 'bsc', 'arbitrum']:
             return self._get_evm_token_balance(chain, token_address)
-        # Solana not implemented yet for balance check
+        elif chain == 'solana':
+            return self._get_solana_token_balance(chain, token_address)
         return -1.0
 
     def _get_evm_token_balance(self, chain: str, token_address: str) -> float:
@@ -321,4 +322,43 @@ class WalletManager:
             
         except Exception as e:
             logger.error(f"Failed to get balance for {chain}: {e}")
+            return -1.0
+
+    def _get_solana_token_balance(self, chain: str, token_address: str) -> float:
+        if not HAS_SOLANA: return -1.0
+        try:
+            from solana.rpc.api import Client
+            from solders.pubkey import Pubkey
+            from solana.rpc.types import TokenAccountOpts
+            
+            wallet = self.get_wallet('solana')
+            if not wallet: return -1.0
+            
+            # Use specific RPC for Solana
+            rpc_url = "https://api.mainnet-beta.solana.com"
+            client = Client(rpc_url)
+            
+            owner = Pubkey.from_string(wallet['address'])
+            mint = Pubkey.from_string(token_address)
+            
+            # Get Token Accounts
+            resp = client.get_token_accounts_by_owner_json_parsed(
+                owner, 
+                TokenAccountOpts(mint=mint)
+            )
+            
+            balance = 0.0
+            if resp.value:
+                for account in resp.value:
+                    try:
+                        info = account.account.data.parsed['info']
+                        amount = float(info['tokenAmount']['amount'])
+                        balance += amount
+                    except:
+                        continue
+            
+            return balance
+            
+        except Exception as e:
+            logger.error(f"Solana balance check failed: {e}")
             return -1.0

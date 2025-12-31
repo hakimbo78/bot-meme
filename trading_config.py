@@ -8,7 +8,7 @@ TRADING_CONFIG = {
     # CHAIN SETTINGS (Dynamic enable/disable)
     'chains': {
         'solana': {
-            'enabled': False,
+            'enabled': True,
             'rpc_url': 'https://api.mainnet-beta.solana.com',
             'native_token': 'SOL',
             'min_native_balance': 0.01,  # Min SOL for gas

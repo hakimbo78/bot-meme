@@ -73,11 +73,19 @@ class TradeExecutor:
             input_token = "So11111111111111111111111111111111111111112"
 
         # 3. Calculate Amount
-        # HARDCODED TEST AMOUNT
-        # TODO: Implement Price Oracle for USD -> Native amount calc
-        raw_amount = "1000000000000000" # 0.001 ETH (approx $3)
+        # Rough Price Estimation (TODO: Live Oracle)
+        # Using conservative price estimates to avoid overspending
+        eth_price = 3500.0 
+        sol_price = 200.0  
+        
         if chain == 'solana':
-            raw_amount = "10000000" # 0.01 SOL (approx $2)
+            amount_sol = amount_usd / sol_price
+            raw_amount = str(int(amount_sol * 1e9)) # Lamports
+            logger.info(f"Targeting {amount_sol:.4f} SOL (${amount_usd})")
+        else:
+            amount_eth = amount_usd / eth_price
+            raw_amount = str(int(amount_eth * 1e18)) # Wei
+            logger.info(f"Targeting {amount_eth:.6f} ETH (${amount_usd})")
 
         logger.info(f"Executing BUY for {token_address} on {chain}...")
         

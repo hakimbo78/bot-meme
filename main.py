@@ -447,6 +447,22 @@ async def main():
                     # 2. Initialize Wallet Manager
                     wallet_manager = WalletManager()
                     
+                    # Import Wallets from Environment
+                    import os
+                    pk_evm = os.getenv('PRIVATE_KEY_EVM')
+                    if pk_evm:
+                        if wallet_manager.import_wallet_evm(pk_evm, 'base'):
+                            print(f"{Fore.GREEN}    - EVM Wallet: CONNECTED")
+                        wallet_manager.import_wallet_evm(pk_evm, 'ethereum')
+                    
+                    pk_sol = os.getenv('PRIVATE_KEY_SOLANA')
+                    sol_enabled = TradingConfig.is_chain_enabled('solana')
+                    if pk_sol and sol_enabled:
+                         if wallet_manager.import_wallet_solana(pk_sol):
+                              print(f"{Fore.GREEN}    - Solana Wallet: CONNECTED")
+                    elif sol_enabled and not pk_sol:
+                         print(f"{Fore.RED}    - Solana Enabled but NO KEY found in .env!")
+                    
                     # 3. Initialize OKX Client
                     okx_client = OKXDexClient()
                     
