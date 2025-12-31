@@ -55,23 +55,44 @@ class OKXDexClient:
         else:
             logger.warning("OKX Web3 API Key NOT FOUND - DEX trading will fail")
 
-    def _get_dex_headers(self):
-        """Get headers for DEX Aggregator API (Web3 API - simple token auth)"""
-        if not (self.web3_api_key and self.web3_secret):
+    def _get_timestamp(self):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        return now.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+    def _sign_request(self, timestamp, method, request_path, body=''):
+        """Sign request using Web3 Secret Key"""
+        import hmac
+        import hashlib
+        import base64
+        
+        message = f"{timestamp}{method}{request_path}{body}"
+        logger.info(f"DEBUG SIGN STRING: [{message}]")
+        
+        mac = hmac.new(
+            bytes(self.web3_secret, encoding='utf8'),
+            bytes(message, encoding='utf-8'),
+            digestmod=hashlib.sha256
+        )
+        d = mac.digest()
+        return base64.b64encode(d).decode('utf-8')
+
+    def _get_dex_headers(self, method, request_path, body=''):
+        """Get headers for DEX Aggregator API (Web3 API with HMAC signature)"""
+        if not (self.web3_api_key and self.web3_secret and self.web3_passphrase):
             logger.error("Web3 API credentials missing")
             return {}
         
-        headers = {
+        timestamp = self._get_timestamp()
+        sign = self._sign_request(timestamp, method, request_path, body)
+        
+        return {
             'OK-ACCESS-KEY': self.web3_api_key,
-            'OK-ACCESS-TOKEN': self.web3_secret,
+            'OK-ACCESS-SIGN': sign,
+            'OK-ACCESS-TIMESTAMP': timestamp,
+            'OK-ACCESS-PASSPHRASE': self.web3_passphrase,
             'Content-Type': 'application/json'
         }
-        
-        # Add passphrase if provided
-        if self.web3_passphrase:
-            headers['OK-ACCESS-PASSPHRASE'] = self.web3_passphrase
-            
-        return headers
 
     async def _get_session(self):
         if self.session is None or self.session.closed:
@@ -111,7 +132,7 @@ class OKXDexClient:
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
         
-        headers = self._get_dex_headers()
+        headers = self._get_dex_headers('GET', request_path)
         url = f"https://www.okx.com{request_path}"
         
         try:
@@ -159,7 +180,7 @@ class OKXDexClient:
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
         
-        headers = self._get_dex_headers()
+        headers = self._get_dex_headers('GET', request_path)
         url = f"https://www.okx.com{request_path}"
         logger.info(f"DEBUG FINAL SWAP URL: {url}")
         
