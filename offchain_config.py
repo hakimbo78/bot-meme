@@ -58,12 +58,12 @@ DEGEN_SNIPER_CONFIG = {
     # ================================================================
     'scoring_v3': {
         'points': {
-            'price_change_5m': 20,
-            'price_change_1h': 20,
-            'tx_5m': 20,
-            'liquidity': 25,
-            'volume_24h': 10,
-            'revival_bonus': 5
+            'price_change_5m': 25,   # WAS 20 - Focus on breakout momentum
+            'price_change_1h': 15,   # WAS 20 - Less relevant for sniper
+            'tx_5m': 30,             # WAS 20 - AGGRESSIVE (Hype Indicator)
+            'liquidity': 15,         # WAS 25 - Reduced (If verifying passed, liq is enough)
+            'volume_24h': 10,        # Status Quo
+            'revival_bonus': 5       # Status Quo
         },
         'thresholds': {
             'low': 30,
