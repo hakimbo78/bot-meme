@@ -155,7 +155,56 @@ class OKXDexClient:
             return None
 
     async def get_swap_data(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
+        if chain.lower() == 'solana':
+            return await self._get_jupiter_swap(from_token, to_token, amount, slippage, user_wallet)
         return await self._get_okx_swap(chain, from_token, to_token, amount, slippage, user_wallet)
+
+    async def _get_jupiter_swap(self, from_token, to_token, amount, slippage, user_wallet):
+        """Get swap instructions from Jupiter API (Solana)."""
+        try:
+            # 1. Get Quote
+            # Jupiter expects amount in integer (lamports/units)
+            # Slippage in BPS (basis points). 1% = 100 bps
+            slippage_bps = int(slippage * 100)
+            
+            quote_url = f"{self.JUPITER_URL}/quote?inputMint={from_token}&outputMint={to_token}&amount={amount}&slippageBps={slippage_bps}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(quote_url) as response:
+                    if response.status != 200:
+                        logger.error(f"[Jupiter] Quote failed: {await response.text()}")
+                        return None
+                    quote_data = await response.json()
+            
+            # 2. Get Swap Transaction
+            swap_url = f"{self.JUPITER_URL}/swap"
+            payload = {
+                "quoteResponse": quote_data,
+                "userPublicKey": user_wallet,
+                "wrapAndUnwrapSol": True
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(swap_url, json=payload) as response:
+                    if response.status != 200:
+                        logger.error(f"[Jupiter] Swap failed: {await response.text()}")
+                        return None
+                    swap_resp = await response.json()
+                    
+            # 3. Format to match OKX structure expected by executor
+            # Jupiter returns 'swapTransaction' (base64)
+            return {
+                'tx': {
+                    'data': swap_resp['swapTransaction'] # Base64 string
+                },
+                'routerResult': {
+                    'toTokenAmount': quote_data.get('outAmount', '0')
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"[Jupiter] Exception: {e}")
+            return None
 
     async def _get_okx_swap(self, chain, from_token, to_token, amount, slippage, user_wallet):
         chain_id = self.CHAIN_IDS.get(chain.lower())
