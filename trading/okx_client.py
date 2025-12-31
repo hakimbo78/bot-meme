@@ -161,51 +161,77 @@ class OKXDexClient:
 
     async def _get_jupiter_swap(self, from_token, to_token, amount, slippage, user_wallet):
         """Get swap instructions from Jupiter API (Solana) - Sync version fallback."""
-        try:
-            import requests
-            # 1. Get Quote
-            slippage_bps = int(slippage * 100)
-            quote_url = f"{self.JUPITER_URL}/quote?inputMint={from_token}&outputMint={to_token}&amount={amount}&slippageBps={slippage_bps}"
-            
-            # Use requests with User-Agent to avoid blocking
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept": "application/json"
-            }
-            
-            response = requests.get(quote_url, headers=headers)
-            if response.status_code != 200:
-                logger.error(f"[Jupiter] Quote failed ({response.status_code}): {response.text}")
-                return None
-            quote_data = response.json()
-            
-            # 2. Get Swap Transaction
-            swap_url = f"{self.JUPITER_URL}/swap"
-            payload = {
-                "quoteResponse": quote_data,
-                "userPublicKey": user_wallet,
-                "wrapAndUnwrapSol": True
-            }
-            
-            response = requests.post(swap_url, json=payload, headers=headers)
-            if response.status_code != 200:
-                logger.error(f"[Jupiter] Swap failed ({response.status_code}): {response.text}")
-                return None
-            swap_resp = response.json()
-                    
-            # 3. Format
-            return {
-                'tx': {
-                    'data': swap_resp['swapTransaction'] 
-                },
-                'routerResult': {
-                    'toTokenAmount': quote_data.get('outAmount', '0')
+        
+        # List of endpoints to try (Main vs Backup)
+        # Note: public.jupiterapi.com typically exposes /quote directly without /v6 prefix, 
+        # but to keep logic simple we try standard paths first or adapt.
+        endpoints = [
+            "https://quote-api.jup.ag/v6", # Official
+            "https://public.jupiterapi.com", # Backup (QuickNode Public)
+            "https://jupiter-api.raydium.io/v6", # Raydium wrapper? (Hypothetical, better stick to confirmed)
+        ]
+
+        import requests
+        slippage_bps = int(slippage * 100)
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "application/json"
+        }
+
+        last_error = None
+
+        for base_url in endpoints:
+            try:
+                # Adjust path based on endpoint known structure
+                # public.jupiterapi.com usually behaves like root is v6
+                if "public.jupiterapi.com" in base_url:
+                     quote_url = f"{base_url}/quote?inputMint={from_token}&outputMint={to_token}&amount={amount}&slippageBps={slippage_bps}"
+                     swap_url = f"{base_url}/swap"
+                else:
+                     quote_url = f"{base_url}/quote?inputMint={from_token}&outputMint={to_token}&amount={amount}&slippageBps={slippage_bps}"
+                     swap_url = f"{base_url}/swap"
+                
+                logger.info(f"[Jupiter] Trying endpoint: {base_url}...")
+                
+                # 1. Get Quote
+                response = requests.get(quote_url, headers=headers, timeout=5)
+                if response.status_code != 200:
+                    last_error = f"Quote failed {response.status_code}: {response.text}"
+                    continue # Try next
+                
+                quote_data = response.json()
+                
+                # 2. Get Swap Transaction
+                payload = {
+                    "quoteResponse": quote_data,
+                    "userPublicKey": user_wallet,
+                    "wrapAndUnwrapSol": True
                 }
-            }
-            
-        except Exception as e:
-            logger.error(f"[Jupiter] Exception: {e}")
-            return None
+                
+                response = requests.post(swap_url, json=payload, headers=headers, timeout=5)
+                if response.status_code != 200:
+                    last_error = f"Swap failed {response.status_code}: {response.text}"
+                    continue # Try next
+                    
+                swap_resp = response.json()
+                        
+                # 3. Format
+                return {
+                    'tx': {
+                        'data': swap_resp['swapTransaction'] 
+                    },
+                    'routerResult': {
+                        'toTokenAmount': quote_data.get('outAmount', '0')
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[Jupiter] Error with {base_url}: {e}")
+                last_error = str(e)
+                continue
+        
+        logger.error(f"[Jupiter] All endpoints failed. Last error: {last_error}")
+        return None
 
     async def _get_okx_swap(self, chain, from_token, to_token, amount, slippage, user_wallet):
         chain_id = self.CHAIN_IDS.get(chain.lower())
