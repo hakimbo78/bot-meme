@@ -124,7 +124,10 @@ class OKXDexClient:
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
         
-        headers = self._get_headers('GET', request_path)
+        # TEST: DISABLE AUTH HEADERS
+        # headers = self._get_headers('GET', request_path)
+        headers = {}
+        
         url = f"https://www.okx.com{request_path}"
         
         try:
@@ -172,7 +175,10 @@ class OKXDexClient:
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
         
-        headers = self._get_headers('GET', request_path)
+        # TEST: DISABLE AUTH HEADERS (Try Public Access)
+        # headers = self._get_headers('GET', request_path)
+        headers = {} 
+        
         url = f"https://www.okx.com{request_path}"
         logger.info(f"DEBUG FINAL SWAP URL: {url}")
         
