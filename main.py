@@ -1111,6 +1111,27 @@ async def main():
                                             # AUTO-TRADING EXECUTION
                                             if trade_executor and TradingConfig.is_trading_enabled():
                                                 try:
+                                                    # FOMO GUARD: Check Volatility
+                                                    # Access config safely
+                                                    fomo_limit = 100.0
+                                                    try:
+                                                        fomo_limit = offchain_screener.config['scoring_v3'].get('max_price_change_5m', 100.0)
+                                                    except:
+                                                        pass
+                                                        
+                                                    current_pump = pair_data.get('price_change_m5', 0)
+                                                    
+                                                    if current_pump > fomo_limit:
+                                                        print(f"{Fore.YELLOW}    🛡️  FOMO GUARD: Skipped (Pump +{current_pump:.1f}% > {fomo_limit}%)")
+                                                        if telegram.enabled:
+                                                            await telegram.send_message_async(
+                                                                f"🛡️ *AUTO-BUY SKIPPED*\n"
+                                                                f"Token: {pair_data.get('token_symbol')}\n"
+                                                                f"Reason: Pumped +{current_pump:.0f}% in 5m (Risky)\n"
+                                                                f"Guard Limit: +{fomo_limit:.0f}%"
+                                                            )
+                                                        continue
+
                                                     print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
                                                     tx_success, msg = await trade_executor.execute_buy(
                                                         chain=chain_name,

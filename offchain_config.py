@@ -57,10 +57,12 @@ DEGEN_SNIPER_CONFIG = {
         },
         'thresholds': {
             'low': 30,
-            'mid': 55,      # Was 45 → +10 harder (HYBRID)
-            'high': 75,     # Was 65 → +10 harder (HYBRID)
-            'verify': 75    # Was 65 → +10 harder (HYBRID)
-        }
+            'mid': 55,
+            'high': 75,
+            'verify': 75
+        },
+        # FOMO GUARD: Max allowed pump in 5m before we consider it "too late"
+        'max_price_change_5m': 100.0, # If > +100% in 5m, SKIP (Too dangerous)
     },
     
     # ================================================================
