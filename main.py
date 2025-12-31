@@ -663,7 +663,7 @@ async def main():
                                         # If we can't sell because liquidity is gone, we must free up the slot
                                         force_closed_msg = "**MANUAL INTERVENTION REQUIRED**"
                                         
-                                        if rugpull_detected or "Insufficient liquidity" in str(msg) or "SimulateTransaction" in str(msg):
+                                        if rugpull_detected or "Insufficient liquidity" in str(msg) or "SimulateTransaction" in str(msg) or ("Failed to get swap data" in str(msg) and pnl_pct < -50):
                                             try:
                                                 print(f"{Fore.RED}💀 RUGPULL CONFIRMED: Force closing pos {pos['id']} in DB to free slot")
                                                 # Use the position_tracker instance from outer scope
