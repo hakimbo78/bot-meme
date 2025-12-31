@@ -428,6 +428,127 @@ async def main():
             print(f"{Fore.YELLOW}⚠️  Solana requested but module not available")
         
         # TRADE-EARLY Enhanced Config
+        
+        # ================================================
+        # TRADING MODULE INITIALIZATION (2025-12-31)
+        # ================================================
+        trade_executor = None
+        position_tracker = None
+        
+        if TRADING_MODULE_AVAILABLE:
+            try:
+                print(f"\n{Fore.CYAN}🤖 TRADING MODULE: INITIALIZING...")
+                
+                # Check if trading is enabled in config
+                if TradingConfig.is_trading_enabled():
+                    # 1. Initialize Database
+                    trading_db = TradingDB()
+                    
+                    # 2. Initialize Wallet Manager
+                    wallet_manager = WalletManager()
+                    
+                    # 3. Initialize OKX Client
+                    okx_client = OKXDexClient()
+                    
+                    # 4. Initialize Position Tracker
+                    position_tracker = PositionTracker(trading_db)
+                    
+                    # 5. Initialize Trade Executor
+                    trade_executor = TradeExecutor(
+                        wallet_manager=wallet_manager,
+                        okx_client=okx_client,
+                        position_tracker=position_tracker
+                    )
+                    
+                    print(f"{Fore.GREEN}    - Status: ENABLED")
+                    print(f"{Fore.GREEN}    - Budget: ${TradingConfig.get_config()['trading']['budget_per_trade_usd']}")
+                    print(f"{Fore.GREEN}    - Auto-TP/SL: ENABLED")
+                    print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in ['base', 'ethereum', 'solana'] if TradingConfig.is_chain_enabled(c)])}")
+                else:
+                    print(f"{Fore.YELLOW}    - Status: DISABLED in trading_config.py")
+            
+            except Exception as e:
+                print(f"{Fore.RED}⚠️  Trading module initialization failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # START POSITION MONITORING TASK
+        async def run_position_monitor():
+            if not (trade_executor and position_tracker and okx_client): return
+            print(f"{Fore.CYAN}👀 Position Monitor task started")
+            
+            while True:
+                try:
+                    await asyncio.sleep(10)  # Check every 10 seconds
+                    
+                    positions = position_tracker.get_open_positions()
+                    if not positions: continue
+                    
+                    for pos in positions:
+                        try:
+                            # 1. Prepare Native Token Address for Quote
+                            native_token = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+                            decimals = 18
+                            native_price = 3300.0 # Approx ETH price
+                            
+                            if pos['chain'] == 'solana':
+                                native_token = "So11111111111111111111111111111111111111112"
+                                decimals = 9
+                                native_price = 190.0 # Approx SOL price
+                            
+                            # 2. Get Quote for SELLING (Token -> Native)
+                            # Input amount is the amount we hold (entry_amount)
+                            # Must convert float to int string
+                            amount_in = str(int(pos['entry_amount']))
+                            
+                            quote = await okx_client.get_swap_quote(
+                                chain_id=pos['chain'],
+                                from_token=pos['token_address'],
+                                to_token=native_token,
+                                amount=amount_in,
+                                user_wallet=pos['wallet_address']
+                            )
+                            
+                            if not quote: continue
+                            
+                            # 3. Calculate Valuation
+                            # toTokenAmount is raw output amount
+                            raw_out = float(quote.get('toTokenAmount', '0'))
+                            real_out = raw_out / (10 ** decimals)
+                            current_val_usd = real_out * native_price
+                            
+                            # 4. Calculate PnL
+                            entry_usd = float(pos['entry_value_usd'])
+                            if entry_usd <= 0: entry_usd = 1 # Avoid div by zero
+                            
+                            pnl_pct = ((current_val_usd - entry_usd) / entry_usd) * 100
+                            
+                            # Log periodically (every 10th check or if PnL moves)
+                            # specific logging omitted to avoid spam, but useful for debug
+                            # print(f"Pos {pos['id']}: ${current_val_usd:.2f} ({pnl_pct:.1f}%)")
+                            
+                            # 5. Check TP/SL
+                            # Get limits from config
+                            limits = TradingConfig.get_config()['limits']
+                            tp_pct = limits.get('take_profit_percent', 100)
+                            sl_pct = limits.get('stop_loss_percent', -50)
+                            
+                            if pnl_pct >= tp_pct:
+                                print(f"{Fore.GREEN}🚀 TP HIT for {pos['token_address']}! PnL: {pnl_pct:.1f}%")
+                                await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                            
+                            elif pnl_pct <= sl_pct:
+                                print(f"{Fore.RED}🛑 SL HIT for {pos['token_address']}! PnL: {pnl_pct:.1f}%")
+                                await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                
+                        except Exception as e:
+                            print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {e}")
+                            
+                except Exception as e:
+                    print(f"{Fore.RED}⚠️  Position monitor loop error: {e}")
+                    await asyncio.sleep(10)
+
+
         trade_early_config = None
         if is_trade_early_enabled():
             trade_early_config = get_trade_early_config()
@@ -517,6 +638,10 @@ async def main():
             
             queue = asyncio.Queue()
             tasks = []
+            
+            # Start Position Monitor Task
+            if trade_executor:
+                 tasks.append(asyncio.create_task(run_position_monitor(), name="position-monitor"))
             
             # 1. Start MultiChainScanner (EVM) in background tasks
             # MultiChainScanner now manages its own isolated tasks per chain

@@ -170,3 +170,26 @@ class PositionTracker:
             conn.close()
         except Exception as e:
             logger.error(f"Failed to update PnL for {position_id}: {e}")
+
+    def get_open_positions(self) -> List[Dict]:
+        """Get all open positions."""
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            # Select all columns
+            cursor.execute("SELECT * FROM positions WHERE status = 'OPEN'")
+            rows = cursor.fetchall()
+            
+            # Get column names
+            col_names = [description[0] for description in cursor.description]
+            
+            positions = []
+            for row in rows:
+                positions.append(dict(zip(col_names, row)))
+                
+            conn.close()
+            return positions
+        except Exception as e:
+            logger.error(f"Failed to get open positions: {e}")
+            return []

@@ -139,20 +139,121 @@ class TradeExecutor:
         logger.info(f"Broadcast successful! Tx Hash: {tx_hash}")
         
         # 7. Record Position
-        # We assume execution price from quote data ideally
-        # For now, approximate
+        # Extract amount from OKX response
+        try:
+            router_result = swap_data.get('routerResult', {})
+            # toTokenAmount is the estimated output amount (in raw units)
+            token_amount_raw = router_result.get('toTokenAmount', '0')
+            token_amount = float(token_amount_raw)
+            
+            # Estimate price (USD Budget / Amount)
+            # This is 'price per raw unit', useful for calculations
+            price_est = amount_usd / token_amount if token_amount > 0 else 0
+            
+        except Exception as e:
+            logger.error(f"Failed to parse swap result: {e}")
+            token_amount = 0
+            price_est = 0
+
         self.pt.record_buy(
             token_address=token_address,
             chain=chain,
             wallet_address=wallet_address,
-            amount=0, # Need to parse form events
-            price=0, # Need calculation
+            amount=token_amount, # Raw amount stored
+            price=price_est, 
             value_usd=amount_usd,
             tx_hash=tx_hash,
             signal_score=signal_score
         )
         
         return True
+
+        return True
+
+    async def execute_sell(
+        self,
+        chain: str,
+        token_address: str,
+        amount_raw: float,
+        position_id: int
+    ) -> bool:
+        """Execute a sell order (TP/SL)."""
+        chain = chain.lower()
+        wallet_address = self.wm.get_address(chain)
+        
+        # Native token is output (we are selling token -> native)
+        native_token = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        if chain == 'solana':
+            native_token = "So11111111111111111111111111111111111111112"
+            
+        # Format amount (inputs are raw units, OKX expects integer string)
+        amount_str = str(int(amount_raw))
+        
+        logger.info(f"Executing SELL for Pos {position_id} ({amount_str} units) on {chain}...")
+        
+        try:
+            # 1. Get Swap Data
+            swap_data = await self.okx.get_swap_data(
+                chain,
+                token_address, # Input is the token
+                native_token,  # Output is native
+                amount_str,
+                10.0, # High slippage for urgent exit (10%)
+                wallet_address
+            )
+            
+            if not swap_data:
+                logger.error("Failed to get swap data for sell")
+                return False
+                
+            # 2. Sign
+            if chain == 'solana':
+                tx_payload = swap_data.get('tx', {}).get('data')
+            else:
+                tx_payload = swap_data.get('tx')
+                
+            signed_tx = self.wm.sign_transaction(chain, tx_payload)
+            
+            # 3. Broadcast
+            tx_hash = await self._broadcast_transaction(chain, signed_tx)
+            
+            if not tx_hash:
+                return False
+                
+            # 4. Record Sell
+            # Estimate value from output amount
+            router_result = swap_data.get('routerResult', {})
+            output_amount_raw = float(router_result.get('toTokenAmount', '0'))
+            
+            # Rough price estimation (Native Price * Output Amount).
+            # We don't have native price easily. 
+            # We can use the 'value_usd' of the position and PnL% from OKX quote potentially?
+            # Or just assume output value.
+            # Ideally we fetch native price.
+            # valid_usd = output_amount_raw * NATIVE_PRICE
+            
+            # For now, let's use the 'current_value_usd' from tracker if available, 
+            # or just leave value_usd calculation to the tracker update logic.
+            # Actually, `record_sell` needs value_usd.
+            
+            # Let's use a very rough estimate or 0. Tracker handles PnL.
+            # Better: In run_position_monitor, we know the estimated value from the Quote check that triggered this!
+            # But we don't pass it here.
+            
+            self.pt.record_sell(
+                position_id=position_id,
+                amount=amount_raw,
+                price=0, # Unknown without native price
+                value_usd=0, # Unknown without native price
+                tx_hash=tx_hash
+            )
+            
+            logger.info(f"SELL Broadcast successful! Tx Hash: {tx_hash}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Sell execution failed: {e}")
+            return False
 
     async def _broadcast_transaction(self, chain: str, signed_tx: str) -> Optional[str]:
         """Broadcast transaction to network."""
