@@ -47,6 +47,7 @@ class OKXDexClient:
         # Web3/DEX API credentials (for DEX Aggregator)
         self.web3_api_key = (os.getenv('OKX_WEB3_API_KEY') or '').strip().strip('"').strip("'")
         self.web3_secret = (os.getenv('OKX_WEB3_SECRET') or '').strip().strip('"').strip("'")
+        self.web3_passphrase = (os.getenv('OKX_WEB3_PASSPHRASE') or '').strip().strip('"').strip("'")
         
         # DEBUG: Print credential status
         if self.web3_api_key:
@@ -59,12 +60,18 @@ class OKXDexClient:
         if not (self.web3_api_key and self.web3_secret):
             logger.error("Web3 API credentials missing")
             return {}
-            
-        return {
+        
+        headers = {
             'OK-ACCESS-KEY': self.web3_api_key,
             'OK-ACCESS-TOKEN': self.web3_secret,
             'Content-Type': 'application/json'
         }
+        
+        # Add passphrase if provided
+        if self.web3_passphrase:
+            headers['OK-ACCESS-PASSPHRASE'] = self.web3_passphrase
+            
+        return headers
 
     async def _get_session(self):
         if self.session is None or self.session.closed:
