@@ -103,10 +103,17 @@ class TradeExecutor:
             logger.error("Failed to get swap data")
             return False
             
+        # DEBUG: Log response structure
+        logger.info(f"DEBUG SWAP DATA KEYS: {list(swap_data.keys())}")
+        logger.info(f"DEBUG SWAP DATA: {str(swap_data)[:500]}")  # First 500 chars
+            
         # 5. Sign Transaction
         try:
             # tx_data comes from OKX 'tx' field
             tx_payload = swap_data.get('tx')
+            logger.info(f"DEBUG TX PAYLOAD TYPE: {type(tx_payload)}")
+            logger.info(f"DEBUG TX PAYLOAD: {str(tx_payload)[:200]}")
+            
             signed_tx = self.wm.sign_transaction(chain, tx_payload)
         except Exception as e:
             logger.error(f"Signing failed: {e}")
