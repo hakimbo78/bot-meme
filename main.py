@@ -11,6 +11,7 @@ from scanner import BaseScanner
 from analyzer import TokenAnalyzer
 from scorer import TokenScorer
 from telegram_notifier import TelegramNotifier
+from tokensniffer_analyzer import TokenSnifferAnalyzer
 from error_monitor import ErrorMonitor
 from config import BASE_RPC_URL, UNISWAP_V2_FACTORY, MIN_LIQUIDITY_USD, ALERT_THRESHOLDS, AUTO_UPGRADE_ENABLED, AUTO_UPGRADE_COOLDOWN_SECONDS, AUTO_UPGRADE_MAX_WAIT_MINUTES, ROTATION_CONFIG, PATTERN_CONFIG, NARRATIVE_CONFIG, SMART_MONEY_CONFIG, CONVICTION_CONFIG
 
@@ -1221,6 +1222,33 @@ async def main():
                                         # AUTO-TRADING EXECUTION
                                         if trade_executor and TradingConfig.is_trading_enabled():
                                             try:
+                                                # SECURITY GUARD: Deep Check (Holders & Risk)
+                                                try:
+                                                    print(f"{Fore.CYAN}    🛡️ Running Deep Security Check (Holders & Risk)...")
+                                                    sniff_w3 = adapter.w3 if (chain_name != 'solana' and adapter) else None
+                                                    ts_analyzer = TokenSnifferAnalyzer(sniff_w3, chain_name)
+                                                    sec_data = ts_analyzer.analyze_comprehensive(pair_data['token_address'])
+                                                    
+                                                    # 1. Check Risk Level
+                                                    risk_lvl = sec_data.get('risk_level', 'UNKNOWN')
+                                                    if risk_lvl == 'CRITICAL':
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: CRITICAL RISK DETECTED")
+                                                        if telegram.enabled:
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: Critical Risk (Honeypot/Mint/Blacklist)")
+                                                        continue
+                                                    
+                                                    # 2. Check Top 10 Holders
+                                                    top10 = sec_data.get('holder_analysis', {}).get('top10_holders_percent', 0)
+                                                    if top10 > 70:
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Top 10 Holders Own {top10:.1f}% (>70%)")
+                                                        if telegram.enabled:
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: High Supply Concentration (Top 10: {top10:.1f}%)")
+                                                        continue
+                                                        
+                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%)")
+                                                except Exception as sec_e:
+                                                    print(f"{Fore.YELLOW}    ⚠️ Security Check Skipped: {sec_e}")
+
                                                 # FOMO GUARD: Check Volatility
                                                 # Access config safely
                                                 fomo_limit = 100.0
