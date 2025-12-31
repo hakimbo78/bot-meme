@@ -3,10 +3,18 @@ import argparse
 import os
 import logging
 from colorama import init, Fore, Style
+from dotenv import load_dotenv
 
 from trading.trade_executor import TradeExecutor
 from trading.wallet_manager import WalletManager
 from trading.okx_client import OKXDexClient
+
+# Load .env file
+load_dotenv()
+
+# Setup Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ManualTrade")
 from trading.position_tracker import PositionTracker
 from trading.db_handler import TradingDB
 from trading.config_manager import ConfigManager
