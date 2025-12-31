@@ -133,6 +133,9 @@ class OKXDexClient:
         request_path = f"{path_base}?{query_string}"
         
         headers = self._get_dex_headers('GET', request_path)
+        # Add User-Agent to avoid blocking
+        headers['User-Agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        
         url = f"https://www.okx.com{request_path}"
         
         try:
@@ -257,6 +260,8 @@ class OKXDexClient:
         request_path = f"{path_base}?{query_string}"
         
         headers = self._get_dex_headers('GET', request_path)
+        headers['User-Agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        
         url = f"https://www.okx.com{request_path}"
         logger.info(f"DEBUG FINAL SWAP URL: {url}")
         
