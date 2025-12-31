@@ -209,7 +209,11 @@ class OKXDexClient:
                 payload = {
                     "quoteResponse": quote_data,
                     "userPublicKey": user_wallet,
-                    "wrapAndUnwrapSol": True
+                    "wrapAndUnwrapSol": True,
+                    "computeUnitPriceMicroLamports": "auto",  # Dynamic priority fee
+                    "asLegacyTransaction": False,  # Use versioned transaction
+                    "dynamicComputeUnitLimit": True,  # Auto-calculate CU
+                    "skipUserAccountsRpcCalls": False  # Ensure account checks
                 }
                 
                 response = requests.post(swap_url, json=payload, headers=headers, timeout=5)
