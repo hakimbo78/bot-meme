@@ -901,8 +901,13 @@ async def main():
                                             onchain_score = onchain_score_data.get('score', 0)
                                         else:
                                             # Solana scoring
-                                            onchain_score_data = solana_score_engine.calculate_score(onchain_analysis)
-                                            onchain_score = onchain_score_data.get('score', 0)
+                                            if solana_score_engine:
+                                                onchain_score_data = solana_score_engine.calculate_score(onchain_analysis)
+                                                onchain_score = onchain_score_data.get('score', 0)
+                                            else:
+                                                # Fallback if module disabled - assume pass if offchain good
+                                                onchain_score = offchain_score
+                                                onchain_score_data = {'score': onchain_score, 'verdict': 'OFFCHAIN_ONLY', 'risk_flags': []}
 
                                         # 3. COMBINED SCORING (Rule: Weight off-chain and on-chain)
                                         final_score = (offchain_score * offchain_weight) + (onchain_score * onchain_weight)
@@ -911,7 +916,15 @@ async def main():
                                         
                                         # 4. DECISION & ALERT
                                         check_score = final_score
-                                        thresholds = chain_config.get('alert_thresholds', {}) if chain_config else solana_score_engine.get_thresholds()
+                                        
+                                        # Get thresholds safely
+                                        if chain_config:
+                                            thresholds = chain_config.get('alert_thresholds', {})
+                                        elif solana_score_engine:
+                                            thresholds = solana_score_engine.get_thresholds()
+                                        else:
+                                            # Default fallback thresholds
+                                            thresholds = {'INFO': 40, 'WATCH': 60, 'TRADE': 75}
                                         
                                         if check_score >= thresholds.get('TRADE', 75):
                                             print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")
