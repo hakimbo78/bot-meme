@@ -29,6 +29,52 @@ class OKXDexClient:
 
     def __init__(self):
         self.session = None
+        self.api_key = None
+        self.secret_key = None
+        self.passphrase = None
+        self._load_credentials()
+
+    def _load_credentials(self):
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        self.api_key = os.getenv('OKX_API_KEY')
+        self.secret_key = os.getenv('OKX_SECRET_KEY')
+        self.passphrase = os.getenv('OKX_PASSPHRASE')
+        
+    def _get_timestamp(self):
+        from datetime import datetime
+        # ISO 8601 format: 2020-12-08T09:08:57.715Z
+        return datetime.utcnow().isoformat(timespec='milliseconds') + 'Z'
+
+    def _sign_request(self, timestamp, method, request_path, body=''):
+        import hmac
+        import hashlib
+        import base64
+        
+        message = f"{timestamp}{method}{request_path}{body}"
+        mac = hmac.new(
+            bytes(self.secret_key, encoding='utf8'),
+            bytes(message, encoding='utf-8'),
+            digestmod=hashlib.sha256
+        )
+        d = mac.digest()
+        return base64.b64encode(d).decode('utf-8')
+
+    def _get_headers(self, method, request_path, body=''):
+        if not (self.api_key and self.secret_key and self.passphrase):
+            return {}
+            
+        timestamp = self._get_timestamp()
+        sign = self._sign_request(timestamp, method, request_path, body)
+        
+        return {
+            'OK-ACCESS-KEY': self.api_key,
+            'OK-ACCESS-SIGN': sign,
+            'OK-ACCESS-TIMESTAMP': timestamp,
+            'OK-ACCESS-PASSPHRASE': self.passphrase,
+            'Content-Type': 'application/json'
+        }
 
     async def _get_session(self):
         if self.session is None or self.session.closed:
@@ -40,39 +86,8 @@ class OKXDexClient:
             await self.session.close()
 
     async def get_quote(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float = 0.01) -> Optional[Dict]:
-        if chain.lower() == 'solana':
-            return await self._get_jupiter_quote(from_token, to_token, amount, slippage)
-        
-        # Fallback to OKX for other chains (requires Auth fix later)
+        # Force OKX for all chains
         return await self._get_okx_quote(chain, from_token, to_token, amount, slippage)
-
-    async def _get_jupiter_quote(self, from_token: str, to_token: str, amount: str, slippage: float) -> Optional[Dict]:
-        """Fetch quote from Jupiter (Solana)."""
-        # Handle Native SOL mapping
-        input_mint = self.SOL_MINT if from_token.lower() in ['native', 'sol'] else from_token
-        output_mint = self.SOL_MINT if to_token.lower() in ['native', 'sol'] else to_token
-        
-        url = f"{self.JUPITER_URL}/quote"
-        params = {
-            'inputMint': input_mint,
-            'outputMint': output_mint,
-            'amount': amount,
-            'slippageBps': int(slippage * 10000) # Jupiter uses basis points (1% = 100)
-        }
-        
-        try:
-            session = await self._get_session()
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data # Jupiter returns the route directly
-                else:
-                    text = await response.text()
-                    logger.error(f"[JUPITER] Quote Error {response.status}: {text}")
-                    return None
-        except Exception as e:
-            logger.error(f"[JUPITER] Exception: {e}")
-            return None
 
     async def _get_okx_quote(self, chain, from_token, to_token, amount, slippage):
         chain_id = self.CHAIN_IDS.get(chain.lower())
@@ -80,7 +95,9 @@ class OKXDexClient:
             logger.error(f"Unsupported chain: {chain}")
             return None
         
-        url = f"{self.BASE_URL}/quote"
+        # Build path and params manually to sign correctly
+        path_base = "/api/v5/dex/aggregator/quote"
+        
         params = {
             'chainId': chain_id,
             'fromTokenAddress': from_token,
@@ -89,9 +106,20 @@ class OKXDexClient:
             'slippage': str(slippage),
         }
         
+        # Construct query string for signing
+        # Sort params if OKX requires? Usually not strictly for V5 GET but good practice
+        # Aiohttp handles params, but for signature we need the EXACT string.
+        # Simplest way: build query string manually
+        from urllib.parse import urlencode
+        query_string = urlencode(params)
+        request_path = f"{path_base}?{query_string}"
+        
+        headers = self._get_headers('GET', request_path)
+        url = f"https://www.okx.com{request_path}"
+        
         try:
             session = await self._get_session()
-            async with session.get(url, params=params) as response:
+            async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('code') == '0':
@@ -101,52 +129,23 @@ class OKXDexClient:
                          return None
                 else:
                     logger.error(f"[OKX] HTTP Error: {response.status}")
+                    text = await response.text()
+                    logger.error(f"[OKX] Response: {text}")
                     return None
         except Exception as e:
             logger.error(f"[OKX] Exception in get_quote: {e}")
             return None
 
     async def get_swap_data(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
-        if chain.lower() == 'solana':
-            return await self._get_jupiter_swap(from_token, to_token, amount, slippage, user_wallet)
-        
         return await self._get_okx_swap(chain, from_token, to_token, amount, slippage, user_wallet)
-
-    async def _get_jupiter_swap(self, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
-        """Fetch swap transaction from Jupiter."""
-        # 1. Get Quote First (Jupiter requires quoteResponse in swap payload)
-        quote = await self._get_jupiter_quote(from_token, to_token, amount, slippage)
-        if not quote:
-            return None
-            
-        url = f"{self.JUPITER_URL}/swap"
-        payload = {
-            'quoteResponse': quote,
-            'userPublicKey': user_wallet,
-            'wrapAndUnwrapSol': True
-        }
-        
-        try:
-            session = await self._get_session()
-            async with session.post(url, json=payload) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    # Jupiter returns {'swapTransaction': 'base64str'}
-                    return data
-                else:
-                    text = await response.text()
-                    logger.error(f"[JUPITER] Swap Error {response.status}: {text}")
-                    return None
-        except Exception as e:
-            logger.error(f"[JUPITER] Swap Exception: {e}")
-            return None
 
     async def _get_okx_swap(self, chain, from_token, to_token, amount, slippage, user_wallet):
         chain_id = self.CHAIN_IDS.get(chain.lower())
         if not chain_id:
             return None
-
-        url = f"{self.BASE_URL}/swap"
+        
+        path_base = "/api/v5/dex/aggregator/swap"
+        
         params = {
             'chainId': chain_id,
             'fromTokenAddress': from_token,
@@ -156,9 +155,16 @@ class OKXDexClient:
             'userWalletAddress': user_wallet,
         }
         
+        from urllib.parse import urlencode
+        query_string = urlencode(params)
+        request_path = f"{path_base}?{query_string}"
+        
+        headers = self._get_headers('GET', request_path)
+        url = f"https://www.okx.com{request_path}"
+        
         try:
             session = await self._get_session()
-            async with session.get(url, params=params) as response:
+            async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('code') == '0':
@@ -168,6 +174,8 @@ class OKXDexClient:
                          return None
                 else:
                     logger.error(f"[OKX] Swap data HTTP error: {response.status}")
+                    text = await response.text()
+                    logger.error(f"[OKX] Response: {text}")
                     return None
         except Exception as e:
             logger.error(f"[OKX] Exception in get_swap_data: {e}")

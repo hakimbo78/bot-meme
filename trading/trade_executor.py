@@ -105,12 +105,8 @@ class TradeExecutor:
             
         # 5. Sign Transaction
         try:
-            # Handle different API response formats (Jupiter vs OKX)
-            if chain == 'solana' and 'swapTransaction' in swap_data:
-                tx_payload = swap_data['swapTransaction']
-            else:
-                tx_payload = swap_data.get('tx')
-                
+            # tx_data comes from OKX 'tx' field
+            tx_payload = swap_data.get('tx')
             signed_tx = self.wm.sign_transaction(chain, tx_payload)
         except Exception as e:
             logger.error(f"Signing failed: {e}")
