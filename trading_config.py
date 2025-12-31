@@ -8,7 +8,7 @@ TRADING_CONFIG = {
     # CHAIN SETTINGS (Dynamic enable/disable)
     'chains': {
         'solana': {
-            'enabled': True,
+            'enabled': False,
             'rpc_url': 'https://api.mainnet-beta.solana.com',
             'native_token': 'SOL',
             'min_native_balance': 0.01,  # Min SOL for gas
@@ -20,7 +20,7 @@ TRADING_CONFIG = {
             'min_native_balance': 0.001,  # Min ETH for gas
         },
         'ethereum': {
-            'enabled': True,  # Disabled by default (high gas)
+            'enabled': False,  # Disabled by default (high gas)
             'rpc_url': 'https://eth-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm',
             'native_token': 'ETH',
             'min_native_balance': 0.01,
