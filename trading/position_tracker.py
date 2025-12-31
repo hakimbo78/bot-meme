@@ -74,31 +74,13 @@ class PositionTracker:
         amount: float,
         price: float,
         value_usd: float,
-        tx_hash: str
+        tx_hash: str,
+        new_status: str = 'CLOSED'
     ) -> bool:
         """
         Record a sell (close position).
-        
-        Args:
-            position_id: Position ID
-            amount: Amount sold
-            price: Sell price
-            value_usd: Total USD value realized
-            tx_hash: Transaction hash
-            
-        Returns:
-            True if successful
         """
-        # Placeholder for full sell logic (partial sells logic would go here)
-        # For Phase 2, we assume full sell close
         try:
-            # We need to calculate finalized PnL
-            # Ideally fetch original entry from DB
-            
-            # Simple SQL update for now (assuming DB handler has generic update or we add specific method)
-            # Since create_position is there, let's implement update_position in DB handler
-            # For now, we will add update_position logic here directly via execute
-            
             conn = self.db._get_conn()
             cursor = conn.cursor()
             
@@ -121,14 +103,14 @@ class PositionTracker:
                 exit_timestamp = ?,
                 pnl_usd = ?,
                 pnl_percent = ?,
-                status = 'CLOSED',
+                status = ?,
                 updated_at = ?
             WHERE id = ?
             """
             
             cursor.execute(sql, (
                 price, amount, value_usd, tx_hash, int(time.time()),
-                pnl_usd, pnl_percent, int(time.time()), position_id
+                pnl_usd, pnl_percent, new_status, int(time.time()), position_id
             ))
             
             conn.commit()

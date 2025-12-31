@@ -534,31 +534,60 @@ async def main():
                             sl_pct = limits.get('stop_loss_percent', -50)
                             
                             
+                            
                             if pnl_pct >= tp_pct:
-                                print(f"{Fore.GREEN}🚀 TP HIT for {pos['token_address']}! PnL: {pnl_pct:.1f}%")
-                                success = await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                print(f"{Fore.GREEN}🚀 TP HIT! Securing MOONBAG (50%)...")
+                                
+                                # SELL 50%
+                                sell_amount = int(pos['entry_amount'] / 2)
+                                
+                                success, msg = await trade_executor.execute_sell(
+                                    pos['chain'], 
+                                    pos['token_address'], 
+                                    sell_amount, 
+                                    pos['id'],
+                                    new_status='MOONBAG'
+                                )
                                 
                                 if success and telegram and telegram.enabled:
+                                    profit_amt = current_val_usd / 2
                                     await telegram.send_message_async(
-                                        f"💰 *TAKE PROFIT EXECUTED* ✅\n"
-                                        f"Chain: {pos['chain'].upper()}\n"
-                                        f"Contract: `{pos['token_address']}`\n"
-                                        f"PnL: +{pnl_pct:.1f}%\n"
-                                        f"Value: ${current_val_usd:.2f}"
+                                        f"💰 *MOONBAG SECURED* (Profit +{pnl_pct:.0f}%)\n"
+                                        f"--------------------------------\n"
+                                        f"Token: `{pos['token_address']}`\n"
+                                        f"Sold: 50% Position\n"
+                                        f"Profit Realized: ${profit_amt:.2f} (Initial Cap Back)\n"
+                                        f"Running Bag: ${profit_amt:.2f} (Pure Profit)\n"
+                                        f"Status: HANDOVER TO MANUAL 🤲"
                                     )
+                                elif not success:
+                                     print(f"{Fore.RED}❌ TP Exec Failed: {msg}")
                             
                             elif pnl_pct <= sl_pct:
-                                print(f"{Fore.RED}🛑 SL HIT for {pos['token_address']}! PnL: {pnl_pct:.1f}%")
-                                success = await trade_executor.execute_sell(pos['chain'], pos['token_address'], pos['entry_amount'], pos['id'])
+                                print(f"{Fore.RED}🛑 SL HIT! Closing Position...")
+                                
+                                # SELL 100%
+                                sell_amount = pos['entry_amount']
+                                
+                                success, msg = await trade_executor.execute_sell(
+                                    pos['chain'], 
+                                    pos['token_address'], 
+                                    sell_amount, 
+                                    pos['id'],
+                                    new_status='CLOSED'
+                                )
                                 
                                 if success and telegram and telegram.enabled:
                                     await telegram.send_message_async(
-                                        f"🛑 *STOP LOSS EXECUTED* ⚠️\n"
-                                        f"Chain: {pos['chain'].upper()}\n"
-                                        f"Contract: `{pos['token_address']}`\n"
-                                        f"PnL: {pnl_pct:.1f}%\n"
-                                        f"Remaining Value: ${current_val_usd:.2f}"
+                                        f"🛑 *STOP LOSS EXECUTED* ({pnl_pct:.0f}%)\n"
+                                        f"--------------------------------\n"
+                                        f"Token: `{pos['token_address']}`\n"
+                                        f"Sold: 100% Position\n"
+                                        f"Recovered: ${current_val_usd:.2f}\n"
+                                        f"Status: POSITION CLOSED 💀"
                                     )
+                                elif not success:
+                                     print(f"{Fore.RED}❌ SL Exec Failed: {msg}")
                                 
                         except Exception as e:
                             print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {e}")
@@ -1083,20 +1112,35 @@ async def main():
                                             if trade_executor and TradingConfig.is_trading_enabled():
                                                 try:
                                                     print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
-                                                    tx_success = await trade_executor.execute_buy(
+                                                    tx_success, msg = await trade_executor.execute_buy(
                                                         chain=chain_name,
                                                         token_address=pair_data.get('token_address'),
                                                         signal_score=check_score
                                                     )
                                                     
                                                     if tx_success:
-                                                        print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL")
+                                                        print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"🤖 *AUTO-TRADE EXECUTED* ✅\nSuccess buy {pair_data.get('token_symbol')}\nChain: {chain_name.upper()}")
+                                                            await telegram.send_message_async(
+                                                                f"🤖 *AUTO-BUY EXECUTED* ✅\n"
+                                                                f"--------------------------------\n"
+                                                                f"Token: {pair_data.get('token_symbol')} `{pair_data.get('token_address')}`\n"
+                                                                f"Chain: {chain_name.upper()}\n"
+                                                                f"Score: {check_score:.1f}\n"
+                                                                f"Tx Hash: {msg}\n"
+                                                                f"Status: MOONING SOON? 🚀"
+                                                            )
                                                     else:
-                                                        print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED")
+                                                        print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"❌ *AUTO-TRADE FAILED*\nToken: {pair_data.get('token_symbol')}\nChain: {chain_name.upper()}\nCheck Logs for details.")
+                                                            await telegram.send_message_async(
+                                                                f"❌ *AUTO-BUY FAILED*\n"
+                                                                f"--------------------------------\n"
+                                                                f"Token: {pair_data.get('token_symbol')}\n"
+                                                                f"Chain: {chain_name.upper()}\n"
+                                                                f"Reason: {msg}\n"
+                                                                f"Action: Check wallet/RPC."
+                                                            )
                                                 except Exception as trade_e:
                                                     print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
                                         
