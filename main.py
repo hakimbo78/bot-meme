@@ -792,9 +792,9 @@ async def main():
                         chain = pair_data.get('chain', 'unknown')
                         
                         # ================================================
-                        # SOLANA PROCESSING
+                        # SOLANA PROCESSING (Native On-Chain)
                         # ================================================
-                        if chain == 'solana':
+                        if chain == 'solana' and pair_data.get('source_type') != 'offchain':
                             sol_token = pair_data
                             try:
                                 token_address = sol_token.get('token_address', '')
