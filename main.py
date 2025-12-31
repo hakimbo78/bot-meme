@@ -1225,6 +1225,10 @@ async def main():
                                                 # SECURITY GUARD: Deep Check (Holders & Risk)
                                                 try:
                                                     print(f"{Fore.CYAN}    🛡️ Running Deep Security Check (Holders & Risk)...")
+                                                    
+                                                    # Helper for telegram escape
+                                                    def esc(t): return str(t).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                                                    
                                                     sniff_w3 = adapter.w3 if (chain_name != 'solana' and adapter) else None
                                                     ts_analyzer = TokenSnifferAnalyzer(sniff_w3, chain_name)
                                                     sec_data = ts_analyzer.analyze_comprehensive(pair_data['token_address'])
@@ -1234,7 +1238,7 @@ async def main():
                                                     if risk_lvl == 'CRITICAL':
                                                         print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: CRITICAL RISK DETECTED")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: Critical Risk (Honeypot/Mint/Blacklist)")
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: Critical Risk (Honeypot/Mint/Blacklist)")
                                                         continue
                                                     
                                                     # 2. Check Top 10 Holders
@@ -1242,7 +1246,7 @@ async def main():
                                                     if top10 > 70:
                                                         print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Top 10 Holders Own {top10:.1f}% (>70%)")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: High Supply Concentration (Top 10: {top10:.1f}%)")
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: High Supply Concentration (Top 10: {top10:.1f}%)")
                                                         continue
 
                                                     # 3. Check Liquidity Lock (Anti-Rugpull)
@@ -1251,7 +1255,7 @@ async def main():
                                                     if locked_pct < 80: # Allow small unlocked portion, but require majority locked/burned
                                                         print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Liquidity Not Locked ({locked_pct:.0f}% < 80%)")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{pair_data.get('token_symbol')}`\nReason: Liquidity Not Locked (Risk of Pull)")
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: Liquidity Not Locked (Risk of Pull)")
                                                         continue
                                                         
                                                     print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%, LiqLocked: {locked_pct:.0f}%)")
