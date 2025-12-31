@@ -157,56 +157,61 @@ class WalletManager:
         try:
             import base64
             
-            # Get keypair
             keypair = wallet['keypair']
-            
-            # OKX returns a fully serialized versioned transaction
-            # We need to:
-            # 1. Decode the base64
-            # 2. Parse it as VersionedTransaction
-            # 3. Sign the message
-            # 4. Create new transaction with signature
-            # 5. Serialize back
-            
             tx_bytes = base64.b64decode(tx_base64)
             
-            # Try different approaches based on what works
-            try:
-                from solders.transaction import VersionedTransaction
-                from solders.message import Message
-                from solders.signature import Signature
+            logger.info(f"Transaction bytes length: {len(tx_bytes)}")
+            
+            # Manual signing approach for Solana
+            # Solana transaction format:
+            # [1 byte: num_signatures][signatures: 64*num_sigs][message]
+            # For unsigned tx from OKX, signatures are usually zeros
+            
+            # Extract number of signatures (first byte)
+            if len(tx_bytes) < 1:
+                raise ValueError("Transaction too short")
                 
-                # Parse transaction
-                tx = VersionedTransaction.from_bytes(tx_bytes)
-                
-                # Sign the message
-                message_bytes = bytes(tx.message)
-                signature = keypair.sign_message(message_bytes)
-                
-                # Create new transaction with signature
-                signed_tx = VersionedTransaction.populate(tx.message, [signature])
-                
-                # Serialize
-                signed_bytes = bytes(signed_tx)
-                return base64.b64encode(signed_bytes).decode('utf-8')
-                
-            except Exception as e1:
-                logger.warning(f"VersionedTransaction signing failed: {e1}, trying alternative method")
-                
-                # Alternative: Use the solana-py library which is more forgiving
-                try:
-                    from solana.transaction import Transaction
-                    
-                    # For now, return unsigned transaction and log warning
-                    # This is a fallback - in production, proper signing is needed
-                    logger.error("Solana signing not fully implemented for this transaction format")
-                    logger.error(f"Transaction bytes length: {len(tx_bytes)}")
-                    
-                    # Return unsigned (will fail at broadcast, but helps debug)
-                    return tx_base64
-                    
-                except Exception as e2:
-                    raise Exception(f"All Solana signing methods failed: {e1}, {e2}")
+            num_signatures = tx_bytes[0]
+            logger.info(f"Number of signatures expected: {num_signatures}")
+            
+            # Calculate where message starts
+            # 1 byte (num_sigs) + 64 * num_sigs (signature bytes)
+            signature_section_len = 1 + (64 * num_signatures)
+            
+            if len(tx_bytes) < signature_section_len:
+                raise ValueError(f"Transaction too short for {num_signatures} signatures")
+            
+            # Extract message (everything after signatures)
+            message_bytes = tx_bytes[signature_section_len:]
+            logger.info(f"Message bytes length: {len(message_bytes)}")
+            
+            # Sign the message
+            signature = keypair.sign_message(message_bytes)
+            signature_bytes = bytes(signature)
+            logger.info(f"Signature bytes length: {len(signature_bytes)}")
+            
+            # Reconstruct transaction with our signature
+            # Put our signature first (replacing first placeholder)
+            signed_tx_bytes = bytearray()
+            signed_tx_bytes.append(num_signatures)  # Keep same number of signatures
+            signed_tx_bytes.extend(signature_bytes)  # Our signature (64 bytes)
+            
+            # Add remaining placeholder signatures if there were more than 1
+            if num_signatures > 1:
+                # Keep other signatures as-is (they were placeholders or other signers)
+                remaining_sigs = tx_bytes[1 + 64: signature_section_len]
+                signed_tx_bytes.extend(remaining_sigs)
+            
+            # Add the message back
+            signed_tx_bytes.extend(message_bytes)
+            
+            # Encode back to base64
+            signed_tx_base64 = base64.b64encode(bytes(signed_tx_bytes)).decode('utf-8')
+            
+            logger.info(f"Successfully signed transaction manually")
+            logger.info(f"Signed tx length: {len(signed_tx_bytes)}")
+            
+            return signed_tx_base64
             
         except Exception as e:
             logger.error(f"Solana signing failed: {e}")
