@@ -41,6 +41,16 @@ DEGEN_SNIPER_CONFIG = {
         'min_volume_24h': 10000,             # NEW requirement (HYBRID)
         'require_h24_volume': True,         # Enforce volume check (HYBRID)
         'max_age_hours': None,              # Removed for Revival Rule
+        
+        # OPTIMIZED QUALITY METRICS (Requested)
+        'quality_check': {
+            'min_holders': 50,                # Enforced in On-Chain Verify
+            'contract_verified': True,        # Enforced in On-Chain Verify
+            'max_buy_tax': 10,                # Enforced in On-Chain Verify
+            'max_sell_tax': 10,               # Enforced in On-Chain Verify
+            'socials_check': True,            # Filter pairs without socials (if data avail)
+            'min_unique_buyers_5m': 3,        # Estimated proxy
+        },
     },
     
     # ================================================================

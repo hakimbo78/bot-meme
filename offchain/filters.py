@@ -145,6 +145,13 @@ class OffChainFilter:
         if is_zombie:
             return False, f"ZOMBIE (age={age_days:.1f}d, no activity)"
             
+        # Check Quality Guardrails (Enhanced Filters)
+        quality_check = self.global_guardrails.get('quality_check', {})
+        if quality_check.get('socials_check', False):
+            # Only drop if we are SURE there are no socials (has_socials is explicitly False)
+            if pair.get('has_socials') is False:
+                return False, "NO_SOCIALS (Requirement: Telegram/X/Web)"
+            
         return True, None
         
     def _check_level1_and_revival(self, pair: Dict) -> Tuple[bool, Optional[str]]:

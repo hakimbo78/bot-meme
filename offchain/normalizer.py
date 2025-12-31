@@ -114,6 +114,12 @@ class PairNormalizer:
         if age_days < 1.0:
             event_type = "NEW_PAIR"
         
+        # Extract metadata
+        info = raw_pair.get('info', {})
+        socials = info.get('socials', [])
+        websites = info.get('websites', [])
+        has_socials = (len(socials) > 0 or len(websites) > 0)
+
         return {
             "chain": chain,
             "pair_address": pair_address,
@@ -129,7 +135,8 @@ class PairNormalizer:
             "age_days": age_days,
             "offchain_score": 0, # To be calculated by filter
             "event_type": event_type,
-            "source": source
+            "source": source,
+            "has_socials": has_socials
         }
     
     def normalize_dextools(self, raw_pair: Dict, source: str = "dextools") -> Dict:
