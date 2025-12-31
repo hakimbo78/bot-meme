@@ -1218,8 +1218,8 @@ async def main():
                                                             f"Token: {pair_data.get('token_symbol')}\n"
                                                             f"Chain: {chain_name.upper()}\n"
                                                             f"Reason: {msg}\n"
-                                                                f"Action: Check wallet/RPC."
-                                                            )
+                                                            f"Action: Check wallet/RPC."
+                                                        )
                                                 except Exception as trade_e:
                                                     print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
                                         
