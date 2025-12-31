@@ -1127,83 +1127,97 @@ async def main():
                                         final_score = (offchain_score * offchain_weight) + (onchain_score * onchain_weight)
                                         
                                         print(f"{Fore.GREEN}    📊 Final Score: {final_score:.1f} (Off: {offchain_score:.0f}, On: {onchain_score:.0f})")
-                                        
-                                        # 4. DECISION & ALERT
-                                        check_score = final_score
-                                        
-                                        # Get thresholds safely
-                                        if chain_config:
-                                            thresholds = chain_config.get('alert_thresholds', {})
-                                        elif solana_score_engine:
-                                            thresholds = solana_score_engine.get_thresholds()
-                                        else:
-                                            # Default fallback thresholds
-                                            thresholds = {'INFO': 40, 'WATCH': 60, 'TRADE': 75}
-                                        
-                                        # Use TradingConfig as authoritative source for TRADING threshold
-                                        trade_threshold = TradingConfig.get_config()['trading'].get('min_signal_score', thresholds.get('TRADE', 75))
-                                        
-                                        if check_score >= trade_threshold:
-                                            print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")
-                                            onchain_score_data['verdict'] = 'TRADE'
-                                            onchain_score_data['score'] = check_score
-                                            # Send updated alert if needed or just log
-                                            # Send updated alert if needed or just log
-                                            if telegram.enabled:
-                                                await telegram.send_message_async(f"🚀 *FINAL VALIDATION PASSED*\n{pair_data.get('token_symbol')} ({chain_name.upper()})\nFinal Score: {check_score:.1f}\nStatus: RPC VERIFIED ✅")
+                                    else:
+                                        # FALLBACK: On-chain verification unavailable/failed
+                                        # Use off-chain score only
+                                        print(f"{Fore.YELLOW}    ⚠️  On-chain verification unavailable, using off-chain score only")
+                                        final_score = offchain_score
+                                        onchain_score_data = {'score': offchain_score, 'verdict': 'OFFCHAIN_ONLY', 'risk_flags': []}
+                                        print(f"{Fore.GREEN}    📊 Final Score: {final_score:.1f} (Off-chain Only)")
+                                    
+                                    # 4. DECISION & ALERT
+                                    check_score = final_score
+                                    
+                                    # Get thresholds safely
+                                    chain_config = None
+                                    if chain_name != 'solana':
+                                        try:
+                                            chain_config = scanner.get_chain_config(chain_name)
+                                        except:
+                                            pass
+                                    
+                                    if chain_config:
+                                        thresholds = chain_config.get('alert_thresholds', {})
+                                    elif solana_score_engine:
+                                        thresholds = solana_score_engine.get_thresholds()
+                                    else:
+                                        # Default fallback thresholds
+                                        thresholds = {'INFO': 40, 'WATCH': 60, 'TRADE': 75}
+                                    
+                                    # Use TradingConfig as authoritative source for TRADING threshold
+                                    trade_threshold = TradingConfig.get_config()['trading'].get('min_signal_score', thresholds.get('TRADE', 75))
+                                    
+                                    if check_score >= trade_threshold:
+                                        print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")
+                                        onchain_score_data['verdict'] = 'TRADE'
+                                        onchain_score_data['score'] = check_score
+                                        # Send updated alert if needed or just log
+                                        # Send updated alert if needed or just log
+                                        if telegram.enabled:
+                                            await telegram.send_message_async(f"🚀 *FINAL VALIDATION PASSED*\n{pair_data.get('token_symbol')} ({chain_name.upper()})\nFinal Score: {check_score:.1f}\nStatus: RPC VERIFIED ✅")
 
-                                            # AUTO-TRADING EXECUTION
-                                            if trade_executor and TradingConfig.is_trading_enabled():
+                                        # AUTO-TRADING EXECUTION
+                                        if trade_executor and TradingConfig.is_trading_enabled():
+                                            try:
+                                                # FOMO GUARD: Check Volatility
+                                                # Access config safely
+                                                fomo_limit = 100.0
                                                 try:
-                                                    # FOMO GUARD: Check Volatility
-                                                    # Access config safely
-                                                    fomo_limit = 100.0
-                                                    try:
-                                                        fomo_limit = offchain_screener.config['scoring_v3'].get('max_price_change_5m', 100.0)
-                                                    except:
-                                                        pass
-                                                        
-                                                    current_pump = pair_data.get('price_change_m5', 0)
+                                                    fomo_limit = offchain_screener.config['scoring_v3'].get('max_price_change_5m', 100.0)
+                                                except:
+                                                    pass
                                                     
-                                                    if current_pump > fomo_limit:
-                                                        print(f"{Fore.YELLOW}    🛡️  FOMO GUARD: Skipped (Pump +{current_pump:.1f}% > {fomo_limit}%)")
-                                                        if telegram.enabled:
-                                                            await telegram.send_message_async(
-                                                                f"🛡️ *AUTO-BUY SKIPPED*\n"
-                                                                f"Token: {pair_data.get('token_symbol')}\n"
-                                                                f"Reason: Pumped +{current_pump:.0f}% in 5m (Risky)\n"
-                                                                f"Guard Limit: +{fomo_limit:.0f}%"
-                                                            )
-                                                        continue
+                                                current_pump = pair_data.get('price_change_m5', 0)
+                                                
+                                                if current_pump > fomo_limit:
+                                                    print(f"{Fore.YELLOW}    🛡️  FOMO GUARD: Skipped (Pump +{current_pump:.1f}% > {fomo_limit}%)")
+                                                    if telegram.enabled:
+                                                        await telegram.send_message_async(
+                                                            f"🛡️ *AUTO-BUY SKIPPED*\n"
+                                                            f"Token: {pair_data.get('token_symbol')}\n"
+                                                            f"Reason: Pumped +{current_pump:.0f}% in 5m (Risky)\n"
+                                                            f"Guard Limit: +{fomo_limit:.0f}%"
+                                                        )
+                                                    continue
 
-                                                    print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
-                                                    tx_success, msg = await trade_executor.execute_buy(
-                                                        chain=chain_name,
-                                                        token_address=pair_data.get('token_address'),
-                                                        signal_score=check_score
-                                                    )
-                                                    
-                                                    if tx_success:
-                                                        print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
-                                                        if telegram.enabled:
-                                                            await telegram.send_message_async(
-                                                                f"🤖 *AUTO-BUY EXECUTED* ✅\n"
-                                                                f"--------------------------------\n"
-                                                                f"Token: {pair_data.get('token_symbol')} `{pair_data.get('token_address')}`\n"
-                                                                f"Chain: {chain_name.upper()}\n"
-                                                                f"Score: {check_score:.1f}\n"
-                                                                f"Tx Hash: {msg}\n"
-                                                                f"Status: MOONING SOON? 🚀"
-                                                            )
-                                                    else:
-                                                        print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
-                                                        if telegram.enabled:
-                                                            await telegram.send_message_async(
-                                                                f"❌ *AUTO-BUY FAILED*\n"
-                                                                f"--------------------------------\n"
-                                                                f"Token: {pair_data.get('token_symbol')}\n"
-                                                                f"Chain: {chain_name.upper()}\n"
-                                                                f"Reason: {msg}\n"
+                                                print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
+                                                tx_success, msg = await trade_executor.execute_buy(
+                                                    chain=chain_name,
+                                                    token_address=pair_data.get('token_address'),
+                                                    signal_score=check_score
+                                                )
+                                                
+                                                if tx_success:
+                                                    print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
+                                                    if telegram.enabled:
+                                                        await telegram.send_message_async(
+                                                            f"🤖 *AUTO-BUY EXECUTED* ✅\n"
+                                                            f"--------------------------------\n"
+                                                            f"Token: {pair_data.get('token_symbol')} `{pair_data.get('token_address')}`\n"
+                                                            f"Chain: {chain_name.upper()}\n"
+                                                            f"Score: {check_score:.1f}\n"
+                                                            f"Tx Hash: {msg}\n"
+                                                            f"Status: MOONING SOON? 🚀"
+                                                        )
+                                                else:
+                                                    print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
+                                                    if telegram.enabled:
+                                                        await telegram.send_message_async(
+                                                            f"❌ *AUTO-BUY FAILED*\n"
+                                                            f"--------------------------------\n"
+                                                            f"Token: {pair_data.get('token_symbol')}\n"
+                                                            f"Chain: {chain_name.upper()}\n"
+                                                            f"Reason: {msg}\n"
                                                                 f"Action: Check wallet/RPC."
                                                             )
                                                 except Exception as trade_e:
