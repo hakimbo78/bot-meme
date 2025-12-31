@@ -36,9 +36,9 @@ DEGEN_SNIPER_CONFIG = {
     # GLOBAL GUARDRAILS (LEVEL-0) - TIGHTENED FOR QUALITY
     # ================================================================
     'global_guardrails': {
-        'min_liquidity_usd': 2000,          # Was 500 → 4x stricter (HYBRID)
+        'min_liquidity_usd': 20000,          # Was 500 → 4x stricter (HYBRID)
         'min_tx_5m': 3,                     # Was 1 → 3x stricter (HYBRID)
-        'min_volume_24h': 1000,             # NEW requirement (HYBRID)
+        'min_volume_24h': 10000,             # NEW requirement (HYBRID)
         'require_h24_volume': True,         # Enforce volume check (HYBRID)
         'max_age_hours': None,              # Removed for Revival Rule
     },
@@ -71,7 +71,7 @@ DEGEN_SNIPER_CONFIG = {
     'deduplication': {
         'pair_cooldown_minutes': 15,    # 15 min pair dedup
         'token_cooldown_minutes': 30,   # 30 min token dedup
-        'allow_duplicate_score_threshold': 55 # Allow duplicate if score >= 55
+        'allow_duplicate_score_threshold': 75 # Allow duplicate if score >= 75
     },
     
     # ================================================================
@@ -84,12 +84,12 @@ DEGEN_SNIPER_CONFIG = {
             'rate_limit': 300  # 1 per 5 mins per chain (approx, exact logic in integration)
         },
         'mid': {
-            'min_score': 45,
-            'max_score': 64,
+            'min_score': 65,
+            'max_score': 70,
             'rate_limit': 0    # Normal alert (no specific rate limit mentioned, assume immediate or standard)
         },
         'high': {
-            'min_score': 65,
+            'min_score': 75,
             'max_score': 100,
             'rate_limit': 0    # No limit
         }
