@@ -563,13 +563,16 @@ async def main():
                                 slippage=0.01
                             )
                             
-                            if not quote: continue
+                            current_val_usd = 0
                             
-                            # 3. Calculate Valuation
-                            # toTokenAmount is raw output amount
-                            raw_out = float(quote.get('toTokenAmount', '0'))
-                            real_out = raw_out / (10 ** decimals)
-                            current_val_usd = real_out * native_price
+                            if quote:
+                                # 3. Calculate Valuation
+                                # toTokenAmount is raw output amount
+                                raw_out = float(quote.get('toTokenAmount', '0'))
+                                real_out = raw_out / (10 ** decimals)
+                                current_val_usd = real_out * native_price
+                            else:
+                                print(f"{Fore.RED}⚠️  No quote for {pos['token_address']} - Assuming Liquidity Gone (Val=0)")
                             
                             # 4. Calculate PnL
                             entry_usd = float(pos['entry_value_usd'])
