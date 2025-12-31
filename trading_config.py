@@ -32,7 +32,7 @@ TRADING_CONFIG = {
         'budget_per_trade_usd': 2.0,  # $2 for safe testing
         'max_open_positions': 2,
         'max_position_per_token': 1,  # Only 1 position per token
-        'min_signal_score': 55,  # Only trade MID/HIGH tier
+        'min_signal_score': 75,  # Only trade MID/HIGH tier
     },
     
     # RISK MANAGEMENT (Aggressive)
@@ -40,7 +40,7 @@ TRADING_CONFIG = {
         'check_honeypot': True,
         'max_buy_tax': 15,  # 15% max buy tax (aggressive)
         'max_sell_tax': 15,  # 15% max sell tax (aggressive)
-        'min_liquidity_usd': 2000,  # $2K min liquidity
+        'min_liquidity_usd': 20000,  # $20K min liquidity
         'max_slippage': 0.05,  # 0.05% max slippage (aggressive)
         'min_liquidity_check': True,
     },
