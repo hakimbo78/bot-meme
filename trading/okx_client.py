@@ -38,14 +38,22 @@ class OKXDexClient:
         import os
         from dotenv import load_dotenv
         load_dotenv()
-        self.api_key = os.getenv('OKX_API_KEY')
-        self.secret_key = os.getenv('OKX_SECRET_KEY')
-        self.passphrase = os.getenv('OKX_PASSPHRASE')
+        self.api_key = (os.getenv('OKX_API_KEY') or '').strip().strip('"').strip("'")
+        self.secret_key = (os.getenv('OKX_SECRET_KEY') or '').strip().strip('"').strip("'")
+        self.passphrase = (os.getenv('OKX_PASSPHRASE') or '').strip().strip('"').strip("'")
         
+        # DEBUG: Print credential status (Partial)
+        if self.api_key:
+            logger.info(f"Loaded API Key: {self.api_key[:4]}...{self.api_key[-4:]}")
+        else:
+            logger.error("OKX API Key NOT FOUND in env")
+
     def _get_timestamp(self):
-        from datetime import datetime
-        # ISO 8601 format: 2020-12-08T09:08:57.715Z
-        return datetime.utcnow().isoformat(timespec='milliseconds') + 'Z'
+        from datetime import datetime, timezone
+        # Use timezone-aware UTC
+        now = datetime.now(timezone.utc)
+        # Format: 2020-12-08T09:08:57.715Z
+        return now.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
     def _sign_request(self, timestamp, method, request_path, body=''):
         import hmac
@@ -53,6 +61,8 @@ class OKXDexClient:
         import base64
         
         message = f"{timestamp}{method}{request_path}{body}"
+        # logger.info(f"Signing Message: {message}") # Uncomment for deeper debug
+        
         mac = hmac.new(
             bytes(self.secret_key, encoding='utf8'),
             bytes(message, encoding='utf-8'),
