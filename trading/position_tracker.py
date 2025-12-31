@@ -122,6 +122,30 @@ class PositionTracker:
             logger.error(f"Failed to record sell: {e}")
             return False
 
+    def force_close_position(self, position_id: int, reason: str = "MANUAL_EXIT") -> bool:
+        """Force close a position (e.g. detected manual sell)."""
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            # Update status only
+            sql = """
+            UPDATE positions SET
+                status = 'CLOSED',
+                exit_tx_hash = ?,
+                exit_timestamp = ?,
+                updated_at = ?
+            WHERE id = ?
+            """
+            cursor.execute(sql, (reason, int(time.time()), int(time.time()), position_id))
+            conn.commit()
+            conn.close()
+            logger.info(f"Position {position_id} FORCE CLOSED (Reason: {reason})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to force close pos {position_id}: {e}")
+            return False
+
     def update_pnl(self, position_id: int, current_price: float):
         """Update realtime PnL for a position."""
         try:

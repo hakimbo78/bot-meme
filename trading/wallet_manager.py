@@ -276,3 +276,49 @@ class WalletManager:
             return self.sign_transaction_evm(chain, tx_data)
         else:
             raise ValueError(f"Unsupported signing chain: {chain}")
+
+    def get_token_balance(self, chain: str, token_address: str) -> float:
+        """
+        Get token balance (raw). 
+        Returns:
+             >= 0: Active balance
+             -1.0: Failed or Not Supported (Ignore check)
+        """
+        chain = chain.lower()
+        if chain in ['base', 'ethereum', 'bsc', 'arbitrum']:
+            return self._get_evm_token_balance(chain, token_address)
+        # Solana not implemented yet for balance check
+        return -1.0
+
+    def _get_evm_token_balance(self, chain: str, token_address: str) -> float:
+        try:
+            from web3 import Web3
+            from .config_manager import ConfigManager
+            
+            wallet = self.get_wallet(chain)
+            if not wallet: return -1.0
+            
+            config = ConfigManager.get_config()
+            rpc_url = config['chains'].get(chain.lower(), {}).get('rpc_url')
+            if not rpc_url: return -1.0
+            
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            # Minimal ERC20 ABI
+            abi = [{
+                "constant": True,
+                "inputs": [{"name": "_owner", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "balance", "type": "uint256"}],
+                "type": "function"
+            }]
+            
+            target_address = Web3.to_checksum_address(token_address)
+            contract = w3.eth.contract(address=target_address, abi=abi)
+            
+            balance = contract.functions.balanceOf(wallet['address']).call()
+            return float(balance)
+            
+        except Exception as e:
+            logger.error(f"Failed to get balance for {chain}: {e}")
+            return -1.0

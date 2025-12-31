@@ -486,6 +486,31 @@ async def main():
                     
                     for pos in positions:
                         try:
+                            # 0. CHECK MANUAL SELL (Balance Check)
+                            # Detect if user sold tokens externally to close position in DB
+                            if trade_executor and trade_executor.wallet_manager:
+                                # Run sync method in thread to avoid blocking loop? 
+                                # For now direct call is acceptable as we added it as sync, but ideally to_thread
+                                try:
+                                    current_balance = trade_executor.wallet_manager.get_token_balance(pos['chain'], pos['token_address'])
+                                    
+                                    # If valid balance (>=0) and < 5% of entry amount (meaning >95% sold)
+                                    if current_balance >= 0 and current_balance < (pos['entry_amount'] * 0.05):
+                                        print(f"{Fore.YELLOW}⚠️  Detected MANUAL SELL for {pos['token_address']} (Bal: {current_balance})")
+                                        position_tracker.force_close_position(pos['id'], reason="MANUAL_SELL_DETECTED")
+                                        
+                                        if telegram and telegram.enabled:
+                                            await telegram.send_message_async(
+                                                f"⚠️ *MANUAL SELL DETECTED* 🕵️\n"
+                                                f"Token: `{pos['token_address']}`\n"
+                                                f"Action: Closing Position in DB.\n"
+                                                f"Status: MONITORING STOPPED 🛑"
+                                            )
+                                        continue # Stop monitoring this position
+                                except Exception as bal_e:
+                                    # Ignore balance check errors (e.g. RPC fail) to not disrupt monitoring
+                                    pass
+
                             # 1. Prepare Native Token Address for Quote
                             native_token = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
                             decimals = 18
