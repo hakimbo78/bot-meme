@@ -130,6 +130,24 @@ class WalletManager:
         }
         chain_id = chain_ids.get(chain.lower(), 1)
         
+        # Fetch nonce from RPC
+        try:
+            from web3 import Web3
+            # Get RPC URL from config
+            from .config_manager import ConfigManager
+            config = ConfigManager.get_config()
+            rpc_url = config['chains'].get(chain.lower(), {}).get('rpc_url')
+            
+            if rpc_url:
+                w3 = Web3(Web3.HTTPProvider(rpc_url))
+                nonce = w3.eth.get_transaction_count(account.address)
+            else:
+                logger.warning(f"No RPC URL for {chain}, using nonce=0")
+                nonce = 0
+        except Exception as e:
+            logger.warning(f"Failed to fetch nonce: {e}, using nonce=0")
+            nonce = 0
+        
         # Build transaction dict
         tx_to_sign = {
             'to': Web3.to_checksum_address(tx_dict.get('to')),  # Ensure checksum format
@@ -137,7 +155,7 @@ class WalletManager:
             'data': tx_dict.get('data', '0x'),
             'gas': int(tx_dict.get('gas', '200000')),  # OKX uses 'gas' not 'gasLimit'
             'chainId': chain_id,
-            'nonce': 0,  # Placeholder - in production, fetch from RPC
+            'nonce': nonce,  # Dynamic nonce from RPC
         }
         
         # Gas pricing
