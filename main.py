@@ -948,9 +948,11 @@ async def main():
                                                     if tx_success:
                                                         print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"🤖 *AUTO-TRADE EXECUTED* ✅\nSuccess buy {pair_data.get('token_symbol')}")
+                                                            await telegram.send_message_async(f"🤖 *AUTO-TRADE EXECUTED* ✅\nSuccess buy {pair_data.get('token_symbol')}\nChain: {chain_name.upper()}")
                                                     else:
                                                         print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED")
+                                                        if telegram.enabled:
+                                                            await telegram.send_message_async(f"❌ *AUTO-TRADE FAILED*\nToken: {pair_data.get('token_symbol')}\nChain: {chain_name.upper()}\nCheck Logs for details.")
                                                 except Exception as trade_e:
                                                     print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
                                         
