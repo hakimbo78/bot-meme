@@ -51,10 +51,18 @@ def test_auth():
     except Exception as e:
         print(f"Failed to check time: {e}")
 
-    # 2. Test Simple Auth (Get Balance or Config)
-    # Endpoint: /api/v5/account/config (Positional/Account mode info)
+    # 2. Test Simple Auth WITH PARAMS (Account Balance)
+    # Endpoint: /api/v5/account/balance?ccy=USDT
     method = 'GET'
-    path = '/api/v5/account/config'
+    path_base = '/api/v5/account/balance'
+    params = {'ccy': 'USDT'}
+    
+    # Sort params manually to simulate what we did in client
+    params = dict(sorted(params.items()))
+    
+    from urllib.parse import urlencode
+    query_string = urlencode(params)
+    path = f"{path_base}?{query_string}"
     
     timestamp = get_timestamp()
     signature = sign(timestamp, method, path)

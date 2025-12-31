@@ -117,6 +117,9 @@ class OKXDexClient:
             'slippage': str(slippage),
         }
         
+        # Sort params alphabetically
+        params = dict(sorted(params.items()))
+        
         from urllib.parse import urlencode
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
@@ -161,6 +164,9 @@ class OKXDexClient:
             'slippage': str(slippage),
             'userWalletAddress': user_wallet,
         }
+        
+        # Sort params alphabetically to match server signature requirement
+        params = dict(sorted(params.items()))
         
         from urllib.parse import urlencode
         query_string = urlencode(params)
