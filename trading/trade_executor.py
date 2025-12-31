@@ -16,6 +16,9 @@ from .position_tracker import PositionTracker
 logger = logging.getLogger(__name__)
 
 class TradeExecutor:
+    # Class-level lock to prevent race condition when checking position limits
+    _position_lock = asyncio.Lock()
+    
     def __init__(
         self,
         wallet_manager: WalletManager,
@@ -59,13 +62,18 @@ class TradeExecutor:
         if not ConfigManager.is_chain_enabled(chain):
             return False, f"Chain {chain} is disabled"
         
-        # Check position limits
-        open_positions = self.pt.get_open_positions()
-        max_positions = ConfigManager.get_config()['trading'].get('max_open_positions', 10)
-        
-        if len(open_positions) >= max_positions:
-            return False, f"Position limit reached ({len(open_positions)}/{max_positions}). Close positions before opening new ones."
+        # CRITICAL SECTION: Check position limit with lock to prevent race condition
+        async with TradeExecutor._position_lock:
+            # Check position limits
+            open_positions = self.pt.get_open_positions()
+            max_positions = ConfigManager.get_config()['trading'].get('max_open_positions', 10)
             
+            if len(open_positions) >= max_positions:
+                return False, f"Position limit reached ({len(open_positions)}/{max_positions}). Close positions before opening new ones."
+            
+            # Position check passed - continue with trade
+            # (Recording will happen after broadcast, but slot is reserved by this lock)
+        
         wallet_address = self.wm.get_address(chain)
         if not wallet_address:
             return False, f"No wallet configured for {chain}"

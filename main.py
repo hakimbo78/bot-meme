@@ -506,23 +506,36 @@ async def main():
                             # Detect if user sold tokens externally to close position in DB
                             if trade_executor and trade_executor.wm:
                                 try:
-                                    # Check if position was manually sold
-                                    # Get current token balance
-                                    current_balance = trade_executor.wm.get_token_balance(pos['chain'], pos['token_address'])
-                                    
-                                    # If valid balance (>=0) and < 5% of entry amount (meaning >95% sold)
-                                    if current_balance >= 0 and current_balance < (pos['entry_amount'] * 0.05):
-                                        print(f"{Fore.YELLOW}⚠️  Detected MANUAL SELL for {pos['token_address']} (Bal: {current_balance})")
-                                        position_tracker.force_close_position(pos['id'], reason="MANUAL_SELL_DETECTED")
-                                        
-                                        if telegram and telegram.enabled:
-                                            await telegram.send_message_async(
-                                                f"⚠️ *MANUAL SELL DETECTED* 🕵️\n"
-                                                f"Token: `{pos['token_address']}`\n"
-                                                f"Action: Closing Position in DB.\n"
-                                                f"Status: MONITORING STOPPED 🛑"
-                                            )
-                                        continue # Stop monitoring this position
+                                    # GRACE PERIOD: Skip for new positions (< 2 minutes old)
+                                    # This prevents false positives when transaction is still confirming
+                                    from datetime import datetime
+                                    if 'timestamp' in pos:
+                                        try:
+                                            pos_time = datetime.fromisoformat(pos['timestamp'])
+                                            age_seconds = (datetime.now() - pos_time).total_seconds()
+                                            if age_seconds < 120:  # Less than 2 minutes
+                                                # Skip manual sell check for brand new positions
+                                                pass
+                                            else:
+                                                # Check if position was manually sold
+                                                # Get current token balance
+                                                current_balance = trade_executor.wm.get_token_balance(pos['chain'], pos['token_address'])
+                                                
+                                                # If valid balance (>=0) and < 5% of entry amount (meaning >95% sold)
+                                                if current_balance >= 0 and current_balance < (pos['entry_amount'] * 0.05):
+                                                    print(f"{Fore.YELLOW}⚠️  Detected MANUAL SELL for {pos['token_address']} (Bal: {current_balance})")
+                                                    position_tracker.force_close_position(pos['id'], reason="MANUAL_SELL_DETECTED")
+                                                    
+                                                    if telegram and telegram.enabled:
+                                                        await telegram.send_message_async(
+                                                            f"⚠️ *MANUAL SELL DETECTED* 🕵️\n"
+                                                            f"Token: `{pos['token_address']}`\n"
+                                                            f"Action: Closing Position in DB.\n"
+                                                            f"Status: MONITORING STOPPED 🛑"
+                                                        )
+                                                    continue # Stop monitoring this position
+                                        except:
+                                            pass
                                 except Exception as bal_e:
                                     # Ignore balance check errors (e.g. RPC fail) to not disrupt monitoring
                                     pass
