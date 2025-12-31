@@ -328,10 +328,22 @@ class OffChainScreenerIntegration:
         return None
     
     def _determine_tier(self, score: float) -> str:
-        """Determine alert tier based on score."""
-        if score >= 70:
+        """Determine alert tier based on score, using config thresholds."""
+        tiers = self.config.get('telegram_tiers', {})
+        
+        # Default safety values if config missing
+        high_min = 75
+        mid_min = 50
+        
+        # Try to get from config
+        if 'high' in tiers:
+            high_min = tiers['high'].get('min_score', 75)
+        if 'mid' in tiers:
+            mid_min = tiers['mid'].get('min_score', 50)
+            
+        if score >= high_min:
             return 'HIGH'
-        elif score >= 50:
+        elif score >= mid_min:
             return 'MID'
         else:
             return 'LOW'
