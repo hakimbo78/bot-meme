@@ -61,7 +61,7 @@ class OKXDexClient:
         import base64
         
         message = f"{timestamp}{method}{request_path}{body}"
-        # logger.info(f"Signing Message: {message}") # Uncomment for deeper debug
+        logger.info(f"DEBUG SIGN STRING: [{message}]") # ACTIVE DEBUG
         
         mac = hmac.new(
             bytes(self.secret_key, encoding='utf8'),
