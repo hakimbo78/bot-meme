@@ -23,6 +23,10 @@ class OKXDexClient:
         'ethereum': '1',
     }
     
+    # Jupiter API for Solana
+    JUPITER_URL = "https://quote-api.jup.ag/v6"
+    SOL_MINT = "So11111111111111111111111111111111111111112"
+
     def __init__(self):
         self.session = None
 
@@ -35,27 +39,42 @@ class OKXDexClient:
         if self.session and not self.session.closed:
             await self.session.close()
 
-    async def get_quote(
-        self,
-        chain: str,
-        from_token: str,
-        to_token: str,
-        amount: str,
-        slippage: float = 0.01 
-    ) -> Optional[Dict]:
-        """
-        Get swap quote from OKX DEX.
+    async def get_quote(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float = 0.01) -> Optional[Dict]:
+        if chain.lower() == 'solana':
+            return await self._get_jupiter_quote(from_token, to_token, amount, slippage)
         
-        Args:
-            chain: Chain name (solana, base, ethereum)
-            from_token: Token to sell (address or 'native')
-            to_token: Token to buy (address)
-            amount: Amount in smallest unit (wei, lamports)
-            slippage: Slippage tolerance (0.01 = 1%)
+        # Fallback to OKX for other chains (requires Auth fix later)
+        return await self._get_okx_quote(chain, from_token, to_token, amount, slippage)
+
+    async def _get_jupiter_quote(self, from_token: str, to_token: str, amount: str, slippage: float) -> Optional[Dict]:
+        """Fetch quote from Jupiter (Solana)."""
+        # Handle Native SOL mapping
+        input_mint = self.SOL_MINT if from_token.lower() in ['native', 'sol'] else from_token
+        output_mint = self.SOL_MINT if to_token.lower() in ['native', 'sol'] else to_token
         
-        Returns:
-            Quote dict with route, price, gas estimate
-        """
+        url = f"{self.JUPITER_URL}/quote"
+        params = {
+            'inputMint': input_mint,
+            'outputMint': output_mint,
+            'amount': amount,
+            'slippageBps': int(slippage * 10000) # Jupiter uses basis points (1% = 100)
+        }
+        
+        try:
+            session = await self._get_session()
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data # Jupiter returns the route directly
+                else:
+                    text = await response.text()
+                    logger.error(f"[JUPITER] Quote Error {response.status}: {text}")
+                    return None
+        except Exception as e:
+            logger.error(f"[JUPITER] Exception: {e}")
+            return None
+
+    async def _get_okx_quote(self, chain, from_token, to_token, amount, slippage):
         chain_id = self.CHAIN_IDS.get(chain.lower())
         if not chain_id:
             logger.error(f"Unsupported chain: {chain}")
@@ -87,21 +106,42 @@ class OKXDexClient:
             logger.error(f"[OKX] Exception in get_quote: {e}")
             return None
 
-    async def get_swap_data(
-        self,
-        chain: str,
-        from_token: str,
-        to_token: str,
-        amount: str,
-        slippage: float,
-        user_wallet: str
-    ) -> Optional[Dict]:
-        """
-        Get swap transaction data.
+    async def get_swap_data(self, chain: str, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
+        if chain.lower() == 'solana':
+            return await self._get_jupiter_swap(from_token, to_token, amount, slippage, user_wallet)
         
-        Returns:
-            Transaction data ready to sign and send
-        """
+        return await self._get_okx_swap(chain, from_token, to_token, amount, slippage, user_wallet)
+
+    async def _get_jupiter_swap(self, from_token: str, to_token: str, amount: str, slippage: float, user_wallet: str) -> Optional[Dict]:
+        """Fetch swap transaction from Jupiter."""
+        # 1. Get Quote First (Jupiter requires quoteResponse in swap payload)
+        quote = await self._get_jupiter_quote(from_token, to_token, amount, slippage)
+        if not quote:
+            return None
+            
+        url = f"{self.JUPITER_URL}/swap"
+        payload = {
+            'quoteResponse': quote,
+            'userPublicKey': user_wallet,
+            'wrapAndUnwrapSol': True
+        }
+        
+        try:
+            session = await self._get_session()
+            async with session.post(url, json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # Jupiter returns {'swapTransaction': 'base64str'}
+                    return data
+                else:
+                    text = await response.text()
+                    logger.error(f"[JUPITER] Swap Error {response.status}: {text}")
+                    return None
+        except Exception as e:
+            logger.error(f"[JUPITER] Swap Exception: {e}")
+            return None
+
+    async def _get_okx_swap(self, chain, from_token, to_token, amount, slippage, user_wallet):
         chain_id = self.CHAIN_IDS.get(chain.lower())
         if not chain_id:
             return None

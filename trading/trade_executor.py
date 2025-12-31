@@ -105,8 +105,12 @@ class TradeExecutor:
             
         # 5. Sign Transaction
         try:
-            # tx_data comes from OKX 'tx' field
-            tx_payload = swap_data.get('tx')
+            # Handle different API response formats (Jupiter vs OKX)
+            if chain == 'solana' and 'swapTransaction' in swap_data:
+                tx_payload = swap_data['swapTransaction']
+            else:
+                tx_payload = swap_data.get('tx')
+                
             signed_tx = self.wm.sign_transaction(chain, tx_payload)
         except Exception as e:
             logger.error(f"Signing failed: {e}")
@@ -149,15 +153,28 @@ class TradeExecutor:
                     logger.error(f"EVM Broadcast failed: {e}")
                     return None
         elif chain == 'solana':
-            # Need RPC client for Solana
-            # Placeholder using generic request if solana lib available
             try:
                 from solana.rpc.async_api import AsyncClient
-                # TODO: Init client properly
-                # client = AsyncClient(rpc_url)
-                # resp = await client.send_raw_transaction(signed_tx)
-                pass 
-            except:
-                pass
+                import base64
                 
-        return "0xMOCKED_HASH_FOR_PHASE_2" # TODO: Remove mock
+                # Use public RPC or custom one
+                rpc_url = "https://api.mainnet-beta.solana.com"
+                
+                async with AsyncClient(rpc_url) as client:
+                    # Solana lib expects bytes
+                    tx_bytes = base64.b64decode(signed_tx)
+                    
+                    # Send
+                    resp = await client.send_raw_transaction(tx_bytes)
+                    
+                    if resp.value:
+                        return str(resp.value)
+                    else:
+                        logger.error(f"Solana Broadcast Error: {resp}")
+                        return None
+                        
+            except Exception as e:
+                logger.error(f"Solana Broadcast Exception: {e}")
+                return None
+                
+        return None
