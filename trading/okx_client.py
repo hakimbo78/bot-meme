@@ -38,51 +38,31 @@ class OKXDexClient:
         import os
         from dotenv import load_dotenv
         load_dotenv()
+        
+        # Trading API credentials (for CEX trading - not used for DEX)
         self.api_key = (os.getenv('OKX_API_KEY') or '').strip().strip('"').strip("'")
         self.secret_key = (os.getenv('OKX_SECRET_KEY') or '').strip().strip('"').strip("'")
         self.passphrase = (os.getenv('OKX_PASSPHRASE') or '').strip().strip('"').strip("'")
         
-        # DEBUG: Print credential status (Partial)
-        if self.api_key:
-            logger.info(f"Loaded API Key: {self.api_key[:4]}...{self.api_key[-4:]}")
+        # Web3/DEX API credentials (for DEX Aggregator)
+        self.web3_api_key = (os.getenv('OKX_WEB3_API_KEY') or '').strip().strip('"').strip("'")
+        self.web3_secret = (os.getenv('OKX_WEB3_SECRET') or '').strip().strip('"').strip("'")
+        
+        # DEBUG: Print credential status
+        if self.web3_api_key:
+            logger.info(f"Loaded Web3 API Key: {self.web3_api_key[:4]}...{self.web3_api_key[-4:]}")
         else:
-            logger.error("OKX API Key NOT FOUND in env")
+            logger.warning("OKX Web3 API Key NOT FOUND - DEX trading will fail")
 
-    def _get_timestamp(self):
-        from datetime import datetime, timezone
-        # Use timezone-aware UTC
-        now = datetime.now(timezone.utc)
-        # Format: 2020-12-08T09:08:57.715Z
-        return now.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-
-    def _sign_request(self, timestamp, method, request_path, body=''):
-        import hmac
-        import hashlib
-        import base64
-        
-        message = f"{timestamp}{method}{request_path}{body}"
-        logger.info(f"DEBUG SIGN STRING: [{message}]") # ACTIVE DEBUG
-        
-        mac = hmac.new(
-            bytes(self.secret_key, encoding='utf8'),
-            bytes(message, encoding='utf-8'),
-            digestmod=hashlib.sha256
-        )
-        d = mac.digest()
-        return base64.b64encode(d).decode('utf-8')
-
-    def _get_headers(self, method, request_path, body=''):
-        if not (self.api_key and self.secret_key and self.passphrase):
+    def _get_dex_headers(self):
+        """Get headers for DEX Aggregator API (Web3 API - simple token auth)"""
+        if not (self.web3_api_key and self.web3_secret):
+            logger.error("Web3 API credentials missing")
             return {}
             
-        timestamp = self._get_timestamp()
-        sign = self._sign_request(timestamp, method, request_path, body)
-        
         return {
-            'OK-ACCESS-KEY': self.api_key,
-            'OK-ACCESS-SIGN': sign,
-            'OK-ACCESS-TIMESTAMP': timestamp,
-            'OK-ACCESS-PASSPHRASE': self.passphrase,
+            'OK-ACCESS-KEY': self.web3_api_key,
+            'OK-ACCESS-TOKEN': self.web3_secret,
             'Content-Type': 'application/json'
         }
 
@@ -124,10 +104,7 @@ class OKXDexClient:
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
         
-        # TEST: DISABLE AUTH HEADERS
-        # headers = self._get_headers('GET', request_path)
-        headers = {}
-        
+        headers = self._get_dex_headers()
         url = f"https://www.okx.com{request_path}"
         
         try:
@@ -175,10 +152,7 @@ class OKXDexClient:
         query_string = urlencode(params)
         request_path = f"{path_base}?{query_string}"
         
-        # TEST: DISABLE AUTH HEADERS (Try Public Access)
-        # headers = self._get_headers('GET', request_path)
-        headers = {} 
-        
+        headers = self._get_dex_headers()
         url = f"https://www.okx.com{request_path}"
         logger.info(f"DEBUG FINAL SWAP URL: {url}")
         
