@@ -49,27 +49,10 @@ async def main():
                 wm.import_wallet_evm(pk_evm, 'base')
                 wm.import_wallet_evm(pk_evm, 'ethereum')
             except Exception as e:
-                print(f"DEBUG: EVM Load Error: {e}")
+                print(f"EVM Load Warning: {e}")
             
         pk_sol = os.getenv("PRIVATE_KEY_SOLANA")
-        print(f"DEBUG: Found Solana Key in ENV? {'YES' if pk_sol else 'NO'}")
-        
         if pk_sol:
-            print(f"DEBUG: Key length: {len(pk_sol)}")
-            # print(f"DEBUG: Key sample: {pk_sol[:4]}...{pk_sol[-4:]}") # Safe print
-            
-            # Direct debug attempt
-            try:
-                import base58
-                from solders.keypair import Keypair
-                decoded = base58.b58decode(pk_sol)
-                print(f"DEBUG: Decode Base58 OK. Bytes len: {len(decoded)}")
-                # Check for 64 bytes (private + public) or 32 bytes (seed/private only)
-                kp = Keypair.from_bytes(decoded)
-                print(f"DEBUG: Keypair OK. Pubkey: {kp.pubkey()}")
-            except Exception as e:
-                print(f"DEBUG: DIRECT IMPORT ERROR: {e}")
-
             # Official import
             wm.import_wallet_solana(pk_sol)
             
@@ -86,7 +69,7 @@ async def main():
         print(f"{Fore.GREEN}✅ Wallet loaded: {wallet}")
 
         # 3. Override Budget Config Temporarily
-        ConfigManager.update_budget(args.amount_usd)
+        ConfigManager.set_budget(args.amount_usd)
         
         # 4. Execute Trade
         print(f"{Fore.YELLOW}🚀 Executing BUY...")
