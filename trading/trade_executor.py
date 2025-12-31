@@ -105,14 +105,26 @@ class TradeExecutor:
             
         # DEBUG: Log response structure
         logger.info(f"DEBUG SWAP DATA KEYS: {list(swap_data.keys())}")
-        logger.info(f"DEBUG SWAP DATA: {str(swap_data)[:500]}")  # First 500 chars
             
         # 5. Sign Transaction
         try:
-            # tx_data comes from OKX 'tx' field
-            tx_payload = swap_data.get('tx')
-            logger.info(f"DEBUG TX PAYLOAD TYPE: {type(tx_payload)}")
-            logger.info(f"DEBUG TX PAYLOAD: {str(tx_payload)[:200]}")
+            # Extract transaction payload based on chain
+            if chain == 'solana':
+                # OKX returns nested structure for Solana: {'tx': {'data': 'base64...'}}
+                tx_dict = swap_data.get('tx', {})
+                if isinstance(tx_dict, dict):
+                    tx_payload = tx_dict.get('data')
+                else:
+                    tx_payload = tx_dict  # Fallback if format changes
+                    
+                if not tx_payload:
+                    logger.error("No transaction data found in OKX response")
+                    return False
+                    
+                logger.info(f"DEBUG TX PAYLOAD (Solana): {tx_payload[:100]}...")
+            else:
+                # EVM chains: OKX returns tx object directly
+                tx_payload = swap_data.get('tx')
             
             signed_tx = self.wm.sign_transaction(chain, tx_payload)
         except Exception as e:
