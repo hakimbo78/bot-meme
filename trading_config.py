@@ -8,7 +8,7 @@ TRADING_CONFIG = {
     # CHAIN SETTINGS (Dynamic enable/disable)
     'chains': {
         'solana': {
-            'enabled': False,
+            'enabled': True,
             'rpc_url': 'https://api.mainnet-beta.solana.com',
             'native_token': 'SOL',
             'min_native_balance': 0.01,  # Min SOL for gas
@@ -32,7 +32,7 @@ TRADING_CONFIG = {
         'budget_per_trade_usd': 2.0,  # $2 for safe testing
         'max_open_positions': 2,
         'max_position_per_token': 1,  # Only 1 position per token
-        'min_signal_score': 75,  # Only trade MID/HIGH tier
+        'min_signal_score': 85,  # Only trade MID/HIGH tier
     },
     
     # RISK MANAGEMENT (Aggressive)
@@ -48,8 +48,8 @@ TRADING_CONFIG = {
     # EXIT STRATEGY (Auto Stop-Loss & Take-Profit)
     'exit_strategy': {
         'enabled': True,
-        'stop_loss_percent': -30.0,      # Auto-sell at -30% loss
-        'take_profit_percent': 100.0,    # Auto-sell at +100% profit
+        'stop_loss_percent': -50.0,      # Auto-sell at -30% loss
+        'take_profit_percent': 500.0,    # Auto-sell at +500% profit
         'trailing_stop': False,           # Trailing stop-loss (future feature)
         'emergency_exit_liq_drop': 0.50, # Exit if liquidity drops >50%
         'monitor_interval_seconds': 30,   # Check every 30 seconds
@@ -58,7 +58,7 @@ TRADING_CONFIG = {
     # AUTO-SELL LIMITS
     'limits': {
         'auto_take_profit': True,
-        'take_profit_percent': 100,  # Sell at 100% profit (2x)
+        'take_profit_percent': 500,  # Sell at 500% profit (2x)
         'auto_stop_loss': True,
         'stop_loss_percent': -50,  # Stop loss at -50% (aggressive)
     },
