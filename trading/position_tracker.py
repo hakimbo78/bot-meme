@@ -1,0 +1,172 @@
+"""
+Position Tracker
+Manages trade recording, PnL calculation, and position updates.
+"""
+
+from .db_handler import TradingDB
+from typing import Dict, Optional, List
+import time
+import logging
+
+logger = logging.getLogger(__name__)
+
+class PositionTracker:
+    def __init__(self, db: TradingDB):
+        self.db = db
+
+    def record_buy(
+        self,
+        token_address: str,
+        chain: str,
+        wallet_address: str,
+        amount: float,
+        price: float,
+        value_usd: float,
+        tx_hash: str,
+        signal_score: float = 0
+    ) -> int:
+        """
+        Record a new buy position.
+        
+        Args:
+            token_address: Token contract address
+            chain: Chain name
+            wallet_address: Wallet used
+            amount: Token amount bought
+            price: Buy price per token
+            value_usd: Total USD value
+            tx_hash: Transaction hash
+            signal_score: Score from signal detected
+            
+        Returns:
+            position_id (int) or -1 if failed
+        """
+        try:
+            position_data = {
+                'token_address': token_address,
+                'chain': chain.lower(),
+                'wallet_address': wallet_address,
+                'entry_price': price,
+                'entry_amount': amount,
+                'entry_value_usd': value_usd,
+                'entry_tx_hash': tx_hash,
+                'entry_timestamp': int(time.time()),
+                'current_price': price,
+                'current_value_usd': value_usd,
+                'pnl_usd': 0.0,
+                'pnl_percent': 0.0,
+                'signal_score': signal_score,
+                'status': 'OPEN',
+                'created_at': int(time.time()),
+                'updated_at': int(time.time())
+            }
+            
+            pid = self.db.create_position(position_data)
+            logger.info(f"Recorded BUY for {token_address} (ID: {pid})")
+            return pid
+        except Exception as e:
+            logger.error(f"Failed to record buy: {e}")
+            return -1
+
+    def record_sell(
+        self,
+        position_id: int,
+        amount: float,
+        price: float,
+        value_usd: float,
+        tx_hash: str
+    ) -> bool:
+        """
+        Record a sell (close position).
+        
+        Args:
+            position_id: Position ID
+            amount: Amount sold
+            price: Sell price
+            value_usd: Total USD value realized
+            tx_hash: Transaction hash
+            
+        Returns:
+            True if successful
+        """
+        # Placeholder for full sell logic (partial sells logic would go here)
+        # For Phase 2, we assume full sell close
+        try:
+            # We need to calculate finalized PnL
+            # Ideally fetch original entry from DB
+            
+            # Simple SQL update for now (assuming DB handler has generic update or we add specific method)
+            # Since create_position is there, let's implement update_position in DB handler
+            # For now, we will add update_position logic here directly via execute
+            
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            # Get entry info
+            cursor.execute("SELECT entry_value_usd FROM positions WHERE id = ?", (position_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+                
+            entry_usd = row[0]
+            pnl_usd = value_usd - entry_usd
+            pnl_percent = (pnl_usd / entry_usd) * 100 if entry_usd > 0 else 0
+            
+            sql = """
+            UPDATE positions SET
+                exit_price = ?,
+                exit_amount = ?,
+                exit_value_usd = ?,
+                exit_tx_hash = ?,
+                exit_timestamp = ?,
+                pnl_usd = ?,
+                pnl_percent = ?,
+                status = 'CLOSED',
+                updated_at = ?
+            WHERE id = ?
+            """
+            
+            cursor.execute(sql, (
+                price, amount, value_usd, tx_hash, int(time.time()),
+                pnl_usd, pnl_percent, int(time.time()), position_id
+            ))
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Recorded SELL for Position {position_id}. PnL: ${pnl_usd:.2f} ({pnl_percent:.2f}%)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to record sell: {e}")
+            return False
+
+    def update_pnl(self, position_id: int, current_price: float):
+        """Update realtime PnL for a position."""
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT entry_amount, entry_value_usd FROM positions WHERE id = ?", (position_id,))
+            row = cursor.fetchone()
+            if not row:
+                return
+                
+            amount, entry_usd = row
+            current_value_usd = amount * current_price
+            pnl_usd = current_value_usd - entry_usd
+            pnl_percent = (pnl_usd / entry_usd) * 100 if entry_usd > 0 else 0
+            
+            sql = """
+            UPDATE positions SET
+                current_price = ?,
+                current_value_usd = ?,
+                pnl_usd = ?,
+                pnl_percent = ?,
+                updated_at = ?
+            WHERE id = ?
+            """
+            cursor.execute(sql, (current_price, current_value_usd, pnl_usd, pnl_percent, int(time.time()), position_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to update PnL for {position_id}: {e}")

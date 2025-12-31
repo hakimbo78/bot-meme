@@ -64,6 +64,20 @@ try:
 except ImportError as e:
     print(f"⚠️  Off-chain screener not available: {e}")
 
+# Trading Module (2025-12-31) - Auto-Trading Integration
+TRADING_MODULE_AVAILABLE = False
+try:
+    from trading.trade_executor import TradeExecutor
+    from trading.wallet_manager import WalletManager
+    from trading.okx_client import OKXDexClient
+    from trading.position_tracker import PositionTracker
+    from trading.db_handler import TradingDB
+    from trading.config_manager import ConfigManager as TradingConfig
+    from trading.telegram_trading import TelegramTrading
+    TRADING_MODULE_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Trading module not available: {e} (Install 'solders' for Solana support)")
+
 init(autoreset=True)
 
 def print_alert(token_data, score_data):
@@ -119,6 +133,8 @@ async def main():
                         help="Enable running token scanner for post-launch rally detection")
     parser.add_argument("--solana-only", action="store_true",
                         help="Only monitor Solana (Pump.fun, Raydium, Jupiter)")
+    parser.add_argument("--offchain", action="store_true",
+                        help="Enable off-chain screener (GeckoTerminal + Auto-Trading)")
     args = parser.parse_args()
 
     # Import multi-chain components
@@ -434,6 +450,53 @@ async def main():
             print(f"{Fore.CYAN}🔄 Auto-upgrade: ENABLED")
             print(f"{Fore.CYAN}    - Cooldown: {AUTO_UPGRADE_COOLDOWN_SECONDS}s between upgrades")
             print(f"{Fore.CYAN}    - Max wait: {AUTO_UPGRADE_MAX_WAIT_MINUTES} min for momentum confirmation\n")
+
+
+        # TRADING MODULE INITIALIZATION
+        trade_executor = None
+        if TRADING_MODULE_AVAILABLE:
+            try:
+                # 1. Initialize DB
+                trading_db = TradingDB()
+                
+                # 2. Init Config Manager
+                # (Static class, no init needed)
+                
+                # 3. Request Private Key (Simulated/Env)
+                # Ideally load from .env using os.getenv("PRIVATE_KEY_BASE_EVM") etc.
+                import os
+                
+                wm = WalletManager()
+                
+                # Load Wallet - EVM (Base/ETH)
+                pk_evm = os.getenv("PRIVATE_KEY_EVM") or os.getenv("PRIVATE_KEY_BASE")
+                if pk_evm:
+                    wm.import_wallet_evm(pk_evm, 'base')
+                    wm.import_wallet_evm(pk_evm, 'ethereum')
+                    
+                # Load Wallet - Solana
+                pk_sol = os.getenv("PRIVATE_KEY_SOLANA")
+                if pk_sol:
+                    wm.import_wallet_solana(pk_sol)
+                    
+                # 4. Init Components
+                okx_client = OKXDexClient()
+                pt = PositionTracker(trading_db)
+                trade_executor = TradeExecutor(wm, okx_client, pt)
+                telegram_trading = TelegramTrading(trading_db)
+                
+                if TradingConfig.is_trading_enabled():
+                    print(f"{Fore.GREEN}🤖 AUTO-TRADING: ENABLED")
+                    print(f"{Fore.GREEN}    - Chains: {', '.join([c for c,d in TradingConfig.get_config()['chains'].items() if d['enabled']])}")
+                    print(f"{Fore.GREEN}    - Budget: ${TradingConfig.get_budget()} per trade")
+                else:
+                    print(f"{Fore.YELLOW}🤖 AUTO-TRADING: DISABLED (enable in trading_config.py)")
+                    
+            except Exception as e:
+                print(f"{Fore.RED}⚠️  Trading module init failed: {e}")
+                import traceback
+                traceback.print_exc()
+
         
         # Display chain-specific thresholds
         print(f"{Fore.CYAN}📊 Chain Thresholds:")
@@ -855,8 +918,28 @@ async def main():
                                             onchain_score_data['verdict'] = 'TRADE'
                                             onchain_score_data['score'] = check_score
                                             # Send updated alert if needed or just log
+                                            # Send updated alert if needed or just log
                                             if telegram.enabled:
                                                 await telegram.send_message_async(f"🚀 *FINAL VALIDATION PASSED*\n{pair_data.get('token_symbol')} ({chain_name.upper()})\nFinal Score: {check_score:.1f}\nStatus: RPC VERIFIED ✅")
+
+                                            # AUTO-TRADING EXECUTION
+                                            if trade_executor and TradingConfig.is_trading_enabled():
+                                                try:
+                                                    print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
+                                                    tx_success = await trade_executor.execute_buy(
+                                                        chain=chain_name,
+                                                        token_address=pair_data.get('token_address'),
+                                                        signal_score=check_score
+                                                    )
+                                                    
+                                                    if tx_success:
+                                                        print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL")
+                                                        if telegram.enabled:
+                                                            await telegram.send_message_async(f"🤖 *AUTO-TRADE EXECUTED* ✅\nSuccess buy {pair_data.get('token_symbol')}")
+                                                    else:
+                                                        print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED")
+                                                except Exception as trade_e:
+                                                    print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
                                         
                                     print(f"{Fore.GREEN}    ⚡ RPC VERIFICATION COMPLETE")
                                     
