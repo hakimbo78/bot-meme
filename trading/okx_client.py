@@ -167,10 +167,15 @@ class OKXDexClient:
             slippage_bps = int(slippage * 100)
             quote_url = f"{self.JUPITER_URL}/quote?inputMint={from_token}&outputMint={to_token}&amount={amount}&slippageBps={slippage_bps}"
             
-            # Use requests (Sync) to verify if it resolves DNS better than aiohttp in this env
-            response = requests.get(quote_url)
+            # Use requests with User-Agent to avoid blocking
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "application/json"
+            }
+            
+            response = requests.get(quote_url, headers=headers)
             if response.status_code != 200:
-                logger.error(f"[Jupiter] Quote failed: {response.text}")
+                logger.error(f"[Jupiter] Quote failed ({response.status_code}): {response.text}")
                 return None
             quote_data = response.json()
             
@@ -182,9 +187,9 @@ class OKXDexClient:
                 "wrapAndUnwrapSol": True
             }
             
-            response = requests.post(swap_url, json=payload)
+            response = requests.post(swap_url, json=payload, headers=headers)
             if response.status_code != 200:
-                logger.error(f"[Jupiter] Swap failed: {response.text}")
+                logger.error(f"[Jupiter] Swap failed ({response.status_code}): {response.text}")
                 return None
             swap_resp = response.json()
                     
