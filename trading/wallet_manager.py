@@ -113,6 +113,10 @@ class WalletManager:
             
         account = wallet['account']
         
+        # DEBUG: Log what OKX sent us
+        logger.info(f"EVM TX DICT KEYS: {list(tx_dict.keys())}")
+        logger.info(f"EVM TX DICT: {tx_dict}")
+        
         # OKX returns comprehensive tx data, but we need to ensure fields are correct for web3.py
         # Usually requires: to, value, data, gas, gasPrice/maxFeePerGas, nonce, chainId
         
