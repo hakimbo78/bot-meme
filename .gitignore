@@ -25,4 +25,5 @@ ENV/
 
 # Local data caches (safe defaults)
 data/*.db
+database/*.db
 simulation_output.txt
