@@ -658,13 +658,29 @@ async def main():
                                         )
                                     else:
                                         # Sell failed - critical alert
+                                        
+                                        # FORCE CLOSE Logic for Dead/Rugpulled Tokens
+                                        # If we can't sell because liquidity is gone, we must free up the slot
+                                        force_closed_msg = "**MANUAL INTERVENTION REQUIRED**"
+                                        
+                                        if rugpull_detected or "Insufficient liquidity" in str(msg) or "SimulateTransaction" in str(msg):
+                                            try:
+                                                print(f"{Fore.RED}💀 RUGPULL CONFIRMED: Force closing pos {pos['id']} in DB to free slot")
+                                                # Use the position_tracker instance from outer scope
+                                                # Need to ensure correct method call. force_close_position is in PositionTracker.
+                                                if hasattr(position_tracker, 'force_close_position'):
+                                                    position_tracker.force_close_position(pos['id'], reason="RUGPULL_DEAD")
+                                                    force_closed_msg = "🚫 Position Force Closed (Dead Token). Slot Freed."
+                                            except Exception as fc_e:
+                                                print(f"Error force closing: {fc_e}")
+
                                         await telegram.send_message_async(
                                             f"🚨 *AUTO-EXIT FAILED*\n"
                                             f"--------------------------------\n"
                                             f"Reason: {sell_reason}\n"
                                             f"Token: `{pos['token_address'][:8]}...`\n"
                                             f"Error: {msg}\n"
-                                            f"**MANUAL INTERVENTION REQUIRED**"
+                                            f"Action: {force_closed_msg}"
                                         )
                         except Exception as mon_e:
                             print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {mon_e}")
