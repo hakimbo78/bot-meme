@@ -23,7 +23,7 @@ DEGEN_SNIPER_CONFIG = {
     'enabled': True,
     'mode_name': 'DEGEN_SNIPER_V3',
     
-    'enabled_chains': ['base'],
+    'enabled_chains': ['base', 'solana'],
     #'enabled_chains': ['base', 'ethereum', 'solana'],
     
     # REPLACED: DexScreener -> GeckoTerminal
@@ -48,12 +48,12 @@ DEGEN_SNIPER_CONFIG = {
     # ================================================================
     'scoring_v3': {
         'points': {
-            'price_change_5m': 30,
+            'price_change_5m': 20,
             'price_change_1h': 20,
             'tx_5m': 20,
-            'liquidity': 10,
+            'liquidity': 25,
             'volume_24h': 10,
-            'revival_bonus': 10
+            'revival_bonus': 5
         },
         'thresholds': {
             'low': 30,
@@ -79,16 +79,19 @@ DEGEN_SNIPER_CONFIG = {
     # ================================================================
     'telegram_tiers': {
         'low': {
-            'min_score': 30,
-            'max_score': 44,
-            'rate_limit': 300  # 1 per 5 mins per chain (approx, exact logic in integration)
+            # DISABLED (Set to unreachable range)
+            'min_score': 900,
+            'max_score': 910,
+            'rate_limit': 999999
         },
         'mid': {
-            'min_score': 65,
-            'max_score': 70,
-            'rate_limit': 0    # Normal alert (no specific rate limit mentioned, assume immediate or standard)
+            # DISABLED (Set to unreachable range)
+            'min_score': 920,
+            'max_score': 930,
+            'rate_limit': 999999
         },
         'high': {
+            # ONLY HIGH ALERTS ENABLED
             'min_score': 75,
             'max_score': 100,
             'rate_limit': 0    # No limit
