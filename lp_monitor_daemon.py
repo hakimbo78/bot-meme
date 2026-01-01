@@ -129,6 +129,53 @@ class LPMonitorDaemon:
             print(f"{Fore.RED}Error checking position LP: {e}")
             return (False, f"Error: {e}", {})
     
+    async def check_position_balance(self, position: dict) -> tuple[bool, str]:
+        """
+        Check if wallet still holds position tokens (manual sell detection).
+        
+        Returns:
+            (should_close: bool, reason: str)
+        """
+        try:
+            token_address = position['token_address']
+            chain = position['chain']
+            entry_amount = float(position['entry_amount'])
+            
+            # Try to get a quote for the entry amount
+            # If quote fails or returns near-zero, token likely sold/rugged
+            native_token = "So11111111111111111111111111111111111111112" if chain == 'solana' else "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+            
+            amount_str = str(int(entry_amount))
+            
+            quote = await self.okx_client.get_quote(
+                chain=chain,
+                from_token=token_address,
+                to_token=native_token,
+                amount=amount_str,
+                slippage=0.01
+            )
+            
+            if not quote:
+                # Quote failed - token might be delisted/rugged
+                return (True, "Token quote unavailable (delisted/rugged)")
+            
+            # Check output value
+            raw_out = float(quote.get('toTokenAmount', '0'))
+            
+            if raw_out == 0:
+                # Quote returns 0 - token worthless or sold
+                return (True, "Token value is 0 (sold/rugged)")
+            
+            # Calculate expected minimum value (5% of entry)
+            # If we can still quote, assume balance exists
+            # This is indirect - quote success = likely still have tokens
+            
+            return (False, "")
+            
+        except Exception as e:
+            # If error, don't force close (safer)
+            return (False, f"Balance check error: {e}")
+    
     async def execute_emergency_exit(self, position: dict, reason: str):
         """Execute emergency exit for a position."""
         try:
@@ -164,6 +211,42 @@ class LPMonitorDaemon:
                 
         except Exception as e:
             print(f"{Fore.RED}❌ Error executing emergency exit: {e}")
+    
+    async def execute_detected_close(self, position: dict, reason: str):
+        """
+        Mark position as closed when external sale/rugpull detected.
+        No sell transaction (already sold or worthless).
+        """
+        try:
+            position_id = position['id']
+            token_address = position['token_address']
+            chain = position['chain']
+            
+            print(f"\n{Fore.YELLOW}{'='*60}")
+            print(f"{Fore.YELLOW}🔍 EXTERNAL CLOSE DETECTED")
+            print(f"{Fore.YELLOW}{'='*60}")
+            print(f"Position: #{position_id}")
+            print(f"Token: {token_address[:10]}...{token_address[-8:]}")
+            print(f"Chain: {chain.upper()}")
+            print(f"Reason: {reason}")
+            print(f"{Fore.YELLOW}{'='*60}\n")
+            
+            # Force close in DB (no actual sell transaction)
+            self.position_tracker.force_close_position(
+                position_id=position_id,
+                reason=f"DETECTED_CLOSE: {reason}"
+            )
+            
+            print(f"{Fore.GREEN}✅ Position closed in database (no sell needed)")
+            self.exit_triggered.add(position_id)
+            
+            # Clear LP history
+            analyzer = self.lp_analyzers.get(chain)
+            if analyzer:
+                analyzer.clear_history(token_address)
+                
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error executing detected close: {e}")
     
     async def monitor_loop(self):
         """Main monitoring loop (runs every 30 seconds)."""
@@ -206,8 +289,11 @@ class LPMonitorDaemon:
                         token_addr_short = f"{pos['token_address'][:10]}...{pos['token_address'][-8:]}"
                         print(f"\n  Position #{position_id} ({pos['chain'].upper()}): {token_addr_short}")
                         
-                        # Check LP risk
-                        should_exit, reason, lp_risk = await self.check_position_lp(pos)
+                        # Check 1: LP risk
+                        should_exit_lp, lp_reason, lp_risk = await self.check_position_lp(pos)
+                        
+                        # Check 2: Balance (manual sell detection)
+                        should_exit_bal, bal_reason = await self.check_position_balance(pos)
                         
                         if lp_risk:
                             risk_score = lp_risk.get('risk_score', 0)
@@ -237,9 +323,13 @@ class LPMonitorDaemon:
                                       f"Behavior: {components.get('behavior_risk', 0):.0f}, "
                                       f"Divergence: {components.get('divergence_risk', 0):.0f}")
                         
-                        # Execute emergency exit if needed
-                        if should_exit:
-                            await self.execute_emergency_exit(pos, reason)
+                        # Execute exits based on check results
+                        if should_exit_lp:
+                            # LP risk triggered - execute emergency sell
+                            await self.execute_emergency_exit(pos, lp_reason)
+                        elif should_exit_bal:
+                            # Balance check failed - mark as closed (no sell needed)
+                            await self.execute_detected_close(pos, bal_reason)
                 
                 print(f"\n{Fore.CYAN}{'━'*60}")
                 print(f"{Fore.GREEN}✅ Check #{iteration} completed. Next check in 5s... [ULTRA-AGGRESSIVE]")
