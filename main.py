@@ -1223,6 +1223,9 @@ async def main():
                                         if trade_executor and TradingConfig.is_trading_enabled():
                                             try:
                                                 # SECURITY GUARD: Deep Check (Holders & Risk)
+                                                risk_score = 50
+                                                risk_level = 'UNKNOWN'
+                                                
                                                 try:
                                                     # Helper for telegram escape
                                                     def esc(t): return str(t).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
@@ -1230,8 +1233,16 @@ async def main():
                                                     sniff_w3 = adapter.w3 if (chain_name != 'solana' and adapter) else None
                                                     ts_analyzer = TokenSnifferAnalyzer(sniff_w3, chain_name)
                                                     
-                                                    # Get external liquidity from DexScreener data
-                                                    dex_liq = float(pair_data.get('liquidity', {}).get('usd', 0))
+                                                    # Get external liquidity from DexScreener data SAFE PARSING
+                                                    dex_liq = 0.0
+                                                    raw_liq = pair_data.get('liquidity', 0)
+                                                    if isinstance(raw_liq, dict):
+                                                        dex_liq = float(raw_liq.get('usd', 0))
+                                                    else:
+                                                        try:
+                                                            dex_liq = float(raw_liq)
+                                                        except:
+                                                            dex_liq = 0.0
                                                     
                                                     sec_data = ts_analyzer.analyze_comprehensive(
                                                         pair_data['token_address'], 
@@ -1261,7 +1272,6 @@ async def main():
                                                     # THRESHOLD 2: WARN (Proceed with caution)
                                                     elif risk_score > 30:
                                                         print(f"{Fore.YELLOW}    ⚠️ SECURITY WARNING: Risk Score {risk_score}/100 ({risk_level}) - Proceeding with caution")
-                                                        # Details often contain useful info like "High Tax" or "Top 10 High"
                                                         details = sec_data.get('contract_analysis', {}).get('details', [])
                                                         for d in details:
                                                             if '⚠️' in d or '🚨' in d:
@@ -1273,7 +1283,6 @@ async def main():
                                                     lp_risk = lp_analyzer.calculate_risk(pair_data)
                                                     
                                                     # ULTRA-AGGRESSIVE: Block even moderate risk (30 vs original 70)
-                                                    # Philosophy: Prevention > Detection. Don't enter risky tokens at all.
                                                     if lp_risk['risk_score'] > 30:
                                                         print(f"{Fore.RED}    ❌ BLOCKED BY LP INTENT: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) [ULTRA-STRICT]")
                                                         if telegram.enabled:
@@ -1283,7 +1292,8 @@ async def main():
                                                     elif lp_risk['risk_score'] > 20:
                                                         print(f"{Fore.YELLOW}    ⚠️ LP INTENT WARNING: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) - Proceeding with caution")
                                                     
-                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%, LP Intent: {lp_risk['risk_score']:.0f}/100)")
+                                                    top10_pct = sec_data.get('holder_analysis', {}).get('top10_holders_percent', 0)
+                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_level}, Top 10: {top10_pct:.1f}%, LP Intent: {lp_risk['risk_score']:.0f}/100)")
                                                 except Exception as sec_e:
                                                     print(f"{Fore.YELLOW}    ⚠️ Security Check Skipped: {sec_e}")
 
