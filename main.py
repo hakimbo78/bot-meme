@@ -1224,14 +1224,19 @@ async def main():
                                             try:
                                                 # SECURITY GUARD: Deep Check (Holders & Risk)
                                                 try:
-                                                    print(f"{Fore.CYAN}    🛡️ Running Deep Security Check (Holders & Risk)...")
-                                                    
                                                     # Helper for telegram escape
                                                     def esc(t): return str(t).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
                                                     
                                                     sniff_w3 = adapter.w3 if (chain_name != 'solana' and adapter) else None
                                                     ts_analyzer = TokenSnifferAnalyzer(sniff_w3, chain_name)
-                                                    sec_data = ts_analyzer.analyze_comprehensive(pair_data['token_address'])
+                                                    
+                                                    # Get external liquidity from DexScreener data
+                                                    dex_liq = float(pair_data.get('liquidity', {}).get('usd', 0))
+                                                    
+                                                    sec_data = ts_analyzer.analyze_comprehensive(
+                                                        pair_data['token_address'], 
+                                                        external_liquidity_usd=dex_liq
+                                                    )
                                                     
                                                     # 1. Check Risk Level
                                                     risk_lvl = sec_data.get('risk_level', 'UNKNOWN')
@@ -1249,16 +1254,21 @@ async def main():
                                                             await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: High Supply Concentration (Top 10: {top10:.1f}%)")
                                                         continue
 
-                                                    # 3. Check Liquidity Lock (Anti-Rugpull)
-                                                    liq_analysis = sec_data.get('liquidity_analysis', {})
-                                                    locked_pct = liq_analysis.get('liquidity_locked_percent', 0)
-                                                    if locked_pct < 80: # Allow small unlocked portion, but require majority locked/burned
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Liquidity Not Locked ({locked_pct:.0f}% < 80%)")
+                                                    # 3. LP INTENT RISK CHECK (NEW - Behavioral)
+                                                    from lp_intent_analyzer import LPIntentAnalyzer
+                                                    lp_analyzer = LPIntentAnalyzer(chain_name)
+                                                    lp_risk = lp_analyzer.calculate_risk(pair_data)
+                                                    
+                                                    if lp_risk['risk_score'] > 70:
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY LP INTENT: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']})")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: Liquidity Not Locked (Risk of Pull)")
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: High LP Rugpull Risk ({lp_risk['risk_score']:.0f}/100)")
                                                         continue
-                                                        
-                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%, LiqLocked: {locked_pct:.0f}%)")
+                                                    
+                                                    elif lp_risk['risk_score'] > 50:
+                                                        print(f"{Fore.YELLOW}    ⚠️ LP INTENT WARNING: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']})")
+                                                    
+                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%, LP Intent: {lp_risk['risk_score']:.0f}/100)")
                                                 except Exception as sec_e:
                                                     print(f"{Fore.YELLOW}    ⚠️ Security Check Skipped: {sec_e}")
 

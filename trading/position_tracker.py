@@ -176,6 +176,29 @@ class PositionTracker:
             conn.close()
         except Exception as e:
             logger.error(f"Failed to update PnL for {position_id}: {e}")
+    
+    def get_position(self, position_id: int) -> Optional[Dict]:
+        """Get a single position by ID."""
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT * FROM positions WHERE id = ?", (position_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                conn.close()
+                return None
+            
+            # Get column names
+            col_names = [description[0] for description in cursor.description]
+            position = dict(zip(col_names, row))
+            
+            conn.close()
+            return position
+        except Exception as e:
+            logger.error(f"Failed to get position {position_id}: {e}")
+            return None
 
     def get_open_positions(self) -> List[Dict]:
         """Get all open positions."""

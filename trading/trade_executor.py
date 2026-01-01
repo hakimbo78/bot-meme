@@ -231,6 +231,54 @@ class TradeExecutor:
         except Exception as e:
             logger.error(f"Sell execution failed: {e}")
             return False, str(e)
+    
+    async def emergency_sell(self, position_id: int, reason: str = "Emergency Exit") -> bool:
+        """
+        Emergency sell for LP rugpull detection.
+        Sells 100% of position immediately.
+        
+        Args:
+            position_id: Position ID to exit
+            reason: Reason for emergency exit (for logging)
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Get position details from tracker
+            position = self.pt.get_position(position_id)
+            
+            if not position:
+                logger.error(f"Position {position_id} not found")
+                return False
+            
+            chain = position['chain']
+            token_address = position['token_address']
+            entry_amount = float(position['entry_amount'])
+            
+            logger.warning(f"🚨 EMERGENCY EXIT: Position {position_id} - Reason: {reason}")
+            
+            # Execute 100% sell
+            success, result = await self.execute_sell(
+                chain=chain,
+                token_address=token_address,
+                amount_raw=entry_amount,
+                position_id=position_id,
+                new_status='EMERGENCY_EXIT'
+            )
+            
+            if success:
+                logger.info(f"✅ Emergency exit successful: {result}")
+                # Record emergency exit reason in DB
+                # (Position tracker already records the sell with EMERGENCY_EXIT status)
+                return True
+            else:
+                logger.error(f"❌ Emergency exit failed: {result}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Emergency sell error: {e}")
+            return False
 
     async def _broadcast_transaction(self, chain: str, signed_tx: str) -> Optional[str]:
         """Broadcast transaction to network."""
