@@ -505,7 +505,7 @@ class OffChainScreenerIntegration:
             'cache': self.cache.get_stats(),
             'deduplicator': self.deduplicator.get_stats(),
             'scheduler': self.scheduler.get_stats(),
-            'dexscreener': self.dexscreener.get_stats(),
+            'geckoterminal': self.geckoterminal.get_stats(),
             'dextools': self.dextools.get_stats() if self.dextools_enabled else {},
         }
     
