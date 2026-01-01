@@ -107,15 +107,15 @@ class LPMonitorDaemon:
             # Calculate LP risk
             lp_risk = analyzer.calculate_risk(pair_data)
             
-            # Check for emergency exit
-            # Criteria 1: Risk score > 70 (CRITICAL)
-            if lp_risk['risk_score'] > 70:
-                return (True, f"LP Intent Risk CRITICAL ({lp_risk['risk_score']:.0f}/100)", lp_risk)
+            # Check for emergency exit (ULTRA-AGGRESSIVE MODE)
+            # Criteria 1: Risk score > 50 (was 70 - more aggressive)
+            if lp_risk['risk_score'] > 50:
+                return (True, f"LP Intent Risk HIGH ({lp_risk['risk_score']:.0f}/100 > 50)", lp_risk)
             
-            # Criteria 2: LP drop > 5% in 5 minutes
+            # Criteria 2: LP drop > 2% in 5 minutes (was 5% - more sensitive)
             lp_delta_5m = analyzer.get_lp_delta(token_address, minutes=5)
-            if lp_delta_5m is not None and lp_delta_5m < -5:
-                return (True, f"LP dropped {abs(lp_delta_5m):.1f}% in 5 minutes", lp_risk)
+            if lp_delta_5m is not None and lp_delta_5m < -2:
+                return (True, f"LP dropped {abs(lp_delta_5m):.1f}% in 5 minutes (>2% threshold)", lp_risk)
             
             # Criteria 3: Emergency exit check
             should_exit, reason = analyzer.should_emergency_exit(token_address)
@@ -171,10 +171,10 @@ class LPMonitorDaemon:
         print(f"\n{Fore.CYAN}{'='*60}")
         print(f"{Fore.CYAN}🛡️ LP MONITOR DAEMON STARTED")
         print(f"{Fore.CYAN}{'='*60}")
-        print(f"Monitoring frequency: Every 30 seconds")
+        print(f"Monitoring frequency: Every 5 seconds [ULTRA-AGGRESSIVE]")
         print(f"Auto-exit triggers:")
-        print(f"  - LP Risk Score > 70 (CRITICAL)")
-        print(f"  - LP Drop > 5% in 5 minutes")
+        print(f"  - LP Risk Score > 50 (was 70 - more aggressive)")
+        print(f"  - LP Drop > 2% in 5 minutes (was 5% - more sensitive)")
         print(f"  - Market Divergence detected (LP↓ + Vol↑)")
         print(f"{Fore.CYAN}{'='*60}\n")
         
@@ -242,18 +242,18 @@ class LPMonitorDaemon:
                             await self.execute_emergency_exit(pos, reason)
                 
                 print(f"\n{Fore.CYAN}{'━'*60}")
-                print(f"{Fore.GREEN}✅ Check #{iteration} completed. Next check in 30s...")
+                print(f"{Fore.GREEN}✅ Check #{iteration} completed. Next check in 5s... [ULTRA-AGGRESSIVE]")
                 
-                # Wait 30 seconds
-                await asyncio.sleep(30)
+                # Wait 5 seconds (was 30s - faster detection)
+                await asyncio.sleep(5)
                 
             except KeyboardInterrupt:
                 print(f"\n\n{Fore.YELLOW}🛑 Monitor daemon stopped by user")
                 break
             except Exception as e:
                 print(f"\n{Fore.RED}❌ Error in monitor loop: {e}")
-                print(f"{Fore.YELLOW}Retrying in 30 seconds...")
-                await asyncio.sleep(30)
+                print(f"{Fore.YELLOW}Retrying in 5 seconds...")
+                await asyncio.sleep(5)
     
     async def run(self):
         """Start the monitoring daemon."""

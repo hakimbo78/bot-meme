@@ -1259,14 +1259,16 @@ async def main():
                                                     lp_analyzer = LPIntentAnalyzer(chain_name)
                                                     lp_risk = lp_analyzer.calculate_risk(pair_data)
                                                     
-                                                    if lp_risk['risk_score'] > 70:
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY LP INTENT: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']})")
+                                                    # ULTRA-AGGRESSIVE: Block even moderate risk (30 vs original 70)
+                                                    # Philosophy: Prevention > Detection. Don't enter risky tokens at all.
+                                                    if lp_risk['risk_score'] > 30:
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY LP INTENT: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) [ULTRA-STRICT]")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: High LP Rugpull Risk ({lp_risk['risk_score']:.0f}/100)")
+                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: LP Risk Too High ({lp_risk['risk_score']:.0f}/100 > 30)")
                                                         continue
                                                     
-                                                    elif lp_risk['risk_score'] > 50:
-                                                        print(f"{Fore.YELLOW}    ⚠️ LP INTENT WARNING: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']})")
+                                                    elif lp_risk['risk_score'] > 20:
+                                                        print(f"{Fore.YELLOW}    ⚠️ LP INTENT WARNING: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) - Proceeding with caution")
                                                     
                                                     print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_lvl}, Top 10: {top10:.1f}%, LP Intent: {lp_risk['risk_score']:.0f}/100)")
                                                 except Exception as sec_e:
