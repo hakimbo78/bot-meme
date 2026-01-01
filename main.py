@@ -1238,21 +1238,34 @@ async def main():
                                                         external_liquidity_usd=dex_liq
                                                     )
                                                     
-                                                    # 1. Check Risk Level
-                                                    risk_lvl = sec_data.get('risk_level', 'UNKNOWN')
-                                                    if risk_lvl == 'CRITICAL':
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: CRITICAL RISK DETECTED")
-                                                        if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: Critical Risk (Honeypot/Mint/Blacklist)")
-                                                        continue
+                                                    # 1. SCORE-BASED SECURITY CHECK (New 0-100 System)
+                                                    risk_score = sec_data.get('risk_score', 100)
+                                                    risk_level = sec_data.get('risk_level', 'FAIL')
                                                     
-                                                    # 2. Check Top 10 Holders
-                                                    top10 = sec_data.get('holder_analysis', {}).get('top10_holders_percent', 0)
-                                                    if top10 > 70:
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Top 10 Holders Own {top10:.1f}% (>70%)")
+                                                    # THRESHOLD 1: FAIL (Block Trade)
+                                                    if risk_score > 60:
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Risk Score {risk_score}/100 ({risk_level}) > 60")
+                                                        # Show first few details for reason
+                                                        details = sec_data.get('contract_analysis', {}).get('details', [])[:2]
+                                                        reason_str = ", ".join([d for d in details if 'Error' not in d])
+                                                        
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: High Supply Concentration (Top 10: {top10:.1f}%)")
+                                                            await telegram.send_message_async(
+                                                                f"⛔ *AUTO-BUY BLOCKED*\n"
+                                                                f"Token: `{esc(pair_data.get('token_symbol'))}`\n"
+                                                                f"Reason: Security Risk High ({risk_score}/100)\n"
+                                                                f"Details: {esc(reason_str)}"
+                                                            )
                                                         continue
+                                                        
+                                                    # THRESHOLD 2: WARN (Proceed with caution)
+                                                    elif risk_score > 30:
+                                                        print(f"{Fore.YELLOW}    ⚠️ SECURITY WARNING: Risk Score {risk_score}/100 ({risk_level}) - Proceeding with caution")
+                                                        # Details often contain useful info like "High Tax" or "Top 10 High"
+                                                        details = sec_data.get('contract_analysis', {}).get('details', [])
+                                                        for d in details:
+                                                            if '⚠️' in d or '🚨' in d:
+                                                                print(f"{Fore.YELLOW}       {d}")
 
                                                     # 3. LP INTENT RISK CHECK (NEW - Behavioral)
                                                     from lp_intent_analyzer import LPIntentAnalyzer
@@ -1305,12 +1318,14 @@ async def main():
                                                 if tx_success:
                                                     print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
                                                     if telegram.enabled:
+                                                        risk_status_emoji = "✅" if risk_score <= 30 else "⚠️"
                                                         await telegram.send_message_async(
                                                             f"🤖 *AUTO-BUY EXECUTED* ✅\n"
                                                             f"--------------------------------\n"
                                                             f"Token: {pair_data.get('token_symbol')} `{pair_data.get('token_address')}`\n"
                                                             f"Chain: {chain_name.upper()}\n"
-                                                            f"Score: {check_score:.1f}\n"
+                                                            f"Signal Score: {check_score:.1f}\n"
+                                                            f"Risk Status: {risk_score:.0f}/100 {risk_status_emoji} ({risk_level})\n"
                                                             f"Tx Hash: {msg}\n"
                                                             f"Status: MOONING SOON? 🚀"
                                                         )

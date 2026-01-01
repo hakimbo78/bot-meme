@@ -59,81 +59,150 @@ class TokenSnifferAnalyzer:
         return result
         
     def _analyze_solana_rugcheck(self, token_address: str, result: Dict, ext_liq: float = 0):
-        """Deep analysis for Solana using RugCheck API."""
+        """Deep analysis for Solana using RugCheck API with SCORE-BASED detection."""
         try:
             url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
             resp = requests.get(url, timeout=15)
             
             if resp.status_code != 200:
                 result['contract_analysis']['details'] = [f"⚠️ RugCheck API Failed: {resp.status_code}"]
+                result['risk_score'] = 50  # Moderate risk if can't verify
+                result['risk_level'] = 'WARN'
                 return
 
             data = resp.json()
             
-            # 1. RISK / CONTRACT
+            # START SCORE-BASED CALCULATION
+            # Base score from RugCheck (0-100, lower = better)
+            base_score = data.get('score', 50)
+            
+            # Our enhanced score starts from RugCheck
+            score = base_score
+            details = []
+            
+            # 1. CRITICAL RISK CHECKS
             risks = data.get('risks', [])
-            
-            crit_flags = ['Mintable', 'Freezable', 'Mutable']
-            found_crit = []
-            
             is_mintable = False
             is_freezable = False
             is_mutable = False
             
             for r in risks:
                 name = r.get('name', '')
-                if 'Mint' in name: is_mintable = True
-                if 'Freeze' in name: is_freezable = True
-                if 'Mutable' in name: is_mutable = True
+                level = r.get('level', 'info')
                 
-                # Check critical levels
-                if r.get('level') == 'danger':
-                    found_crit.append(name)
-
+                # Check specific risks
+                if 'Mint' in name:
+                    is_mintable = True
+                    if level in ['danger', 'critical']:
+                        score += 30  # Major penalty
+                        details.append("🚨 Mintable (CRITICAL)")
+                    else:
+                        score += 15
+                        details.append("⚠️ Mintable")
+                        
+                if 'Freeze' in name:
+                    is_freezable = True
+                    if level in ['danger', 'critical']:
+                        score += 25
+                        details.append("🚨 Freezable (CRITICAL)")
+                    else:
+                        score += 10
+                        details.append("⚠️ Freezable")
+                        
+                if 'Mutable' in name:
+                    is_mutable = True
+                    score += 5
+                    details.append("⚠️ Mutable Metadata")
+                
+                # Add penalty for other critical/danger risks
+                if level == 'danger' and 'Mint' not in name and 'Freeze' not in name:
+                    score += 15
+                    details.append(f"🚨 {name}")
+                elif level == 'warning':
+                    score += 5
+                    details.append(f"⚠️ {name}")
+            
+            # 2. HOLDER CONCENTRATION
+            top_holders = data.get('topHolders') or []
+            top10_pct = sum(float(h.get('pct', 0)) for h in top_holders[:10])
+            
+            if top10_pct > 90:
+                score += 25
+                details.append(f"🚨 Top 10 Holders: {top10_pct:.1f}% (Extreme)")
+            elif top10_pct > 80:
+                score += 15
+                details.append(f"⚠️ Top 10 Holders: {top10_pct:.1f}% (High)")
+            elif top10_pct > 70:
+                score += 10
+                details.append(f"⚠️ Top 10 Holders: {top10_pct:.1f}%")
+            elif top10_pct > 60:
+                score += 5
+                details.append(f"📊 Top 10 Holders: {top10_pct:.1f}%")
+            else:
+                details.append(f"✅ Top 10 Holders: {top10_pct:.1f}% (Distributed)")
+            
+            # 3. LP LOCK/BURN BONUS (Real-time from RugCheck!)
+            markets = data.get('markets', [])
+            if markets:
+                lp_locked = float(markets[0].get('lpLockedPct', 0))
+                lp_burned = float(markets[0].get('lpBurnedPct', 0))
+                total_secure = lp_locked + lp_burned
+                
+                if total_secure >= 90:
+                    score = max(0, score - 20)  # Big bonus!
+                    details.append(f"✅ LP Secured: {total_secure:.1f}% (Excellent)")
+                elif total_secure >= 70:
+                    score = max(0, score - 15)
+                    details.append(f"✅ LP Secured: {total_secure:.1f}% (Good)")
+                elif total_secure >= 50:
+                    score = max(0, score - 10)
+                    details.append(f"📊 LP Secured: {total_secure:.1f}%")
+                elif total_secure > 0:
+                    details.append(f"⚠️ LP Secured: {total_secure:.1f}% (Low)")
+                else:
+                    score += 10
+                    details.append(f"🚨 LP Not Secured (0%)")
+            
+            # 4. FINALIZE SCORE
+            final_score = min(100, max(0, score))
+            risk_level = self._determine_risk_level(final_score)
+            
+            # Store results
+            result['risk_score'] = final_score
+            result['risk_level'] = risk_level
             result['contract_analysis'] = {
-                'is_verified': True, # Solana programs usually verified
+                'is_verified': True,
                 'has_mint_function': is_mintable,
                 'has_pause_function': is_freezable,
-                'ownership_renounced': not is_mutable, # Mutable metadata = Ownershop logic
+                'ownership_renounced': not is_mutable,
+                'details': details
+            }
+            result['holder_analysis'] = {
+                'top10_holders_percent': top10_pct,
+                'creator_wallet_percent': 0,
                 'details': []
             }
-            
-            if found_crit:
-                pass
-            
-            if is_mintable: result['contract_analysis']['details'].append("⚠️ Token is Mintable")
-            if is_freezable: result['contract_analysis']['details'].append("⚠️ Token is Freezable")
-            if not is_mutable: result['contract_analysis']['details'].append("✅ Metadata is Immutable")
-
-            # 2. HOLDERS
-            top_holders = data.get('topHolders') or []
-            total_pct = 0
-            for h in top_holders[:10]:
-                total_pct += float(h.get('pct', 0))
-            
-            result['holder_analysis'] = {
-                'top10_holders_percent': total_pct,
-                'creator_wallet_percent': 0,
-                'details': [f"Top 10 Holders: {total_pct:.1f}%"]
-            }
-            
-            # 3. LIQUIDITY - REMOVED
-            # Liquidity rugpull detection now handled by LP Intent Engine
-            # (Real-time behavioral monitoring, not static lock checks)
             result['liquidity_analysis'] = {
                 'total_liquidity_usd': 0,
-                'liquidity_locked_percent': 100.0,  # Bypass (handled by LP Intent)
-                'details': ["✅ Liquidity check delegated to LP Intent Engine"]
+                'liquidity_locked_percent': 100.0,
+                'details': ["✅ Liquidity delegated to LP Intent Engine"]
+            }
+            result['swap_analysis'] = {
+                'is_honeypot': False,
+                'details': ["✅ Market exists"]
             }
             
-            # Swap Analysis
-            result['swap_analysis'] = {'is_honeypot': False, 'details': ["✅ Market exists"]}
+            # Add score summary
+            details.insert(0, f"📊 RugCheck Base Score: {base_score}")
+            details.insert(1, f"📊 Final Risk Score: {final_score}/100 ({risk_level})")
 
         except Exception as e:
             result['contract_analysis']['details'] = [f"Error: {e}"]
+            result['risk_score'] = 50
+            result['risk_level'] = 'WARN'
 
     def _analyze_evm_goplus(self, token_address, pair_address, result):
-        """Deep analysis for EVM using GoPlus."""
+        """Deep analysis for EVM using GoPlus with SCORE-BASED detection."""
         chain_id = self._get_goplus_id()
         try:
             url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}?contract_addresses={token_address}"
@@ -141,43 +210,82 @@ class TokenSnifferAnalyzer:
             data = resp.json()
             
             if data['code'] != 1:
+                result['contract_analysis']['details'] = [f"⚠️ GoPlus API Error: {data.get('message')}"]
+                result['risk_score'] = 50
+                result['risk_level'] = 'WARN'
                 return
             
             t_data = data['result'].get(token_address.lower(), {})
             
-            # 1. CONTRACT
-            is_open_source = t_data.get('is_open_source', '0') == '1'
-            is_honeypot = t_data.get('is_honeypot', '0') == '1'
-            is_mintable = t_data.get('is_mintable', '0') == '1'
+            # START SCORING (0-100)
+            score = 0
+            details = []
             
-            result['contract_analysis'] = {
-                'is_verified': is_open_source,
-                'has_mint_function': is_mintable,
-                'ownership_renounced': t_data.get('owner_address', '') == '',
-                'details': []
-            }
+            # 1. HONEYPOT & CRITICAL (Base Score)
+            is_honeypot = str(t_data.get('is_honeypot', '0')) == '1'
             if is_honeypot:
-                result['swap_analysis']['is_honeypot'] = True
-                result['risk_level'] = 'CRITICAL'
-                result['contract_analysis']['details'].append("⛔ HONEYPOT DETECTED")
-
-            # 2. HOLDERS
+                score += 100
+                details.append("⛔ HONEYPOT DETECTED (CRITICAL)")
+            
+            # 2. TRADING RESTRICTIONS
+            cannot_buy = str(t_data.get('cannot_buy', '0')) == '1'
+            cannot_sell_all = str(t_data.get('cannot_sell_all', '0')) == '1'
+            
+            if cannot_buy:
+                score += 20
+                details.append("🚨 Cannot Buy")
+            if cannot_sell_all:
+                score += 20
+                details.append("🚨 Cannot Sell All")
+                
+            # 3. CONTRACT RISK
+            is_proxy = str(t_data.get('is_proxy', '0')) == '1'
+            is_mintable = str(t_data.get('is_mintable', '0')) == '1'
+            external_call = str(t_data.get('external_call', '0')) == '1'
+            
+            if is_proxy:
+                score += 10
+                details.append("⚠️ Proxy Contract")
+            if is_mintable:
+                score += 10
+                details.append("⚠️ Mintable")
+            if external_call:
+                score += 5
+                details.append("⚠️ External Calls")
+                
+            # 4. HOLDER CONCENTRATION
             holders = t_data.get('holders', [])
             top10 = 0
             for h in holders[:10]:
-                top10 += float(h.get('percent', 0)) * 100 # GoPlus returns 0.xxxx usually? Wait, let's auto-detect
-                # If sum is small (<1), likely need *100. If sum > 1, likely already %.
+                pct = float(h.get('percent', 0))
+                # Auto-scale if needed (some APIs return 0.5 for 50%, some 50)
+                if pct < 1.0 and pct > 0: pct *= 100
+                top10 += pct
             
-            # Logic auto-scale info
-            if top10 > 0 and top10 < 1.0: top10 *= 100
+            if top10 > 90:
+                score += 25
+                details.append(f"🚨 Top 10 Holders: {top10:.1f}% (Extreme)")
+            elif top10 > 80:
+                score += 15
+                details.append(f"⚠️ Top 10 Holders: {top10:.1f}% (High)")
+            elif top10 > 60:
+                score += 5
+                details.append(f"📊 Top 10 Holders: {top10:.1f}%")
             
-            result['holder_analysis'] = {
-                'top10_holders_percent': top10,
-                'creator_wallet_percent': float(t_data.get('creator_percent', 0)) * 100,
-                'details': [f"Top 10: {top10:.1f}%"]
-            }
+            # 5. TAX RISK
+            buy_tax = float(t_data.get('buy_tax', 0)) * 100 if float(t_data.get('buy_tax', 0)) < 1 else float(t_data.get('buy_tax', 0))
+            sell_tax = float(t_data.get('sell_tax', 0)) * 100 if float(t_data.get('sell_tax', 0)) < 1 else float(t_data.get('sell_tax', 0))
             
-            # 3. LIQUIDITY (IMPROVED LOGIC)
+            if buy_tax > 15 or sell_tax > 15:
+                score += 15
+                details.append(f"⚠️ High Tax: Buy {buy_tax}% / Sell {sell_tax}%")
+            elif buy_tax > 10 or sell_tax > 10:
+                score += 5
+                details.append(f"📊 Tax: Buy {buy_tax}% / Sell {sell_tax}%")
+
+            # 6. LIQUIDITY BONUS (If info available)
+            # Currently static check, real liquidity check handles actual value
+            # But we can check for locked status if available
             lp_holders = t_data.get('lp_holders', [])
             total_locked = 0
             dead_addrs = ['0x000000000000000000000000000000000000dead', '0x0000000000000000000000000000000000000000']
@@ -186,30 +294,79 @@ class TokenSnifferAnalyzer:
                 is_locked = str(lh.get('is_locked', '0')) == '1'
                 addr = lh.get('address', '').lower()
                 pct = float(lh.get('percent', 0))
+                if pct < 1.0 and pct > 0: pct *= 100
                 
                 if is_locked or addr in dead_addrs:
                     total_locked += pct
             
-            if total_locked < 1.0 and total_locked > 0: total_locked *= 100
+            if total_locked > 80:
+                score = max(0, score - 20)
+                details.append(f"✅ LP Locked: {total_locked:.1f}%")
+            elif total_locked > 50:
+                score = max(0, score - 10)
+                details.append(f"✅ LP Locked: {total_locked:.1f}%")
             
+            # FINALIZE
+            final_score = min(100, max(0, score))
+            risk_level = self._determine_risk_level(final_score)
+            
+            result['risk_score'] = final_score
+            result['risk_level'] = risk_level
+            result['contract_analysis'] = {
+                'is_verified': str(t_data.get('is_open_source', '0')) == '1',
+                'has_mint_function': is_mintable,
+                'ownership_renounced': t_data.get('owner_address', '') == '',
+                'details': details
+            }
+            result['holder_analysis'] = {
+                'top10_holders_percent': top10,
+                'creator_wallet_percent': float(t_data.get('creator_percent', 0)) * 100,
+                'details': []
+            }
             result['liquidity_analysis'] = {
                 'liquidity_locked_percent': total_locked,
-                'details': [f"Calculated Lock: {total_locked:.1f}%"]
+                'details': []
             }
+            result['swap_analysis'] = {'is_honeypot': is_honeypot, 'details': []}
+            
+            # Add summary
+            details.insert(0, f"📊 GoPlus Risk Score: {final_score}/100 ({risk_level})")
 
         except Exception as e:
             result['contract_analysis']['details'].append(f"Error: {e}")
+            result['risk_score'] = 50
+            result['risk_level'] = 'WARN'
 
     def _calculate_overall_score(self, res):
-        score = 100
-        if res['swap_analysis'].get('is_honeypot'): score = 0
-        if res['contract_analysis'].get('has_mint_function'): score -= 20
-        if res['holder_analysis'].get('top10_holders_percent', 0) > 70: score -= 30
-        if res['liquidity_analysis'].get('liquidity_locked_percent', 0) < 80: score -= 40
-        return max(0, score)
+        """
+        Calculate overall score if not already present.
+        Legacy fallback for older logic.
+        """
+        if 'risk_score' in res:
+            return res['risk_score']
+            
+        score = 0  # 0 = Safe, 100 = Risky
+        
+        # Binary to Score conversion (Legacy)
+        if res['swap_analysis'].get('is_honeypot'): score += 100
+        if res['contract_analysis'].get('has_mint_function'): score += 20
+        
+        pct = res['holder_analysis'].get('top10_holders_percent', 0)
+        if pct > 90: score += 30
+        elif pct > 70: score += 15
+        
+        liq = res['liquidity_analysis'].get('liquidity_locked_percent', 0)
+        if liq < 50: score += 20
+        
+        return min(100, score)
 
     def _determine_risk_level(self, score):
-        if score < 40: return 'CRITICAL'
-        if score < 70: return 'HIGH'
-        if score < 85: return 'MEDIUM'
-        return 'LOW'
+        """
+        Determine risk level based on 0-100 Risk Score.
+        0-30: SAFE (Pass)
+        31-60: WARN (Caution)
+        61-100: FAIL (Block)
+        """
+        if score <= 30: return 'SAFE'
+        if score <= 60: return 'WARN'
+        return 'FAIL'
