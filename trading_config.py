@@ -76,6 +76,30 @@ TRADING_CONFIG = {
         'notify_on_sell': True,
         'notify_on_limit_trigger': True,
     },
+    
+    # ----------------------------------------
+    # PHASE 3: TRADING STATE MACHINE
+    # ----------------------------------------
+    'state_machine': {
+        'enabled': True,
+        
+        # 1. PROBE STATE (Initial Entry)
+        'probe_size_pct': 50.0,       # Initial buy = 50% of budget (Conservative entry)
+        
+        # 2. WATCH STATE (Monitoring)
+        'trailing_stop_enabled': True,
+        'trailing_activation': 20.0,  # Activate trailing stop after +20% profit
+        'trailing_distance': 10.0,    # Follow price by -10% distance
+        
+        # 3. SCALE STATE (Doubling Down)
+        'scale_enabled': True,
+        'scale_profit_threshold': 20.0, # Must be +20% profit to scale (Winners only)
+        'scale_risk_max': 25,         # Risk score must be very low (<25) to scale
+        'scale_size_pct': 100.0,      # Buy remaining 50% (Total 100%)
+        
+        # 4. EXIT RULES
+        'emergency_risk_exit': 80,    # Force exit if Risk Score spikes > 80
+    },
 }
 
 

@@ -1373,12 +1373,29 @@ async def main():
                                                 # Verify Pre-Flight duration
                                                 print(f"       Pre-Flight Time: {(time.time() - pf_start)*1000:.0f}ms")
 
-                                                print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
-                                                tx_success, msg = await trade_executor.execute_buy(
+                                                print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy (via State Machine)...")
+                                                
+                                                # PHASE 3: STATE MACHINE EXECUTION
+                                                # New logic: PROBE -> WATCH -> SCALE -> EXIT
+                                                # Replaces direct trade_executor.execute_buy
+                                                
+                                                # Instantiate State Machine (Lazy init or ideally moved to setup)
+                                                # For now, instantiated here to ensure fresh config
+                                                from trading.trading_state_machine import TradingStateMachine
+                                                state_machine = TradingStateMachine(trade_executor, position_tracker)
+                                                
+                                                sm_success = await state_machine.process_signal(
                                                     chain=chain_name,
                                                     token_address=pair_data.get('token_address'),
-                                                    signal_score=check_score
+                                                    signal_score=check_score,
+                                                    market_data=pair_data
                                                 )
+                                                
+                                                if sm_success:
+                                                    # State Machine handles its own logging/actions
+                                                    # We just confirm the handoff
+                                                    tx_success = True
+                                                    msg = "Handled by State Machine"
                                                 
                                                 if tx_success:
                                                     print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
