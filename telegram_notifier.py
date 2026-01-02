@@ -24,13 +24,14 @@ from safe_math import safe_div, safe_div_percentage
 
 class TelegramNotifier:
     """
-    Enhanced Telegram notifier with re-alert and operator hint support.
+    Enhanced Telegram notifier with re-alert, operator hint support, AND Safe Queue Throttling.
     
     Features:
     - Smart re-alerting based on improvements
-    - Cooldown timer (default 15 min)
+    - Cooldown management
     - Max alerts per token per hour
     - Operator decision hints in messages
+    - GLOBAL SAFE QUEUE: Validates messages are sent with 2s interval to avoid 429 limits.
     """
     
     def __init__(self):
@@ -41,12 +42,81 @@ class TelegramNotifier:
         # Enhanced alert tracking: {token_address: {timestamp, score, liquidity, count, renounced}}
         self.alert_history = {}
         
+        # SAFE QUEUE ARCHITECTURE
         if self.enabled:
             from telegram.request import HTTPXRequest
             trequest = HTTPXRequest(connection_pool_size=8, read_timeout=20.0, connect_timeout=10.0)
             self.bot = Bot(token=self.bot_token, request=trequest)
+            
+            # Message Queue
+            self._msg_queue = asyncio.Queue()
+            self._worker_task = None
         else:
             self.bot = None
+            self._msg_queue = None
+            self._worker_task = None
+            
+    async def _ensure_worker_running(self):
+        """Ensure the background worker is running."""
+        try:
+            if self._worker_task is None or self._worker_task.done():
+                self._worker_task = asyncio.create_task(self._queue_worker())
+        except Exception as e:
+            print(f"⚠️ Failed to start Telegram worker: {e}")
+
+    async def _queue_worker(self):
+        """Background worker to consume messages with RATE LIMIT."""
+        print("📨 Telegram Safe Queue Worker Started (2s Interval)")
+        while True:
+            try:
+                # Get message from queue
+                msg_data = await self._msg_queue.get()
+                
+                chat_id = msg_data.get('chat_id')
+                text = msg_data.get('text')
+                parse_mode = msg_data.get('parse_mode')
+                disable_web_page_preview = msg_data.get('disable_web_page_preview', True)
+                
+                try:
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode=parse_mode,
+                        disable_web_page_preview=disable_web_page_preview
+                    )
+                except TelegramError as e:
+                    if "429" in str(e) or "Too Many Requests" in str(e):
+                        print(f"⚠️ Telegram 429 Hit! Backing off 10s...")
+                        await asyncio.sleep(10)
+                    else:
+                        print(f"⚠️ Telegram Send Error: {e}")
+                
+                # Mark as done
+                self._msg_queue.task_done()
+                
+                # RATE LIMIT: Sleep 2 seconds between messages
+                await asyncio.sleep(2.0)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"⚠️ Telegram Worker Error: {e}")
+                await asyncio.sleep(1)
+
+    async def _enqueue_message(self, message: str, parse_mode: str = 'Markdown'):
+        """Put message into the safe queue (Non-Blocking)."""
+        if not self.enabled: 
+            return False
+            
+        await self._ensure_worker_running()
+        
+        self._msg_queue.put_nowait({
+            'chat_id': self.chat_id,
+            'text': message,
+            'parse_mode': parse_mode,
+            'disable_web_page_preview': True
+        })
+        return True
     
     def _check_realert_eligibility(self, token_address: str, score_data: dict, 
                                     token_data: dict) -> dict:
@@ -332,19 +402,12 @@ class TelegramNotifier:
 ⚠️ _Informational only. No automated trading._
 """
         
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
-            # Update alert history
+        # Send via Safe Queue
+        if await self._enqueue_message(message):
+            # Update alert history immediately (optimistic)
             self._update_alert_history(token_address, score_data, token_data)
             return True
-        except TelegramError as e:
-            print(f"Telegram send error: {e}")
-            print(f"FAILED MESSAGE:\n{message}")
-            return False
+        return False
     
     async def send_secondary_alert_async(self, signal_data: dict):
         """Send secondary market breakout alert to Telegram."""
@@ -411,16 +474,8 @@ class TelegramNotifier:
 
 ⚠️ _Secondary market signal. Monitor closely._"""
         
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
-            return True
-        except TelegramError as e:
-            print(f"Telegram secondary alert error: {e}")
-            return False
+        # Send via Safe Queue
+        return await self._enqueue_message(message)
     
     async def send_activity_alert_async(self, signal_data: dict, score_data: dict = None):
         """
@@ -493,17 +548,11 @@ class TelegramNotifier:
 
 ⚠️ _DEXTools-style momentum detected. Secondary market opportunity._"""
         
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
-            print(f"📨 {alert_tag} Alert sent for {chain_name}")
+        # Send via Safe Queue
+        if await self._enqueue_message(message):
+            print(f"📨 {alert_tag} Alert Queued for {chain_name}")
             return True
-        except TelegramError as e:
-            print(f"Telegram activity alert error: {e}")
-            return False
+        return False
 
     def send_activity_alert(self, signal_data: dict, score_data: dict = None):
         """Synchronous wrapper for send_activity_alert_async"""
@@ -626,18 +675,11 @@ class TelegramNotifier:
 ⚠️ _Informational only. Manual entry required._
 """
         
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
-            # Update alert history
+        # Send via Safe Queue
+        if await self._enqueue_message(message):
             self._update_alert_history(token_data.get('address', ''), upgraded_score_data, token_data)
             return True
-        except TelegramError as e:
-            print(f"Telegram upgrade alert error: {e}")
-            return False
+        return False
     
     def send_upgrade_alert(self, token_data: dict, original_score_data: dict,
                            upgraded_score_data: dict, upgrade_result: dict):
@@ -714,17 +756,11 @@ class TelegramNotifier:
 ⚠️ _Informational only. Monitor for upgrade._
 """
         
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
+        # Send via Safe Queue
+        if await self._enqueue_message(message):
             self._update_alert_history(token_data.get('address', ''), score_data, token_data)
             return True
-        except TelegramError as e:
-            print(f"Telegram TRADE-EARLY alert error: {e}")
-            return False
+        return False
     
     def send_trade_early_alert(self, token_data: dict, score_data: dict):
         """Synchronous wrapper for send_trade_early_alert_async"""
@@ -756,26 +792,9 @@ class TelegramNotifier:
         if not self.enabled:
             return False
         
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
-            )
-            return True
-        except TelegramError as e:
-            print(f"Telegram send error: {e}")
-            return False
+        # Send via Safe Queue
+        return await self._enqueue_message(message)
     
     async def _send_telegram_message(self, message: str):
-        """Internal async telegram sender."""
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
-            )
-        except TelegramError as e:
-            print(f"Telegram API error: {e}")
+        """Internal async telegram sender - Routed to Safe Queue."""
+        await self._enqueue_message(message)
