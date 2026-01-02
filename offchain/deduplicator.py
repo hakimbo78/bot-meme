@@ -28,13 +28,18 @@ class Deduplicator:
         self._seen_pairs: Dict[str, Dict[str, datetime]] = {}
         self._seen_tokens: Dict[str, Dict[str, datetime]] = {}
         
+        # Bonding Curve Bypass Tracking (NEW)
+        self._bc_watchlist: Dict[str, Dict] = {}  # Track BC tokens
+        self._graduation_bypass_count: Dict[str, int] = {}  # Count bypasses (max 3)
+        
         self._lock = threading.Lock()
         
         # Stats
         self.stats = {
             'pair_duplicates': 0,
             'token_duplicates': 0,
-            'momentum_bypass': 0
+            'momentum_bypass': 0,
+            'bc_bypasses': 0  # NEW
         }
     
     def is_duplicate(self, pair_address: str, chain: str = "base", 
@@ -63,17 +68,46 @@ class Deduplicator:
             self._seen_pairs[chain][pair_address] = now
             return False
 
-    def is_token_duplicate(self, token_address: str, chain: str = "base") -> bool:
+    def is_token_duplicate(self, token_address: str, chain: str = "base", bc_status: Dict = None) -> bool:
         """
         Check if token was seen within token_cooldown (30 min).
-        Strict deduplication properly.
+        
+        NEW: Allow 3x bypass for graduated BC tokens.
         """
         with self._lock:
             now = datetime.now()
             
             if chain not in self._seen_tokens:
                 self._seen_tokens[chain] = {}
+            
+            # Check if BC token needs bypass
+            if bc_status and bc_status.get('in_curve'):
+                # Token IN bonding curve -> Track for future bypass
+                self._bc_watchlist[token_address] = {
+                    'added_at': now,
+                    'completion': bc_status.get('completion', 0),
+                    'platform': bc_status.get('platform', 'unknown')
+                }
+                # Don't bypass yet (token blocked anyway)
                 
+            elif token_address in self._bc_watchlist:
+                # Token WAS in BC, check if should bypass
+                bypass_count = self._graduation_bypass_count.get(token_address, 0)
+                
+                if bypass_count < 3:
+                    # BYPASS (up to 3 times)
+                    self._graduation_bypass_count[token_address] = bypass_count + 1
+                    self.stats['bc_bypasses'] += 1
+                    print(f"   ✅ BC Graduation Bypass #{bypass_count + 1}/3 for {token_address[:8]}")
+                    
+                    # Allow re-check by NOT marking as duplicate
+                    return False
+                else:
+                    # Max bypasses reached -> Remove from watchlist
+                    del self._bc_watchlist[token_address]
+                    print(f"   ⛔ BC Bypass limit reached (3/3) for {token_address[:8]}")
+            
+            # Normal dedup logic
             last_seen = self._seen_tokens[chain].get(token_address)
             
             if last_seen:

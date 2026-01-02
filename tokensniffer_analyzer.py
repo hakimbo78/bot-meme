@@ -241,23 +241,16 @@ class TokenSnifferAnalyzer:
             is_bc, completion, platform, dex_pools = self._check_bonding_curve_status(data)
             
             if is_bc and completion < 100:
-                # Token still in bonding curve
-                if completion >= 95:
-                    # DANGER ZONE - Near graduation (95-100%)
-                    score += 30
-                    details.append(f"🚨 {platform.upper()} Bonding Curve {completion:.1f}% - NEAR GRADUATION")
-                elif completion >= 90:
-                    # HIGH RISK ZONE - Very close to graduation (90-95%)
-                    score += 20
-                    details.append(f"🚨 {platform.upper()} Bonding Curve {completion:.1f}% - HIGH RISK")
-                elif completion >= 80:
-                    # CAUTION ZONE - Approaching graduation (80-90%)
-                    score += 10
-                    details.append(f"⚠️ {platform.upper()} Bonding Curve {completion:.1f}% - Approaching Graduation")
-                else:
-                    # EARLY PHASE - Safer (0-80%)
-                    score += 3
-                    details.append(f"📊 {platform.upper()} Bonding Curve {completion:.1f}% - Early Phase")
+                # POLICY: WAIT FOR GRADUATION - Block ALL BC tokens
+                score += 100  # Auto-block
+                details.append(f"⛔ {platform.upper()} Bonding Curve {completion:.1f}% - WAITING FOR GRADUATION")
+                
+                # Store BC info for bypass tracking (will be used by deduplicator)
+                result['bonding_curve_status'] = {
+                    'in_curve': True,
+                    'completion': completion,
+                    'platform': platform
+                }
             
             elif completion >= 100 and len(dex_pools) > 0:
                 # POST-GRADUATION: Check LP lock AND liquidity size
