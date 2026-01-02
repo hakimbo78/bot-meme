@@ -1350,14 +1350,30 @@ async def main():
                                                             # Find the target pair or use the most liquid one
                                                             pf_pair = pf_pairs[0]
                                                             pf_liq_usd = float(pf_pair.get('liquidity', {}).get('usd', 0))
+                                                            pf_liq_quote = float(pf_pair.get('liquidity', {}).get('quote', 0))
+                                                            pf_mkt_cap = float(pf_pair.get('marketCap', 0))
+                                                            pf_symbol = pf_pair.get('baseToken', {}).get('symbol', 'UNKNOWN')
                                                             
                                                             # Threshold: $2,000 (Flash Rug Detection)
                                                             PRE_FLIGHT_MIN_LIQ = 2000.0
                                                             
-                                                            print(f"       Live Liquidity: ${pf_liq_usd:,.0f} (Threshold: ${PRE_FLIGHT_MIN_LIQ:,.0f})")
+                                                            # BONDING CURVE EXCEPTION:
+                                                            # Pump.fun/Meteora tokens often return 0 USD Liq but valid Quote Liq (SOL) or Market Cap.
+                                                            is_bonding_curve = 'pump' in pf_pair.get('url', '').lower() or 'meteora' in pf_pair.get('dexId', '').lower()
                                                             
-                                                            if pf_liq_usd < PRE_FLIGHT_MIN_LIQ:
-                                                                print(f"{Fore.RED}    ❌ PRE-FLIGHT FAIL: Liquidity Dropped to ${pf_liq_usd:,.0f} (Possible Flash Rug)")
+                                                            # Calculate implied liquidity if USD is 0 but we have Quote (SOL)
+                                                            # Assume SOL ~$150 (Safe conservative estimate or just check unit count)
+                                                            # If > 10 SOL in pool, it's roughly > $1500
+                                                            if pf_liq_usd == 0 and is_bonding_curve and pf_liq_quote > 10:
+                                                                 print(f"       ⚠️ Bonding Curve Detected (USD 0). Using Quote Liq: {pf_liq_quote:.2f} SOL")
+                                                                 pf_liq_usd = pf_liq_quote * 150 # Estimate
+                                                            
+                                                            print(f"       Live Check: Liq ${pf_liq_usd:,.0f} | MC ${pf_mkt_cap:,.0f} (Threshold: ${PRE_FLIGHT_MIN_LIQ:,.0f})")
+                                                            
+                                                            # Fail if Liq < Threshold AND Market Cap < Threshold (Double Fail)
+                                                            # For BC, if Liq is 0 but MC is healthy (>5k), we trust MC.
+                                                            if pf_liq_usd < PRE_FLIGHT_MIN_LIQ and pf_mkt_cap < 5000:
+                                                                print(f"{Fore.RED}    ❌ PRE-FLIGHT FAIL: Liquidity ${pf_liq_usd:,.0f} & MC ${pf_mkt_cap:,.0f} Too Low (Flash Rug?)")
                                                                 if telegram.enabled:
                                                                     await telegram.send_message_async(
                                                                         f"🛡️ *PRE-FLIGHT ABORTED*\n"
