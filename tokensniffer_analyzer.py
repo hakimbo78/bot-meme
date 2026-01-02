@@ -180,10 +180,22 @@ class TokenSnifferAnalyzer:
     def _analyze_solana_rugcheck(self, token_address: str, result: Dict, ext_liq: float = 0):
         """Deep analysis for Solana using RugCheck API with SCORE-BASED detection."""
         try:
+            # SANITIZATION: Clean address to prevent 400 Errors
+            if not token_address:
+                raise ValueError("Empty token address")
+                
+            token_address = token_address.strip()
+            
+            # Simple validation (Solana addresses are base58, 32-44 chars)
+            if len(token_address) < 32 or len(token_address) > 44:
+                 print(f"   ⚠️ Invalid Solana Address length: {token_address}")
+                 raise ValueError("Invalid address length")
+            
             url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
             resp = requests.get(url, timeout=15)
             
             if resp.status_code != 200:
+                print(f"   ⚠️ RugCheck API Error {resp.status_code}: {resp.text[:100]}")
                 result['contract_analysis']['details'] = [f"⚠️ RugCheck API Failed: {resp.status_code}"]
                 result['risk_score'] = 50  # Moderate risk if can't verify
                 result['risk_level'] = 'WARN'
