@@ -213,10 +213,13 @@ class PositionTracker:
             # Get column names
             col_names = [description[0] for description in cursor.description]
             
-            positions = []
-            for row in rows:
-                positions.append(dict(zip(col_names, row)))
-                def get_position_by_token(self, token_address: str) -> Optional[Dict]:
+            conn.close()
+            return positions
+        except Exception as e:
+            logger.error(f"Failed to get open positions: {e}")
+            return []
+
+    def get_position_by_token(self, token_address: str) -> Optional[Dict]:
         """Get the active OPEN position for a token address."""
         try:
             conn = self.db._get_conn()
