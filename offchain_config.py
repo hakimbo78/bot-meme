@@ -67,9 +67,9 @@ DEGEN_SNIPER_CONFIG = {
         },
         'thresholds': {
             'low': 30,
-            'mid': 55,
-            'high': 75,
-            'verify': 75
+            'mid': 45,
+            'high': 55,
+            'verify': 55
         },
         # FOMO GUARD: Max allowed pump in 5m before we consider it "too late"
         'max_price_change_5m': 100.0, # If > +100% in 5m, SKIP (Too dangerous)
@@ -102,7 +102,7 @@ DEGEN_SNIPER_CONFIG = {
         },
         'high': {
             # ONLY HIGH ALERTS ENABLED
-            'min_score': 75,
+            'min_score': 55,
             'max_score': 100,
             'rate_limit': 0    # No limit
         }
