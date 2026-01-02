@@ -67,6 +67,12 @@ jobs:
             echo "⏭️  requirements.txt unchanged, skipping pip install"
           fi
           
+          # Clear Python cache (CRITICAL for code updates)
+          echo "🧹 Clearing Python cache..."
+          find $VPS_PATH -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          find $VPS_PATH -name "*.pyc" -delete 2>/dev/null || true
+          echo "✅ Cache cleared"
+          
           # Restart service
           echo "🚀 Restarting meme-bot service..."
           sudo systemctl restart meme-bot
