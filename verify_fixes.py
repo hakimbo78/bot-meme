@@ -48,7 +48,7 @@ def test_config_values():
         results.append(passed)
         
         # Test min_signal_score
-        trading_cfg = trading_config.get_config()
+        trading_cfg = trading_config.get_trading_config()
         min_signal = trading_cfg['trading']['min_signal_score']
         passed = min_signal == 60
         print_test(f"min_signal_score = 60", passed, f"Current: {min_signal}")
