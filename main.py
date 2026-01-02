@@ -2,6 +2,7 @@ import argparse
 import argparse
 import time
 import asyncio
+import requests
 from colorama import init, Fore, Style
 from web3 import Web3
 from scanner import BaseScanner

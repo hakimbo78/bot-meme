@@ -216,9 +216,29 @@ class PositionTracker:
             positions = []
             for row in rows:
                 positions.append(dict(zip(col_names, row)))
-                
+                def get_position_by_token(self, token_address: str) -> Optional[Dict]:
+        """Get the active OPEN position for a token address."""
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            # Find OPEN position for this token
+            cursor.execute(
+                "SELECT * FROM positions WHERE token_address = ? AND status = 'OPEN'", 
+                (token_address,)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                conn.close()
+                return None
+            
+            # Get column names
+            col_names = [description[0] for description in cursor.description]
+            position = dict(zip(col_names, row))
+            
             conn.close()
-            return positions
+            return position
         except Exception as e:
-            logger.error(f"Failed to get open positions: {e}")
-            return []
+            logger.error(f"Failed to get position by token {token_address}: {e}")
+            return None
