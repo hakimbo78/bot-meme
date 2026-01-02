@@ -246,8 +246,12 @@ class TokenSnifferAnalyzer:
                     # DANGER ZONE - Near graduation (95-100%)
                     score += 30
                     details.append(f"🚨 {platform.upper()} Bonding Curve {completion:.1f}% - NEAR GRADUATION")
+                elif completion >= 90:
+                    # HIGH RISK ZONE - Very close to graduation (90-95%)
+                    score += 20
+                    details.append(f"🚨 {platform.upper()} Bonding Curve {completion:.1f}% - HIGH RISK")
                 elif completion >= 80:
-                    # CAUTION ZONE - Approaching graduation (80-95%)
+                    # CAUTION ZONE - Approaching graduation (80-90%)
                     score += 10
                     details.append(f"⚠️ {platform.upper()} Bonding Curve {completion:.1f}% - Approaching Graduation")
                 else:
@@ -256,23 +260,39 @@ class TokenSnifferAnalyzer:
                     details.append(f"📊 {platform.upper()} Bonding Curve {completion:.1f}% - Early Phase")
             
             elif completion >= 100 and len(dex_pools) > 0:
-                # POST-GRADUATION: Check LP lock on DEX
+                # POST-GRADUATION: Check LP lock AND liquidity size
                 lp_locked_on_dex = False
                 dex_lp_pct = 0
+                max_dex_liq_usd = 0
+                
+                # Minimum DEX liquidity requirement (prevent micro-liq scams)
+                MIN_DEX_LIQUIDITY_USD = 10000
                 
                 for dex_pool in dex_pools:
                     dex_lp = dex_pool.get('lp', {})
                     dex_lock = float(dex_lp.get('lpLockedPct', 0))
                     
-                    if dex_lock >= 90:
+                    # Calculate total DEX liquidity in USD
+                    quote_usd = float(dex_lp.get('quoteUSD', 0))
+                    base_usd = float(dex_lp.get('baseUSD', 0))
+                    total_liq_usd = quote_usd + base_usd
+                    
+                    # Track max liquidity across all DEX pools
+                    if total_liq_usd > max_dex_liq_usd:
+                        max_dex_liq_usd = total_liq_usd
+                    
+                    # Check both LP lock % AND liquidity amount
+                    if dex_lock >= 90 and total_liq_usd >= MIN_DEX_LIQUIDITY_USD:
                         lp_locked_on_dex = True
                         dex_lp_pct = dex_lock
                         break
-                    elif dex_lock > dex_lp_pct:
-                        dex_lp_pct = dex_lock
                 
                 if lp_locked_on_dex:
-                    details.append(f"✅ Post-Graduation: LP Locked {dex_lp_pct:.1f}% on DEX")
+                    details.append(f"✅ Post-Graduation: LP Locked {dex_lp_pct:.1f}% on DEX (${max_dex_liq_usd:,.0f})")
+                elif max_dex_liq_usd < MIN_DEX_LIQUIDITY_USD:
+                    # CRITICAL: Micro liquidity scam
+                    score += 50
+                    details.append(f"🚨 POST-GRADUATION: Micro Liquidity (${max_dex_liq_usd:,.0f} < ${MIN_DEX_LIQUIDITY_USD:,.0f})")
                 else:
                     # CRITICAL: LP not locked after graduation
                     score += 50
