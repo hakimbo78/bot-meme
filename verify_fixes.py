@@ -39,7 +39,7 @@ def test_config_values():
     try:
         # Import configs
         from offchain_config import DEGEN_SNIPER_CONFIG
-        from trading_config import TradingConfig
+        import trading_config
         
         # Test min_holders
         min_holders = DEGEN_SNIPER_CONFIG['global_guardrails']['quality_check']['min_holders']
@@ -48,7 +48,7 @@ def test_config_values():
         results.append(passed)
         
         # Test min_signal_score
-        trading_cfg = TradingConfig.get_config()
+        trading_cfg = trading_config.get_config()
         min_signal = trading_cfg['trading']['min_signal_score']
         passed = min_signal == 60
         print_test(f"min_signal_score = 60", passed, f"Current: {min_signal}")
