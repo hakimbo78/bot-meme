@@ -80,7 +80,8 @@ class TokenSnifferAnalyzer:
             print(f"   [BC DEBUG] Market type: {mtype}")
             
             # PRIMARY: Pump.fun bonding curve (most common)
-            if mtype == 'pump_fun_amm':
+            # HANDLES: pump_fun_amm AND pump_fun (both variations seen in production)
+            if mtype in ['pump_fun_amm', 'pump_fun']:
                 bonding_curve_market = market
                 platform = 'pump_fun'
                 
@@ -92,6 +93,7 @@ class TokenSnifferAnalyzer:
                 if total > 0 and current > 0:
                     completion_pct = (current / total) * 100
                     print(f"   [BC DEBUG] PUMP.FUN BC: {completion_pct:.1f}%")
+            
             
             
             # SECONDARY: Meteora Dynamic BC
