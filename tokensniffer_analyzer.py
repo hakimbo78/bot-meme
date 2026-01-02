@@ -273,10 +273,13 @@ class TokenSnifferAnalyzer:
             # 4. BONDING CURVE DETECTION & RISK SCORING (NEW)
             is_bc, completion, platform, dex_pools = self._check_bonding_curve_status(data)
             
+            print(f"   [BC BLOCK CHECK] is_bc={is_bc}, completion={completion:.1f}%, platform={platform}")
+            
             if is_bc and completion < 100:
                 # POLICY: WAIT FOR GRADUATION - Block ALL BC tokens
                 score += 100  # Auto-block
                 details.append(f"⛔ {platform.upper()} Bonding Curve {completion:.1f}% - WAITING FOR GRADUATION")
+                print(f"   [BC BLOCK] BLOCKED! Score +100")
                 
                 # Store BC info for bypass tracking (will be used by deduplicator)
                 result['bonding_curve_status'] = {
@@ -284,6 +287,7 @@ class TokenSnifferAnalyzer:
                     'completion': completion,
                     'platform': platform
                 }
+            
             
             elif completion >= 100 and len(dex_pools) > 0:
                 # POST-GRADUATION: Check LP lock AND liquidity size
