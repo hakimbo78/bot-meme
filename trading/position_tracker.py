@@ -213,6 +213,10 @@ class PositionTracker:
             # Get column names
             col_names = [description[0] for description in cursor.description]
             
+            positions = []
+            for row in rows:
+                positions.append(dict(zip(col_names, row)))
+            
             conn.close()
             return positions
         except Exception as e:
