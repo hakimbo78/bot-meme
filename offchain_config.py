@@ -81,7 +81,7 @@ DEGEN_SNIPER_CONFIG = {
     'deduplication': {
         'pair_cooldown_minutes': 15,    # 15 min pair dedup
         'token_cooldown_minutes': 30,   # 30 min token dedup
-        'allow_duplicate_score_threshold': 75 # Allow duplicate if score >= 75
+        'allow_duplicate_score_threshold': 70 # Allow duplicate if score >= 75
     },
     
     # ================================================================
