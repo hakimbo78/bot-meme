@@ -132,9 +132,25 @@ class TokenSnifferAnalyzer:
                     score += 5
                     details.append(f"⚠️ {name}")
             
-            # 2. HOLDER CONCENTRATION
+            # 2. HOLDER CONCENTRATION (FIXED: Filter out AMM/LOCKERs)
             top_holders = data.get('topHolders') or []
-            top10_pct = sum(float(h.get('pct', 0)) for h in top_holders[:10])
+            known_accounts = data.get('knownAccounts', {})
+            
+            # Filter out non-holder addresses (AMM pools, LOCKERs, etc)
+            filtered_holders = []
+            for h in top_holders:
+                owner = h.get('owner', '')
+                acc_info = known_accounts.get(owner, {})
+                acc_type = acc_info.get('type', '')
+                
+                # Skip if this is an AMM pool, LOCKER, or burn address
+                if acc_type in ['AMM', 'LOCKER'] or owner == '11111111111111111111111111111111':
+                    continue
+                    
+                filtered_holders.append(h)
+            
+            # Calculate Top 10 from REAL holders only
+            top10_pct = sum(float(h.get('pct', 0)) for h in filtered_holders[:10])
             
             if top10_pct > 90:
                 score += 25
@@ -151,11 +167,13 @@ class TokenSnifferAnalyzer:
             else:
                 details.append(f"✅ Top 10 Holders: {top10_pct:.1f}% (Distributed)")
             
-            # 3. LP LOCK/BURN BONUS (Real-time from RugCheck!)
+            # 3. LP LOCK/BURN BONUS (FIXED: Correct path to lp data)
             markets = data.get('markets', [])
             if markets:
-                lp_locked = float(markets[0].get('lpLockedPct', 0))
-                lp_burned = float(markets[0].get('lpBurnedPct', 0))
+                # Access nested lp object (CORRECT path)
+                lp_data = markets[0].get('lp', {})
+                lp_locked = float(lp_data.get('lpLockedPct', 0))
+                lp_burned = float(lp_data.get('lpBurnedPct', 0))  # Usually 0 for Pump.fun
                 total_secure = lp_locked + lp_burned
                 
                 if total_secure >= 90:
