@@ -15,6 +15,8 @@ class TokenSnifferAnalyzer:
     - SOLANA: Uses RugCheck.xyz API (Best for Solana)
     - EVM (Base/Eth): Uses GoPlus Security API (Standard)
     """
+
+    from offchain_config import DEGEN_SNIPER_CONFIG
     
     def __init__(self, w3: Web3, chain_name: str):
         self.w3 = w3
@@ -79,6 +81,14 @@ class TokenSnifferAnalyzer:
             # Our enhanced score starts from RugCheck
             score = base_score
             details = []
+
+            # 0. MIN HOLDERS CHECK (From Config)
+            min_holders = self.DEGEN_SNIPER_CONFIG.get('global_guardrails', {}).get('quality_check', {}).get('min_holders', 50)
+            total_holders_cnt = data.get('totalHolders', 0)
+            
+            if total_holders_cnt < min_holders:
+                score += 50
+                details.append(f"🚨 TOO FEW HOLDERS: {total_holders_cnt} < {min_holders}")
             
             # 1. CRITICAL RISK CHECKS
             risks = data.get('risks', [])
@@ -221,6 +231,14 @@ class TokenSnifferAnalyzer:
             score = 0
             details = []
             
+            # 0. MIN HOLDERS CHECK (From Config)
+            min_holders = self.DEGEN_SNIPER_CONFIG.get('global_guardrails', {}).get('quality_check', {}).get('min_holders', 50)
+            holder_count = int(t_data.get('holder_count', 0))
+
+            if holder_count < min_holders:
+                score += 50
+                details.append(f"⛔ TOO FEW HOLDERS: {holder_count} < {min_holders}")
+
             # 1. HONEYPOT & CRITICAL (Base Score)
             is_honeypot = str(t_data.get('is_honeypot', '0')) == '1'
             if is_honeypot:
