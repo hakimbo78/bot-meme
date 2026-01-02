@@ -67,6 +67,9 @@ class TokenSnifferAnalyzer:
         """
         markets = data.get('markets', [])
         
+        # DEBUG
+        print(f"   [BC DEBUG] Checking {len(markets)} markets")
+        
         bonding_curve_market = None
         platform = 'none'
         dex_pools = []
@@ -74,6 +77,7 @@ class TokenSnifferAnalyzer:
         
         for market in markets:
             mtype = market.get('marketType', '')
+            print(f"   [BC DEBUG] Market type: {mtype}")
             
             # PRIMARY: Pump.fun bonding curve (most common)
             if mtype == 'pump_fun_amm':
@@ -87,17 +91,22 @@ class TokenSnifferAnalyzer:
                 
                 if total > 0 and current > 0:
                     completion_pct = (current / total) * 100
+                    print(f"   [BC DEBUG] PUMP.FUN BC: {completion_pct:.1f}%")
             
             # SECONDARY: Meteora Dynamic BC
             # NOTE: Meteora BC has lpTotalSupply=0, so we detect by marketType + risk indicators
             elif mtype == 'meteora_damm_v2':
                 # Check if there's "Large Amount of LP Unlocked" risk (indicates BC phase)
                 risks = data.get('risks', [])
+                print(f"   [BC DEBUG] Meteora DAMM detected, checking {len(risks)} risks")
+                
                 has_unlocked_lp_risk = any(
                     'LP Unlocked' in risk.get('name', '') or 
                     'Low amount of LP Providers' in risk.get('name', '')
                     for risk in risks
                 )
+                
+                print(f"   [BC DEBUG] Has unlocked LP risk: {has_unlocked_lp_risk}")
                 
                 # If has unlocked LP risk + Meteora DAMM = likely bonding curve
                 if has_unlocked_lp_risk:
@@ -114,6 +123,8 @@ class TokenSnifferAnalyzer:
                         completion_pct = min(100.0, (total_liq_usd / 85000) * 100)
                     else:
                         completion_pct = 0.0
+                    
+                    print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
             
             # Track DEX pools (post-graduation)
             elif mtype in ['raydium_clmm', 'raydium_amm', 'orca_whirlpool']:
@@ -121,8 +132,12 @@ class TokenSnifferAnalyzer:
         
         # Return BC status
         if bonding_curve_market:
+            print(f"   [BC DEBUG] DETECTED: {platform} at {completion_pct:.1f}%")
             return True, completion_pct, platform, dex_pools
         
+        print(f"   [BC DEBUG] NO BC DETECTED")
+        return False, 100.0, platform, dex_pools
+    
         # No bonding curve detected
         return False, 100.0, platform, dex_pools
     
