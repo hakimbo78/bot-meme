@@ -96,22 +96,33 @@ class TokenSnifferAnalyzer:
             
             # SECONDARY: Meteora Dynamic BC
             # NOTE: Meteora BC has lpTotalSupply=0, so we detect by marketType + risk indicators
-            # HANDLES: meteora_damm_v2 AND meteora_dbc (both are Meteora bonding curves)
             elif mtype in ['meteora_damm_v2', 'meteora_dbc']:
-                # Check if there's "Large Amount of LP Unlocked" risk (indicates BC phase)
-                risks = data.get('risks', [])
-                print(f"   [BC DEBUG] Meteora BC ({mtype}) detected, checking {len(risks)} risks")
+                print(f"   [BC DEBUG] Meteora BC ({mtype}) detected")
                 
-                has_unlocked_lp_risk = any(
-                    'LP Unlocked' in risk.get('name', '') or 
-                    'Low amount of LP Providers' in risk.get('name', '')
-                    for risk in risks
-                )
+                # meteora_dbc = Dynamic Bonding Curve (IS a BC by definition!)
+                # meteora_damm_v2 = Dynamic AMM (check risks to confirm if BC phase)
+                is_meteora_bc = False
                 
-                print(f"   [BC DEBUG] Has unlocked LP risk: {has_unlocked_lp_risk}")
+                if mtype == 'meteora_dbc':
+                    # DBC = always a bonding curve
+                    is_meteora_bc = True
+                    print(f"   [BC DEBUG] meteora_dbc confirmed (BC by definition)")
+                else:
+                    # DAMM v2 - check risks to confirm BC phase
+                    risks = data.get('risks', [])
+                    print(f"   [BC DEBUG] meteora_damm_v2 - checking {len(risks)} risks")
+                    
+                    has_unlocked_lp_risk = any(
+                        'LP Unlocked' in risk.get('name', '') or 
+                        'Low amount of LP Providers' in risk.get('name', '')
+                        for risk in risks
+                    )
+                    
+                    print(f"   [BC DEBUG] Has unlocked LP risk: {has_unlocked_lp_risk}")
+                    is_meteora_bc = has_unlocked_lp_risk
                 
-                # If has unlocked LP risk + Meteora DAMM/DBC = likely bonding curve
-                if has_unlocked_lp_risk:
+                # If confirmed as Meteora BC
+                if is_meteora_bc:
                     bonding_curve_market = market
                     platform = 'meteora_bc'
                     
@@ -127,6 +138,7 @@ class TokenSnifferAnalyzer:
                         completion_pct = 0.0
                     
                     print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
+            
             
             
             # Track DEX pools (post-graduation)
