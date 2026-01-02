@@ -50,7 +50,7 @@ TRADING_CONFIG = {
     'exit_strategy': {
         'enabled': True,
         'stop_loss_percent': -50.0,      # Auto-sell at -30% loss
-        'take_profit_percent': 500.0,    # Auto-sell at +500% profit
+        'take_profit_percent': 150.0,    # Auto-sell at +150% profit
         'trailing_stop': False,           # Trailing stop-loss (future feature)
         'emergency_exit_liq_drop': 0.50, # Exit if liquidity drops >50%
         'monitor_interval_seconds': 30,   # Check every 30 seconds
@@ -59,7 +59,7 @@ TRADING_CONFIG = {
     # AUTO-SELL LIMITS
     'limits': {
         'auto_take_profit': True,
-        'take_profit_percent': 500,  # Sell at 500% profit (2x)
+        'take_profit_percent': 150,  # Sell at 150% profit (2x)
         'auto_stop_loss': True,
         'stop_loss_percent': -50,  # Stop loss at -50% (aggressive)
     },
