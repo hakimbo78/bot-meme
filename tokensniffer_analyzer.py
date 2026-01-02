@@ -93,12 +93,14 @@ class TokenSnifferAnalyzer:
                     completion_pct = (current / total) * 100
                     print(f"   [BC DEBUG] PUMP.FUN BC: {completion_pct:.1f}%")
             
+            
             # SECONDARY: Meteora Dynamic BC
             # NOTE: Meteora BC has lpTotalSupply=0, so we detect by marketType + risk indicators
-            elif mtype == 'meteora_damm_v2':
+            # HANDLES: meteora_damm_v2 AND meteora_dbc (both are Meteora bonding curves)
+            elif mtype in ['meteora_damm_v2', 'meteora_dbc']:
                 # Check if there's "Large Amount of LP Unlocked" risk (indicates BC phase)
                 risks = data.get('risks', [])
-                print(f"   [BC DEBUG] Meteora DAMM detected, checking {len(risks)} risks")
+                print(f"   [BC DEBUG] Meteora BC ({mtype}) detected, checking {len(risks)} risks")
                 
                 has_unlocked_lp_risk = any(
                     'LP Unlocked' in risk.get('name', '') or 
@@ -108,7 +110,7 @@ class TokenSnifferAnalyzer:
                 
                 print(f"   [BC DEBUG] Has unlocked LP risk: {has_unlocked_lp_risk}")
                 
-                # If has unlocked LP risk + Meteora DAMM = likely bonding curve
+                # If has unlocked LP risk + Meteora DAMM/DBC = likely bonding curve
                 if has_unlocked_lp_risk:
                     bonding_curve_market = market
                     platform = 'meteora_bc'
@@ -125,6 +127,7 @@ class TokenSnifferAnalyzer:
                         completion_pct = 0.0
                     
                     print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
+            
             
             # Track DEX pools (post-graduation)
             elif mtype in ['raydium_clmm', 'raydium_amm', 'orca_whirlpool']:
