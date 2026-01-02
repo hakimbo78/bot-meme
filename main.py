@@ -1253,10 +1253,14 @@ async def main():
                                                     risk_score = sec_data.get('risk_score', 100)
                                                     risk_level = sec_data.get('risk_level', 'FAIL')
                                                     
-                                                    # THRESHOLD 1: FAIL (Block Trade)
-                                                    if risk_score > 60:
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Risk Score {risk_score}/100 ({risk_level}) > 60")
-                                                        # Show first few details for reason
+                                                    # DYNAMIC THRESHOLD from Config
+                                                    # Default to 60 (allow WARN) if not set, but user requested 30 (SAFE only)
+                                                    max_allowed_score = TradingConfig.get_config()['risk'].get('max_risk_score', 60)
+                                                    
+                                                    # THRESHOLD CHECK
+                                                    if risk_score > max_allowed_score:
+                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Risk Score {risk_score}/100 ({risk_level}) > Config Limit {max_allowed_score}")
+                                                        
                                                         details = sec_data.get('contract_analysis', {}).get('details', [])[:2]
                                                         reason_str = ", ".join([d for d in details if 'Error' not in d])
                                                         
@@ -1264,14 +1268,14 @@ async def main():
                                                             await telegram.send_message_async(
                                                                 f"⛔ *AUTO-BUY BLOCKED*\n"
                                                                 f"Token: `{esc(pair_data.get('token_symbol'))}`\n"
-                                                                f"Reason: Security Risk High ({risk_score}/100)\n"
-                                                                f"Details: {esc(reason_str)}"
+                                                                f"Reason: Risk Score {risk_score}/100 > Limit {max_allowed_score}\n"
+                                                                f"Status: {risk_level} (Config Restricted)"
                                                             )
                                                         continue
                                                         
-                                                    # THRESHOLD 2: WARN (Proceed with caution)
+                                                    # WARNING LEVEL (If allowed by config)
                                                     elif risk_score > 30:
-                                                        print(f"{Fore.YELLOW}    ⚠️ SECURITY WARNING: Risk Score {risk_score}/100 ({risk_level}) - Proceeding with caution")
+                                                        print(f"{Fore.YELLOW}    ⚠️ SECURITY WARNING: Risk Score {risk_score}/100 ({risk_level}) - Proceeding (Allowed > 30)")
                                                         details = sec_data.get('contract_analysis', {}).get('details', [])
                                                         for d in details:
                                                             if '⚠️' in d or '🚨' in d:
