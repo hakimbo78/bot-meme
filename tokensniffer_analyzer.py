@@ -70,6 +70,7 @@ class TokenSnifferAnalyzer:
         bonding_curve_market = None
         platform = 'none'
         dex_pools = []
+        completion_pct = 100.0
         
         for market in markets:
             mtype = market.get('marketType', '')
@@ -78,33 +79,53 @@ class TokenSnifferAnalyzer:
             if mtype == 'pump_fun_amm':
                 bonding_curve_market = market
                 platform = 'pump_fun'
-            
-            # SECONDARY: Meteora Dynamic BC (also common per user feedback)
-            elif mtype == 'meteora_damm_v2':
-                lp = market.get('lp', {})
-                total_supply = lp.get('lpTotalSupply', 0)
                 
-                # Check if it's actually a bonding curve (has BC structure)
-                if total_supply > 0:
+                # Calculate completion for Pump.fun
+                lp = market.get('lp', {})
+                current = lp.get('lpCurrentSupply', 0)
+                total = lp.get('lpTotalSupply', 0)
+                
+                if total > 0 and current > 0:
+                    completion_pct = (current / total) * 100
+            
+            # SECONDARY: Meteora Dynamic BC
+            # NOTE: Meteora BC has lpTotalSupply=0, so we detect by marketType + risk indicators
+            elif mtype == 'meteora_damm_v2':
+                # Check if there's "Large Amount of LP Unlocked" risk (indicates BC phase)
+                risks = data.get('risks', [])
+                has_unlocked_lp_risk = any(
+                    'LP Unlocked' in risk.get('name', '') or 
+                    'Low amount of LP Providers' in risk.get('name', '')
+                    for risk in risks
+                )
+                
+                # If has unlocked LP risk + Meteora DAMM = likely bonding curve
+                if has_unlocked_lp_risk:
                     bonding_curve_market = market
                     platform = 'meteora_bc'
+                    
+                    # For Meteora, estimate completion based on liquidity vs typical BC threshold
+                    # Typical Meteora BC completes around $69K-85K liquidity
+                    lp = market.get('lp', {})
+                    total_liq_usd = lp.get('quoteUSD', 0) + lp.get('baseUSD', 0)
+                    
+                    if total_liq_usd > 0:
+                        # Estimate: 85K = 100% completion
+                        completion_pct = min(100.0, (total_liq_usd / 85000) * 100)
+                    else:
+                        completion_pct = 0.0
             
             # Track DEX pools (post-graduation)
             elif mtype in ['raydium_clmm', 'raydium_amm', 'orca_whirlpool']:
                 dex_pools.append(market)
         
-        # Calculate completion percentage
+        # Return BC status
         if bonding_curve_market:
-            lp = bonding_curve_market.get('lp', {})
-            current = lp.get('lpCurrentSupply', 0)
-            total = lp.get('lpTotalSupply', 0)
-            
-            if total > 0 and current > 0:
-                completion = (current / total) * 100
-                return True, completion, platform, dex_pools
+            return True, completion_pct, platform, dex_pools
         
         # No bonding curve detected
         return False, 100.0, platform, dex_pools
+    
     
     def _analyze_solana_rugcheck(self, token_address: str, result: Dict, ext_liq: float = 0):
         """Deep analysis for Solana using RugCheck API with SCORE-BASED detection."""
