@@ -1358,8 +1358,8 @@ async def main():
                                                             PRE_FLIGHT_MIN_LIQ = 2000.0
                                                             
                                                             # BONDING CURVE EXCEPTION:
-                                                            # Pump.fun/Meteora tokens often return 0 USD Liq but valid Quote Liq (SOL) or Market Cap.
-                                                            is_bonding_curve = 'pump' in pf_pair.get('url', '').lower() or 'meteora' in pf_pair.get('dexId', '').lower()
+                                                            # Pump.fun/Meteora/LaunchLab tokens often return 0 USD Liq but valid Quote Liq (SOL) or Market Cap.
+                                                            is_bonding_curve = any(x in pf_pair.get('url', '').lower() or x in pf_pair.get('dexId', '').lower() for x in ['pump', 'meteora', 'launchlab'])
                                                             
                                                             # Calculate implied liquidity if USD is 0 but we have Quote (SOL)
                                                             # Assume SOL ~$150 (Safe conservative estimate or just check unit count)
