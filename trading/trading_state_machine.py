@@ -25,14 +25,15 @@ class TradingStateMachine:
         self.tracker = tracker
         self.config = ConfigManager.get_config()['state_machine']
         
-    async def process_signal(self, chain: str, token_address: str, signal_score: float, market_data: Dict) -> bool:
+    async def process_signal(self, chain: str, token_address: str, signal_score: float, market_data: Dict) -> Tuple[bool, str]:
         """
         Main entry point for trading signals.
         Decides whether to enter new trade or update existing one.
+        Returns: (Success, Message)
         """
         if not self.config.get('enabled', False):
             logger.warning("State Machine disabled in config")
-            return False
+            return False, "State Machine Disabled"
             
         # Check if we already have a position for this token
         position = self.tracker.get_position_by_token(token_address)
@@ -44,42 +45,35 @@ class TradingStateMachine:
             # EXISTING TRADE -> WATCH/SCALE STATE
             return await self._handle_existing_position(position, signal_score, market_data)
 
-    async def _handle_new_entry(self, chain: str, token_address: str, signal_score: float, market_data: Dict) -> bool:
+    async def _handle_new_entry(self, chain: str, token_address: str, signal_score: float, market_data: Dict) -> Tuple[bool, str]:
         """Handle initial entry (PROBE)."""
         logger.info(f"🤖 SM: New Signal for {token_address} (Score: {signal_score}) -> Entering PROBE")
         
         # Calculate PROBE size (e.g. 50%)
         probe_pct = self.config.get('probe_size_pct', 50.0) / 100.0
         
-        # We need to hack the budget temporarily or pass size to executor
-        # Ideally executor should accept size_multiplier, but for now we trust executor checks budget
-        # TODO: Modify executor to accept custom amount. For now, we rely on budget.
-        
         # Execute Buy
         success, msg = await self.executor.execute_buy(
             chain=chain,
             token_address=token_address,
             signal_score=signal_score
-            # amount_multiplier=probe_pct (Future improvement)
         )
         
         if success:
             logger.info(f"✅ SM: PROBE Buy Successful. State: PROBE")
-            # Position tracker automatically sets status to OPEN.
-            # We can optionally tag it as 'PROBE' in metadata if we extend DB schema.
-            return True
+            return True, "PROBE Entry Successful"
         else:
             logger.error(f"❌ SM: PROBE Buy Failed: {msg}")
-            return False
+            return False, msg
 
-    async def _handle_existing_position(self, position: Dict, signal_score: float, market_data: Dict) -> bool:
+    async def _handle_existing_position(self, position: Dict, signal_score: float, market_data: Dict) -> Tuple[bool, str]:
         """Handle active position updates (WATCH / SCALE / EXIT)."""
         pos_id = position['id']
         current_price = market_data.get('price_usd', 0)
         entry_price = position['entry_price']
         
         if current_price <= 0 or entry_price <= 0:
-            return False
+            return False, "Invalid Price Data"
             
         pnl_pct = ((current_price - entry_price) / entry_price) * 100
         
@@ -96,24 +90,17 @@ class TradingStateMachine:
                 position_id=pos_id,
                 new_status='RISK_EXIT'
             )
-            return True
+            return True, "Risk Exit Triggered"
             
         # 2. CHECK SCALE CONDITIONS (Winners)
-        # Only scale if we haven't scaled yet (check open_positions count or metadata)
-        # Using simplified logic: If PnL > 20% and Score < 25 (Super Safe)
         scale_profit_threshold = self.config.get('scale_profit_threshold', 20.0)
         scale_risk_max = self.config.get('scale_risk_max', 25)
         
         if self.config.get('scale_enabled') and pnl_pct > scale_profit_threshold and signal_score < scale_risk_max:
-             # Check if we already double-downed? (Need metadata, skipping for MVP)
              logger.info(f"🚀 SM: SCALE SIGNAL! (+{pnl_pct:.1f}% Profit & Safe Score {signal_score})")
              # await self.executor.execute_buy(...) # TODO: Implement Scale Buy
-             # For MVP, just log it.
              pass
              
         # 3. TRAILING STOP (Future)
-        if self.config.get('trailing_stop_enabled'):
-            # Logic to update SL in DB
-            pass
-            
-        return True
+        
+        return True, "Position Monitored"

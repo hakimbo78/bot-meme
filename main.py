@@ -1403,9 +1403,9 @@ async def main():
                                                 
                                                 # Initialize fallback values (Prevent UnboundLocalError)
                                                 tx_success = False
-                                                msg = "State Machine Failed"
+                                                msg = "State Machine Failed (Unknown)"
 
-                                                sm_success = await state_machine.process_signal(
+                                                sm_success, sm_msg = await state_machine.process_signal(
                                                     chain=chain_name,
                                                     token_address=pair_data.get('token_address'),
                                                     signal_score=check_score,
@@ -1416,7 +1416,11 @@ async def main():
                                                     # State Machine handles its own logging/actions
                                                     # We just confirm the handoff
                                                     tx_success = True
-                                                    msg = "Handled by State Machine"
+                                                    msg = sm_msg  # Use the specific success message
+                                                else:
+                                                    # Capture failure reason
+                                                    msg = sm_msg
+                                                    print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
                                                 
                                                 if tx_success:
                                                     print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
@@ -1452,9 +1456,9 @@ async def main():
                                                     elif "Slippage" in msg or "0x177e" in str(msg):
                                                         error_category = "📈 High Slippage"
                                                         error_action = "Token too volatile or low liquidity. Skipped for safety."
-                                                    elif "insufficient funds" in msg.lower() or "AccountNotFound" in msg:
-                                                        error_category = "💰 Insufficient Balance"
-                                                        error_action = "Top up wallet with more SOL/ETH"
+                                                    elif any(x in msg.lower() for x in ["insufficient funds", "insufficient lamports", "broadcast failed", "0x1"]):
+                                                        error_category = "💰 Insufficient Balance / Gas"
+                                                        error_action = "Top up wallet with more SOL/ETH (Need > 0.01 SOL)"
                                                     elif "disabled" in msg.lower():
                                                         error_category = "⛔ Chain/Trading Disabled"
                                                         error_action = "Enable in trading_config.py"
