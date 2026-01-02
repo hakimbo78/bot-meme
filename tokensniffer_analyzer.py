@@ -60,6 +60,52 @@ class TokenSnifferAnalyzer:
         
         return result
         
+    def _check_bonding_curve_status(self, data: Dict) -> tuple:
+        """
+        Detect bonding curve status for Pump.fun and Meteora tokens.
+        Returns: (is_bonding_curve, completion_pct, platform, dex_pools)
+        """
+        markets = data.get('markets', [])
+        
+        bonding_curve_market = None
+        platform = 'none'
+        dex_pools = []
+        
+        for market in markets:
+            mtype = market.get('marketType', '')
+            
+            # PRIMARY: Pump.fun bonding curve (most common)
+            if mtype == 'pump_fun_amm':
+                bonding_curve_market = market
+                platform = 'pump_fun'
+            
+            # SECONDARY: Meteora Dynamic BC (also common per user feedback)
+            elif mtype == 'meteora_damm_v2':
+                lp = market.get('lp', {})
+                total_supply = lp.get('lpTotalSupply', 0)
+                
+                # Check if it's actually a bonding curve (has BC structure)
+                if total_supply > 0:
+                    bonding_curve_market = market
+                    platform = 'meteora_bc'
+            
+            # Track DEX pools (post-graduation)
+            elif mtype in ['raydium_clmm', 'raydium_amm', 'orca_whirlpool']:
+                dex_pools.append(market)
+        
+        # Calculate completion percentage
+        if bonding_curve_market:
+            lp = bonding_curve_market.get('lp', {})
+            current = lp.get('lpCurrentSupply', 0)
+            total = lp.get('lpTotalSupply', 0)
+            
+            if total > 0 and current > 0:
+                completion = (current / total) * 100
+                return True, completion, platform, dex_pools
+        
+        # No bonding curve detected
+        return False, 100.0, platform, dex_pools
+    
     def _analyze_solana_rugcheck(self, token_address: str, result: Dict, ext_liq: float = 0):
         """Deep analysis for Solana using RugCheck API with SCORE-BASED detection."""
         try:
@@ -191,7 +237,48 @@ class TokenSnifferAnalyzer:
                     score += 10
                     details.append(f"🚨 LP Not Secured (0%)")
             
-            # 4. FINALIZE SCORE
+            # 4. BONDING CURVE DETECTION & RISK SCORING (NEW)
+            is_bc, completion, platform, dex_pools = self._check_bonding_curve_status(data)
+            
+            if is_bc and completion < 100:
+                # Token still in bonding curve
+                if completion >= 95:
+                    # DANGER ZONE - Near graduation (95-100%)
+                    score += 30
+                    details.append(f"🚨 {platform.upper()} Bonding Curve {completion:.1f}% - NEAR GRADUATION")
+                elif completion >= 80:
+                    # CAUTION ZONE - Approaching graduation (80-95%)
+                    score += 10
+                    details.append(f"⚠️ {platform.upper()} Bonding Curve {completion:.1f}% - Approaching Graduation")
+                else:
+                    # EARLY PHASE - Safer (0-80%)
+                    score += 3
+                    details.append(f"📊 {platform.upper()} Bonding Curve {completion:.1f}% - Early Phase")
+            
+            elif completion >= 100 and len(dex_pools) > 0:
+                # POST-GRADUATION: Check LP lock on DEX
+                lp_locked_on_dex = False
+                dex_lp_pct = 0
+                
+                for dex_pool in dex_pools:
+                    dex_lp = dex_pool.get('lp', {})
+                    dex_lock = float(dex_lp.get('lpLockedPct', 0))
+                    
+                    if dex_lock >= 90:
+                        lp_locked_on_dex = True
+                        dex_lp_pct = dex_lock
+                        break
+                    elif dex_lock > dex_lp_pct:
+                        dex_lp_pct = dex_lock
+                
+                if lp_locked_on_dex:
+                    details.append(f"✅ Post-Graduation: LP Locked {dex_lp_pct:.1f}% on DEX")
+                else:
+                    # CRITICAL: LP not locked after graduation
+                    score += 50
+                    details.append(f"🚨 POST-GRADUATION: LP NOT LOCKED ({dex_lp_pct:.1f}%) - RUGPULL RISK")
+            
+            # 5. FINALIZE SCORE
             final_score = min(100, max(0, score))
             risk_level = self._determine_risk_level(final_score)
             
