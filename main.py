@@ -1257,27 +1257,32 @@ async def main():
                                                     # Default to 60 (allow WARN) if not set, but user requested 30 (SAFE only)
                                                     max_allowed_score = TradingConfig.get_config()['risk'].get('max_risk_score', 60)
                                                     
+                                                    # Helper to format details breakdown
+                                                    raw_details = sec_data.get('contract_analysis', {}).get('details', [])
+                                                    # Filter out the summary headers we added (RugCheck Base Score..., Final Risk Score...)
+                                                    filtered_details = [d for d in raw_details if 'Base Score' not in d and 'Final Risk' not in d]
+                                                    formatted_breakdown = "\n".join([f"• {d}" for d in filtered_details])
+                                                    if not formatted_breakdown: formatted_breakdown = "• No specific flags detected"
+                                                    
                                                     # THRESHOLD CHECK
                                                     if risk_score > max_allowed_score:
                                                         print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Risk Score {risk_score}/100 ({risk_level}) > Config Limit {max_allowed_score}")
-                                                        
-                                                        details = sec_data.get('contract_analysis', {}).get('details', [])[:2]
-                                                        reason_str = ", ".join([d for d in details if 'Error' not in d])
                                                         
                                                         if telegram.enabled:
                                                             await telegram.send_message_async(
                                                                 f"⛔ *AUTO-BUY BLOCKED*\n"
                                                                 f"Token: `{esc(pair_data.get('token_symbol'))}`\n"
                                                                 f"Reason: Risk Score {risk_score}/100 > Limit {max_allowed_score}\n"
-                                                                f"Status: {risk_level} (Config Restricted)"
+                                                                f"Status: {risk_level} (Config Restricted)\n\n"
+                                                                f"*Risk Analysis:*\n"
+                                                                f"{esc(formatted_breakdown)}"
                                                             )
                                                         continue
                                                         
                                                     # WARNING LEVEL (If allowed by config)
                                                     elif risk_score > 30:
                                                         print(f"{Fore.YELLOW}    ⚠️ SECURITY WARNING: Risk Score {risk_score}/100 ({risk_level}) - Proceeding (Allowed > 30)")
-                                                        details = sec_data.get('contract_analysis', {}).get('details', [])
-                                                        for d in details:
+                                                        for d in filtered_details:
                                                             if '⚠️' in d or '🚨' in d:
                                                                 print(f"{Fore.YELLOW}       {d}")
 
@@ -1290,7 +1295,12 @@ async def main():
                                                     if lp_risk['risk_score'] > 30:
                                                         print(f"{Fore.RED}    ❌ BLOCKED BY LP INTENT: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) [ULTRA-STRICT]")
                                                         if telegram.enabled:
-                                                            await telegram.send_message_async(f"⛔ *AUTO-BUY BLOCKED*\nToken: `{esc(pair_data.get('token_symbol'))}`\nReason: LP Risk Too High ({lp_risk['risk_score']:.0f}/100 > 30)")
+                                                            await telegram.send_message_async(
+                                                                f"⛔ *AUTO-BUY BLOCKED*\n"
+                                                                f"Token: `{esc(pair_data.get('token_symbol'))}`\n"
+                                                                f"Reason: LP Risk Too High ({lp_risk['risk_score']:.0f}/100 > 30)\n"
+                                                                f"Behavioral Risk: {lp_risk['risk_level']}"
+                                                            )
                                                         continue
                                                     
                                                     elif lp_risk['risk_score'] > 20:
@@ -1300,6 +1310,7 @@ async def main():
                                                     print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_level}, Top 10: {top10_pct:.1f}%, LP Intent: {lp_risk['risk_score']:.0f}/100)")
                                                 except Exception as sec_e:
                                                     print(f"{Fore.YELLOW}    ⚠️ Security Check Skipped: {sec_e}")
+                                                    formatted_breakdown = "• Security Check Skipped (Error)"
 
                                                 # FOMO GUARD: Check Volatility
                                                 # Access config safely
@@ -1333,6 +1344,11 @@ async def main():
                                                     print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
                                                     if telegram.enabled:
                                                         risk_status_emoji = "✅" if risk_score <= 30 else "⚠️"
+                                                        
+                                                        # Use the formatted breakdown generated above
+                                                        # If it wasn't generated (e.g. exception), define default
+                                                        if 'formatted_breakdown' not in locals(): formatted_breakdown = "• Analysis unavailable"
+                                                        
                                                         await telegram.send_message_async(
                                                             f"🤖 *AUTO-BUY EXECUTED* ✅\n"
                                                             f"--------------------------------\n"
@@ -1341,7 +1357,9 @@ async def main():
                                                             f"Signal Score: {check_score:.1f}\n"
                                                             f"Risk Status: {risk_score:.0f}/100 {risk_status_emoji} ({risk_level})\n"
                                                             f"Tx Hash: {msg}\n"
-                                                            f"Status: MOONING SOON? 🚀"
+                                                            f"Status: MOONING SOON? 🚀\n\n"
+                                                            f"*Risk Analysis Details:*\n"
+                                                            f"{esc(formatted_breakdown)}"
                                                         )
                                                 else:
                                                     print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
