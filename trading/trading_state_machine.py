@@ -35,7 +35,7 @@ class TradingStateMachine:
             return False
             
         # Check if we already have a position for this token
-        position = self.tracker.get_position_by_token(chain, token_address)
+        position = self.tracker.get_position_by_token(token_address)
         
         if not position:
             # NEW TRADE -> PROBE STATE
