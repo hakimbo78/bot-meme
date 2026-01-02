@@ -44,7 +44,7 @@ DEGEN_SNIPER_CONFIG = {
         
         # OPTIMIZED QUALITY METRICS (Requested)
         'quality_check': {
-            'min_holders': 50,                # Enforced in On-Chain Verify
+            'min_holders': 35,                # Enforced in On-Chain Verify (Balanced: early entry + safety)
             'contract_verified': True,        # Enforced in On-Chain Verify
             'max_buy_tax': 10,                # Enforced in On-Chain Verify
             'max_sell_tax': 10,               # Enforced in On-Chain Verify
