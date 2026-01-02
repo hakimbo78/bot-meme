@@ -138,9 +138,6 @@ class TokenSnifferAnalyzer:
         print(f"   [BC DEBUG] NO BC DETECTED")
         return False, 100.0, platform, dex_pools
     
-        # No bonding curve detected
-        return False, 100.0, platform, dex_pools
-    
     
     def _analyze_solana_rugcheck(self, token_address: str, result: Dict, ext_liq: float = 0):
         """Deep analysis for Solana using RugCheck API with SCORE-BASED detection."""
