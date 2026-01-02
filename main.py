@@ -1401,6 +1401,10 @@ async def main():
                                                 from trading.trading_state_machine import TradingStateMachine
                                                 state_machine = TradingStateMachine(trade_executor, position_tracker)
                                                 
+                                                # Initialize fallback values (Prevent UnboundLocalError)
+                                                tx_success = False
+                                                msg = "State Machine Failed"
+
                                                 sm_success = await state_machine.process_signal(
                                                     chain=chain_name,
                                                     token_address=pair_data.get('token_address'),
