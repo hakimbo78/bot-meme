@@ -1333,6 +1333,46 @@ async def main():
                                                         )
                                                     continue
 
+                                                # ============================================================
+                                                # 🛡️ PRE-FLIGHT CHECK: Live Liquidity Verification (Anti-Flash Rug)
+                                                # ============================================================
+                                                try:
+                                                    print(f"{Fore.CYAN}    🛡️  Running Pre-Flight Liquidity Check...")
+                                                    pf_start = time.time()
+                                                    pf_url = f"https://api.dexscreener.com/latest/dex/tokens/{pair_data.get('token_address')}"
+                                                    pf_resp = requests.get(pf_url, timeout=5)
+                                                    
+                                                    if pf_resp.status_code == 200:
+                                                        pf_data = pf_resp.json()
+                                                        pf_pairs = pf_data.get('pairs', [])
+                                                        if pf_pairs:
+                                                            # Find the target pair or use the most liquid one
+                                                            pf_pair = pf_pairs[0]
+                                                            pf_liq_usd = float(pf_pair.get('liquidity', {}).get('usd', 0))
+                                                            
+                                                            # Threshold: $2,000 (Flash Rug Detection)
+                                                            PRE_FLIGHT_MIN_LIQ = 2000.0
+                                                            
+                                                            print(f"       Live Liquidity: ${pf_liq_usd:,.0f} (Threshold: ${PRE_FLIGHT_MIN_LIQ:,.0f})")
+                                                            
+                                                            if pf_liq_usd < PRE_FLIGHT_MIN_LIQ:
+                                                                print(f"{Fore.RED}    ❌ PRE-FLIGHT FAIL: Liquidity Dropped to ${pf_liq_usd:,.0f} (Possible Flash Rug)")
+                                                                if telegram.enabled:
+                                                                    await telegram.send_message_async(
+                                                                        f"🛡️ *PRE-FLIGHT ABORTED*\n"
+                                                                        f"Token: {pair_data.get('token_symbol')}\n"
+                                                                        f"Reason: Liquidity Dropped to ${pf_liq_usd:,.0f}\n"
+                                                                        f"Status: FLASH RUG DETECTED ❌"
+                                                                    )
+                                                                continue # ABORT BUY
+                                                    else:
+                                                        print(f"{Fore.YELLOW}    ⚠️ Pre-Flight API Error ({pf_resp.status_code}) - Proceeding with caution")
+                                                except Exception as pf_e:
+                                                     print(f"{Fore.YELLOW}    ⚠️ Pre-Flight Check Error: {pf_e}")
+                                                
+                                                # Verify Pre-Flight duration
+                                                print(f"       Pre-Flight Time: {(time.time() - pf_start)*1000:.0f}ms")
+
                                                 print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy...")
                                                 tx_success, msg = await trade_executor.execute_buy(
                                                     chain=chain_name,
