@@ -73,26 +73,41 @@ class TokenSnifferAnalyzer:
         bonding_curve_market = None
         platform = 'none'
         dex_pools = []
+        # Default to 100% if NO BC detected (so we don't block normal tokens)
+        # But if BC IS detected, we will reset this to 0.0 inside the loop logic
         completion_pct = 100.0
         
         for market in markets:
-            mtype = market.get('marketType', '')
+            # FIX: Force lowercase for robust matching
+            mtype = market.get('marketType', '').lower()
             print(f"   [BC DEBUG] Market type: {mtype}")
             
             # PRIMARY: Pump.fun bonding curve (most common)
             # HANDLES: pump_fun_amm AND pump_fun (both variations seen in production)
-            if mtype in ['pump_fun_amm', 'pump_fun']:
+            if mtype in ['pump_fun_amm', 'pump_fun', 'pumpfun']:
                 bonding_curve_market = market
                 platform = 'pump_fun'
                 
+                # Default to 0.0 for detected BC (Safe Default)
+                # If calculations fail/data missing, we assume incomplete -> BLOCK
+                current_completion = 0.0
+                
                 # Calculate completion for Pump.fun
                 lp = market.get('lp', {})
-                current = lp.get('lpCurrentSupply', 0)
-                total = lp.get('lpTotalSupply', 0)
+                current = float(lp.get('lpCurrentSupply', 0))
+                total = float(lp.get('lpTotalSupply', 0))
                 
-                if total > 0 and current > 0:
-                    completion_pct = (current / total) * 100
-                    print(f"   [BC DEBUG] PUMP.FUN BC: {completion_pct:.1f}%")
+                if total > 0:
+                    current_completion = (current / total) * 100
+                
+                # Update main completion_pct only if we found a valid calculation
+                # Or force it to 0 if it's the first BC we found
+                if completion_pct == 100.0: # Resetting the global default
+                     completion_pct = current_completion
+                else:
+                     completion_pct = max(completion_pct, current_completion)
+                     
+                print(f"   [BC DEBUG] PUMP.FUN BC: {completion_pct:.1f}%")
             
             
             
@@ -131,14 +146,20 @@ class TokenSnifferAnalyzer:
                     # For Meteora, estimate completion based on liquidity vs typical BC threshold
                     # Typical Meteora BC completes around $69K-85K liquidity
                     lp = market.get('lp', {})
-                    total_liq_usd = lp.get('quoteUSD', 0) + lp.get('baseUSD', 0)
+                    total_liq_usd = float(lp.get('quoteUSD', 0)) + float(lp.get('baseUSD', 0))
+                    
+                    current_completion = 0.0
                     
                     if total_liq_usd > 0:
                         # Estimate: 85K = 100% completion
-                        completion_pct = min(100.0, (total_liq_usd / 85000) * 100)
-                    else:
-                        completion_pct = 0.0
+                        current_completion = min(100.0, (total_liq_usd / 85000) * 100)
                     
+                    # Reset global default if needed
+                    if completion_pct == 100.0: 
+                        completion_pct = current_completion
+                    else:
+                        completion_pct = max(completion_pct, current_completion)
+                        
                     print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
             
             
