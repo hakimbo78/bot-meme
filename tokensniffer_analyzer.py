@@ -186,6 +186,13 @@ class TokenSnifferAnalyzer:
             elif mtype in ['raydium_clmm', 'raydium_amm', 'orca_whirlpool']:
                 dex_pools.append(market)
         
+        # MIGRATION OVERRIDE:
+        # If we found standard DEX pools (AMM/CLMM), the token has graduated!
+        # Even if we also found a BC market (e.g. leftover LaunchLab), we treat it as Graduated.
+        if dex_pools:
+            print(f"   [BC DEBUG] MIGRATION DETECTED: Found {len(dex_pools)} standard DEX pools. OVERRIDING BC status.")
+            return False, 100.0, 'migrated_dex', dex_pools
+
         # Return BC status
         if bonding_curve_market:
             print(f"   [BC DEBUG] DETECTED: {platform} at {completion_pct:.1f}%")
