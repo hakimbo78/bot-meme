@@ -49,7 +49,7 @@ TRADING_CONFIG = {
     # EXIT STRATEGY (Auto Stop-Loss & Take-Profit)
     'exit_strategy': {
         'enabled': True,
-        'stop_loss_percent': -50.0,      # Auto-sell at -30% loss
+        'stop_loss_percent': -999.0,      # DISABLED (Was -50.0)
         'take_profit_percent': 150.0,    # Auto-sell at +150% profit
         
         # MOONBAG MODE (Partial Sell)
