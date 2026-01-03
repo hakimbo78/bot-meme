@@ -106,8 +106,8 @@ class TokenSnifferAnalyzer:
             if liq > max_liquidity:
                 max_liquidity = liq
                 
-        if max_liquidity > 25000:
-             print(f"   [BC DEBUG] 🛡️ HIGH LIQUIDITY OVERRIDE: ${max_liquidity:,.0f} (> $25k) - Treated as Graduated")
+        if max_liquidity > 15000:
+             print(f"   [BC DEBUG] 🛡️ HIGH LIQUIDITY OVERRIDE: ${max_liquidity:,.0f} (> $15k) - Treated as Graduated")
              return False, 100.0, 'high_liquidity_established', markets
 
         for market in markets:
