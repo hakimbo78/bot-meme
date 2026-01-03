@@ -80,11 +80,13 @@ class TokenSnifferAnalyzer:
         for market in markets:
             # FIX: Force lowercase for robust matching
             mtype = market.get('marketType', '').lower()
-            print(f"   [BC DEBUG] Market type: {mtype}")
+            dex_id = market.get('dexId', '').lower()
+            print(f"   [BC DEBUG] Market type: {mtype} | DexID: {dex_id}")
             
             # PRIMARY: Pump.fun bonding curve (most common)
             # HANDLES: pump_fun_amm AND pump_fun (both variations seen in production)
-            if mtype in ['pump_fun_amm', 'pump_fun', 'pumpfun']:
+            # ALSO CHECKS: dexId for 'pump' (fallback)
+            if mtype in ['pump_fun_amm', 'pump_fun', 'pumpfun'] or 'pump' in dex_id:
                 bonding_curve_market = market
                 platform = 'pump_fun'
                 
@@ -113,14 +115,15 @@ class TokenSnifferAnalyzer:
             
             # SECONDARY: Meteora Dynamic BC
             # NOTE: Meteora BC has lpTotalSupply=0, so we detect by marketType + risk indicators
-            elif mtype in ['meteora_damm_v2', 'meteora_dbc']:
-                print(f"   [BC DEBUG] Meteora BC ({mtype}) detected")
+            # ALSO CHECKS: dexId (e.g. 'meteoradbc')
+            elif mtype in ['meteora_damm_v2', 'meteora_dbc'] or 'meteoradbc' in dex_id:
+                print(f"   [BC DEBUG] Meteora BC ({mtype} | {dex_id}) detected")
                 
                 # meteora_dbc = Dynamic Bonding Curve (IS a BC by definition!)
                 # meteora_damm_v2 = Dynamic AMM (check risks to confirm if BC phase)
                 is_meteora_bc = False
                 
-                if mtype == 'meteora_dbc':
+                if mtype == 'meteora_dbc' or 'meteoradbc' in dex_id:
                     # DBC = always a bonding curve
                     is_meteora_bc = True
                     print(f"   [BC DEBUG] meteora_dbc confirmed (BC by definition)")
@@ -163,7 +166,7 @@ class TokenSnifferAnalyzer:
                     print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
             
             # TERTIARY: Raydium LaunchLab (Bonding Curve)
-            elif mtype == 'raydium_launchlab':
+            elif mtype == 'raydium_launchlab' or ('raydium' in dex_id and 'launchlab' in mtype):
                 bonding_curve_market = market
                 platform = 'launchlab'
                 
