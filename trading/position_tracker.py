@@ -206,8 +206,8 @@ class PositionTracker:
             conn = self.db._get_conn()
             cursor = conn.cursor()
             
-            # Select all columns
-            cursor.execute("SELECT * FROM positions WHERE status = 'OPEN'")
+            # Select all columns (include both OPEN and PARTIAL_OPEN for moonbag positions)
+            cursor.execute("SELECT * FROM positions WHERE status IN ('OPEN', 'PARTIAL_OPEN')")
             rows = cursor.fetchall()
             
             # Get column names
