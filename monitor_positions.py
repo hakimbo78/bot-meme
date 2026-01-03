@@ -30,6 +30,23 @@ async def monitor_positions():
     # NOTE: OKX Client needs to be managed carefully inside the loop or persistent
     okx_client = OKXDexClient()
     wallet_manager = WalletManager()
+    
+    # Import Wallets for Active Trading
+    evm_key = os.getenv('EVM_PRIVATE_KEY')
+    sol_key = os.getenv('SOLANA_PRIVATE_KEY')
+    
+    if evm_key:
+        wallet_manager.import_wallet_evm(evm_key, 'ethereum')
+        wallet_manager.import_wallet_evm(evm_key, 'base')
+    else:
+        print(f"{Fore.RED}⚠️  EVM_PRIVATE_KEY missing! Auto-sell will fail for EVM.")
+        
+    if sol_key:
+        wallet_manager.import_wallet_solana(sol_key)
+    else:
+        # Warn only if we have Solana positions? Or generic warning
+        pass
+
     trade_executor = TradeExecutor(wallet_manager, okx_client, position_tracker)
     state_machine = TradingStateMachine(trade_executor, position_tracker)
     
@@ -147,8 +164,10 @@ async def monitor_positions():
                             current_usd = real_out * native_price
                         elif ds_price > 0:
                             # Fallback to DexScreener price if quote fails
-                            current_usd = ds_price * entry_amount
-                            print(f"{Fore.YELLOW}ℹ️  Using DexScreener Price (Quote Failed)")
+                            decimals = 9 if chain == 'solana' else 18
+                            normalized_amount = entry_amount / (10 ** decimals)
+                            current_usd = ds_price * normalized_amount
+                            print(f"{Fore.YELLOW}ℹ️  Using DexScreener Price (Quote Failed). Normalized Amt: {normalized_amount:.4f}")
 
                         if current_usd > 0:
                             # Calculate P&L
