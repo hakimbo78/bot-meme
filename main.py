@@ -1930,9 +1930,9 @@ async def main():
             # --- INTEGRATION: TELEGRAM COMMAND HANDLER ---
             # Add interactive commands for trade monitoring
             try:
-                if trade_executor and pt and telegram:
+                if trade_executor and telegram:
                     from telegram_commands import TelegramCommandHandler
-                    command_handler = TelegramCommandHandler(pt, trade_executor, telegram)
+                    command_handler = TelegramCommandHandler(trade_executor.pt, trade_executor, telegram)
                     if command_handler.enabled:
                         print(f"{Fore.CYAN}📱 Launching Telegram Command Handler...")
                         tasks.append(asyncio.create_task(command_handler.start_polling(), name="telegram_commands"))
