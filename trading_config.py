@@ -27,12 +27,50 @@ TRADING_CONFIG = {
         },
     },
     
-    # TRADING SETTINGS
+    # TRADING SETTINGS - CHAIN TYPE GROUPS
     'trading': {
-        'budget_per_trade_usd': 1.0,  # $1 for safe testing
-        'max_open_positions': 2,
-        'max_position_per_token': 1,  # Only 1 position per token
-        'min_signal_score': 55,  # Only trade MID/HIGH tier
+        # EVM Chains (Base, Ethereum)
+        'evm': {
+            'budget_per_trade_usd': 1.0,
+            'max_open_positions': 5,
+            'max_position_per_token': 1,
+            'min_signal_score': 55,
+            
+            # Exit Strategy for EVM
+            'exit_strategy': {
+                'enabled': True,
+                'stop_loss_percent': -999.0,      # DISABLED
+                'take_profit_percent': 150.0,     # 2.5x
+                'moonbag_enabled': True,
+                'take_profit_sell_percent': 50.0, # Sell 50% at TP
+                'moonbag_trailing_stop': True,
+                'trailing_stop': False,
+                'emergency_exit_liq_drop': 0.50,
+            }
+        },
+        
+        # Solana Chain
+        'solana': {
+            'budget_per_trade_usd': 0.5,
+            'max_open_positions': 10,
+            'max_position_per_token': 1,
+            'min_signal_score': 50,
+            
+            # Exit Strategy for Solana
+            'exit_strategy': {
+                'enabled': True,
+                'stop_loss_percent': -999.0,      # DISABLED
+                'take_profit_percent': 200.0,     # 3x (more aggressive)
+                'moonbag_enabled': True,
+                'take_profit_sell_percent': 30.0, # Sell 30% at TP (hold more)
+                'moonbag_trailing_stop': True,
+                'trailing_stop': False,
+                'emergency_exit_liq_drop': 0.50,
+            }
+        },
+        
+        # Global Settings (backward compatibility)
+        'monitor_interval_seconds': 30,
     },
     
     # RISK MANAGEMENT (Aggressive)
@@ -46,28 +84,25 @@ TRADING_CONFIG = {
         'min_liquidity_check': True,
     },
     
-    # EXIT STRATEGY (Auto Stop-Loss & Take-Profit)
+    # DEPRECATED - Kept for backward compatibility, will be removed
     'exit_strategy': {
         'enabled': True,
-        'stop_loss_percent': -999.0,      # DISABLED (Was -50.0)
-        'take_profit_percent': 150.0,    # Auto-sell at +150% profit
-        
-        # MOONBAG MODE (Partial Sell)
-        'moonbag_enabled': True,          # Enable Partial Sell
-        'take_profit_sell_percent': 50.0, # Sell 50% at TP target
-        'moonbag_trailing_stop': True,    # Enable Trailing Stop for the remaining 50%
-        
-        'trailing_stop': False,           # Global Trailing Stop (Initial)
-        'emergency_exit_liq_drop': 0.50, # Exit if liquidity drops >50%
-        'monitor_interval_seconds': 30,   # Check every 30 seconds
+        'stop_loss_percent': -999.0,
+        'take_profit_percent': 150.0,
+        'moonbag_enabled': True,
+        'take_profit_sell_percent': 50.0,
+        'moonbag_trailing_stop': True,
+        'trailing_stop': False,
+        'emergency_exit_liq_drop': 0.50,
+        'monitor_interval_seconds': 30,
     },
     
-    # AUTO-SELL LIMITS
+    # DEPRECATED - Kept for backward compatibility, will be removed
     'limits': {
         'auto_take_profit': True,
-        'take_profit_percent': 150,  # Sell at 150% profit (2x)
+        'take_profit_percent': 150,
         'auto_stop_loss': True,
-        'stop_loss_percent': -50,  # Stop loss at -50% (aggressive)
+        'stop_loss_percent': -50,
     },
     
     # OKX DEX API

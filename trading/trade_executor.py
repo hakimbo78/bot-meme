@@ -64,9 +64,9 @@ class TradeExecutor:
         
         # CRITICAL SECTION: Check position limit with lock to prevent race condition
         async with TradeExecutor._position_lock:
-            # Check position limits
+            # Check position limits (chain-type aware)
             open_positions = self.pt.get_open_positions()
-            max_positions = ConfigManager.get_config()['trading'].get('max_open_positions', 10)
+            max_positions = ConfigManager.get_max_positions(chain)
             
             if len(open_positions) >= max_positions:
                 return False, f"Position limit reached ({len(open_positions)}/{max_positions}). Close positions before opening new ones."
@@ -78,7 +78,7 @@ class TradeExecutor:
         if not wallet_address:
             return False, f"No wallet configured for {chain}"
             
-        amount_usd = ConfigManager.get_budget()
+        amount_usd = ConfigManager.get_budget(chain)
         
         # 2. Get Native Token (Input)
         native_token = ConfigManager.get_chain_config(chain).get('native_token', 'ETH')
