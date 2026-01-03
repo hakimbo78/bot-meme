@@ -107,10 +107,39 @@ class TradingDB:
             
             conn.commit()
             conn.close()
+            
+            # Run migrations to ensure schema is up to date
+            self._migrate_db()
+            
             logger.info("Trading database initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize trading database: {e}")
             raise
+
+    def _migrate_db(self):
+        """Check for missing columns and add them (Safe Migration)."""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            # Check existing columns in positions
+            cursor.execute("PRAGMA table_info(positions)")
+            columns = [info[1] for info in cursor.fetchall()]
+            
+            # Add 'high_pnl' if missing
+            if 'high_pnl' not in columns:
+                logger.info("MIGRATION: Adding 'high_pnl' column to positions table...")
+                cursor.execute("ALTER TABLE positions ADD COLUMN high_pnl REAL DEFAULT 0.0")
+                
+            # Add 'trailing_stop_price' if missing
+            if 'trailing_stop_price' not in columns:
+                logger.info("MIGRATION: Adding 'trailing_stop_price' column to positions table...")
+                cursor.execute("ALTER TABLE positions ADD COLUMN trailing_stop_price REAL DEFAULT 0.0")
+                
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Database Migration Failed: {e}")
 
     def get_open_positions(self) -> List[Dict]:
         """Get all open positions."""
@@ -147,3 +176,17 @@ class TradingDB:
         except Exception as e:
             logger.error(f"Error creating position: {e}")
             return -1
+
+    def update_high_pnl(self, position_id: int, high_pnl: float):
+        """Update the High Watermark PnL for trailing stop."""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE positions SET high_pnl = ?, updated_at = ? WHERE id = ?",
+                (high_pnl, int(time.time()), position_id)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error updating high pnl: {e}")

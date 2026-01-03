@@ -178,43 +178,49 @@ class TradingStateMachine:
             # If PnL > Activation (e.g. 20%), set/update trailing floor
             # If PnL drops below floor, exit
             
-            # For Moonbag, activation is basically 0 (since we already hit high profit)
-            # But let's stick to configured distance
             activation_pct = self.config.get('trailing_activation', 20.0)
             distance_pct = self.config.get('trailing_distance', 10.0)
             
-            # If Moonbag, maybe we assume activation met? 
-            # If we just sold at 150%, we are definitely above 20%.
+            # --- PERSISTENT TRAILING LOGIC ---
+            # 1. Get Highest Recorded PnL (High Watermark)
+            # 'high_pnl' is a new column in DB. Default 0.
+            highest_pnl = position.get('high_pnl', 0.0) or 0.0
             
-            # TODO: We need to store 'trailing_floor' in metadata or DB.
-            # Currently this script just checks config?
-            # Wait, standard trailing stop requires STATE (Highest PnL seen).
-            # If we don't have High Watermark in DB, we can't do proper trailing.
-            # Simplified Trailing: Use current price as reference if we track it?
-            # Implementation gap: Current DB schema doesn't store 'high_watermark_price'.
+            # 2. Update High Watermark if current PnL is higher
+            if pnl_pct > highest_pnl:
+                # Only update if significant change (> 0.5%) to reduce DB writes
+                if pnl_pct > (highest_pnl + 0.5):
+                    try:
+                         # Assume PositionTracker has 'db' attribute (standard in this arch)
+                         if hasattr(self.position_tracker, 'db'):
+                             self.position_tracker.db.update_high_pnl(pos_id, pnl_pct)
+                             highest_pnl = pnl_pct # Update local var
+                             logger.info(f"📈 SM: New High PnL: {pnl_pct:.1f}% (Previous: {highest_pnl:.1f}%)")
+                    except Exception as e:
+                        logger.warning(f"Failed to persist High PnL: {e}")
             
-            pass 
-            # (Deferring complex trailing logic implementation to keep this atomic. 
-            # For now, Moonbag will just HOLD until manual sell or Stop Loss if price crashes back).
-            # Actually, User requested checking Trailing Stop. 
-            # I must check if 'high_watermark' is available or I fallback to static distance from current?
-            # Without High Watermark, Trailing Stop is impossible.
-            # I'll add a simplified warning logic or default to HOLD.
+            # 3. Check Activation
+            # Moonbag is auto-activated (since we already hit TP)
+            # Standard Trailing needs activation threshold
+            is_activated = is_moonbag_active or (highest_pnl >= activation_pct)
             
-            # TEMPORARY FIX: If Moonbag active, we sell remaining if PnL drops < 50% (Secure exit)?
-            # Or just rely on Stop Loss?
-            # Let's fallback to Stop Loss for now to be safe, but mark logic as 'Holding Moonbag'.
-            
-            if is_moonbag_active:
-                logger.info(f"🌙 SM: Holding MOONBAG position (PnL {pnl_pct:.1f}%)")
-            
-            # Check highest PnL recorded for this position (Need to support tracking high-water mark)
-            # For now, we use current PnL as simplified check if we don't have high-water mark in DB yet
-            # TODO: Improve PositionTracker to store 'highest_pnl'
-            
-            # Simplified Trailing: If we are deep in profit but dropped X% from perceived peak?
-            # Without DB support for high-water mark, we can't implement true trailing yet.
-            # We will rely on simple Hard SL/TP for now or dynamic SL adjustments
-            pass
+            if is_activated:
+                # 4. Calculate Dynamic Stop Floor
+                trailing_floor = highest_pnl - distance_pct
+                
+                # 5. Check Exit Condition
+                if pnl_pct <= trailing_floor:
+                    logger.warning(f"📉 SM: TRAILING STOP HIT! (PnL {pnl_pct:.1f}% <= Floor {trailing_floor:.1f}%) | High: {highest_pnl:.1f}%")
+                    await self.executor.execute_sell(
+                        chain=position['chain'],
+                        token_address=position['token_address'],
+                        amount_raw=position['amount'],
+                        position_id=pos_id,
+                        new_status='TRAILING_STOP'
+                    )
+                    return True, "Trailing Stop Execute"
+                else:
+                    if is_moonbag_active:
+                         logger.info(f"🌙 SM: Moonbag Holding. PnL {pnl_pct:.1f}% (Stop @ {trailing_floor:.1f}%)")
 
         return True, "Position Monitored"
