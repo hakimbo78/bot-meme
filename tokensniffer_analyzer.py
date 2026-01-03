@@ -427,7 +427,13 @@ class TokenSnifferAnalyzer:
             
             # 0. MIN HOLDERS CHECK (From Config)
             min_holders = self.DEGEN_SNIPER_CONFIG.get('global_guardrails', {}).get('quality_check', {}).get('min_holders', 50)
-            holder_count = int(t_data.get('holder_count', 0))
+            
+            # Safe Integer Conversion
+            try:
+                holder_count = int(t_data.get('holder_count', 0))
+            except:
+                holder_count = 0
+                print(f"DEBUG: Failed to parse holder_count. Raw: {t_data.get('holder_count')}")
 
             if holder_count < min_holders:
                 score += 50
@@ -524,6 +530,10 @@ class TokenSnifferAnalyzer:
             
             result['risk_score'] = final_score
             result['risk_level'] = risk_level
+            
+            # Ensure keys exist before assigning
+            if 'contract_analysis' not in result: result['contract_analysis'] = {}
+            
             result['contract_analysis'] = {
                 'is_verified': str(t_data.get('is_open_source', '0')) == '1',
                 'has_mint_function': is_mintable,
@@ -542,9 +552,16 @@ class TokenSnifferAnalyzer:
             result['swap_analysis'] = {'is_honeypot': is_honeypot, 'details': []}
             
             # Add summary
-            details.insert(0, f"📊 GoPlus Risk Score: {final_score}/100 ({risk_level})")
+            if len(details) > 0:
+                 details.insert(0, f"📊 GoPlus Risk Score: {final_score}/100 ({risk_level})")
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"DEBUG: GoPlus Analysis Failed. Error: {e}")
+            if 'contract_analysis' not in result: result['contract_analysis'] = {}
+            if 'details' not in result['contract_analysis']: result['contract_analysis']['details'] = []
+            
             result['contract_analysis']['details'].append(f"Error: {e}")
             result['risk_score'] = 50
             result['risk_level'] = 'WARN'
