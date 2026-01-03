@@ -18,7 +18,11 @@ from trading.trading_state_machine import TradingStateMachine
 import aiohttp
 
 init(autoreset=True)
-load_dotenv()
+# Robust .env loading
+script_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(script_dir, '.env')
+load_dotenv(env_path)
+print(f"DEBUG: Loaded .env from {env_path}")
 
 async def monitor_positions():
     """Monitor all open positions with live P&L calculation (FOREVER LOOP)"""

@@ -187,6 +187,7 @@ class TradeExecutor:
         amount_str = str(int(amount_raw))
         
         logger.info(f"Executing SELL for Pos {position_id} ({amount_str} units) on {chain}...")
+        logger.info(f"DEBUG: Using Wallet {wallet_address} for Swap") # DEBUG LINE
         
         try:
             # 1. Get Swap Data
