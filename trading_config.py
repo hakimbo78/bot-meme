@@ -58,12 +58,12 @@ TRADING_CONFIG = {
             
             # Exit Strategy for Solana
             'exit_strategy': {
-                'enabled': True,
+                'enabled': False,
                 'stop_loss_percent': -999.0,      # DISABLED
                 'take_profit_percent': 200.0,     # 3x (more aggressive)
-                'moonbag_enabled': True,
+                'moonbag_enabled': False,
                 'take_profit_sell_percent': 100.0, # Sell 100% at TP (hold more)
-                'moonbag_trailing_stop': True,
+                'moonbag_trailing_stop': False,
                 'trailing_stop': False,
                 'emergency_exit_liq_drop': 0.50,
             }
