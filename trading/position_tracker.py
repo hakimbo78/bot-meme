@@ -249,3 +249,43 @@ class PositionTracker:
         except Exception as e:
             logger.error(f"Failed to get position by token {token_address}: {e}")
             return None
+    
+    def update_status(self, position_id: int, new_status: str, exit_price: float = 0, exit_value: float = 0) -> bool:
+        """
+        Update position status (for rug pull detection, manual interventions, etc.).
+        
+        Args:
+            position_id: Position ID to update
+            new_status: New status (e.g. 'CLOSED_RUG', 'CLOSED_MANUAL')
+            exit_price: Optional exit price
+            exit_value: Optional exit value
+            
+        Returns:
+            True if successful
+        """
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            sql = """
+            UPDATE positions SET
+                status = ?,
+                exit_price = ?,
+                exit_value_usd = ?,
+                exit_timestamp = ?,
+                updated_at = ?
+            WHERE id = ?
+            """
+            
+            cursor.execute(sql, (
+                new_status, exit_price, exit_value, 
+                int(time.time()), int(time.time()), position_id
+            ))
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Updated position {position_id} status to {new_status}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update status for position {position_id}: {e}")
+            return False
