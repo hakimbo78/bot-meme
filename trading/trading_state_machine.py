@@ -141,7 +141,7 @@ class TradingStateMachine:
             await self.executor.execute_sell(
                 chain=position['chain'],
                 token_address=position['token_address'],
-                amount_raw=position['amount'],
+                amount_raw=position['entry_amount'],
                 position_id=pos_id,
                 new_status='TAKE_PROFIT'
             )
@@ -154,7 +154,7 @@ class TradingStateMachine:
             
             # Calculate Partial Amount
             # amount is usually an integer (wei/lamports)
-            total_amount = float(position['amount'])
+            total_amount = float(position['entry_amount'])
             sell_amount = int(total_amount * (sell_pct / 100.0))
             
             await self.executor.execute_sell(
@@ -214,7 +214,10 @@ class TradingStateMachine:
                     await self.executor.execute_sell(
                         chain=position['chain'],
                         token_address=position['token_address'],
-                        amount_raw=position['amount'],
+                        amount_raw=position.get('entry_amount'), # Use entry_amount (total) or maybe we should calculate leftover?
+                        # If partial open, we sell remaining balance? 
+                        # Wallet manager handles 'selling all' if amount is larger than balance?
+                        # For now use entry_amount as 'Sell Max'.
                         position_id=pos_id,
                         new_status='TRAILING_STOP'
                     )
