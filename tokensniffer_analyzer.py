@@ -166,7 +166,8 @@ class TokenSnifferAnalyzer:
                     print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
             
             # TERTIARY: Raydium LaunchLab (Bonding Curve)
-            elif mtype == 'raydium_launchlab' or ('raydium' in dex_id and 'launchlab' in mtype):
+            # ALSO CHECKS: dexId for 'launchlab'
+            elif mtype == 'raydium_launchlab' or ('launchlab' in dex_id):
                 bonding_curve_market = market
                 platform = 'launchlab'
                 
