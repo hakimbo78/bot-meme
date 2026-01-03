@@ -11,7 +11,10 @@ import time
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.path.join(os.getcwd(), 'database', 'trading.db')
+# Use absolute path based on this file's location, not cwd
+# This ensures consistency regardless of where script is run from
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(SCRIPT_DIR, 'database', 'trading.db')
 
 class TradingDB:
     def __init__(self, db_path: str = DB_PATH):
