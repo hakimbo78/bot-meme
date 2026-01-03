@@ -62,6 +62,35 @@ class TradeExecutor:
         if not ConfigManager.is_chain_enabled(chain):
             return False, f"Chain {chain} is disabled"
         
+        # RE-BUY PREVENTION CHECK
+        rebuy_config = ConfigManager.get_config()['trading'].get('rebuy_prevention', {})
+        if rebuy_config.get('enabled', False):
+            last_exit_price = self.pt.get_last_exit_price(token_address, chain)
+            
+            if last_exit_price:
+                # Token was previously traded - check price drop
+                # Get current price from token_data or fetch from API
+                current_price = token_data.get('price_usd', 0) if token_data else 0
+                
+                if current_price > 0:
+                    # Calculate price change from exit
+                    price_ratio = (current_price / last_exit_price) * 100
+                    min_drop = rebuy_config.get('min_drop_percent', 85)
+                    max_allowed_ratio = 100 - min_drop  # 85% drop = 15% ratio
+                    
+                    if price_ratio > max_allowed_ratio:
+                        drop_needed = 100 - price_ratio
+                        return False, (
+                            f"RE-BUY BLOCKED: Token previously exited at ${last_exit_price:.8f}. "
+                            f"Current price ${current_price:.8f} ({price_ratio:.1f}% of exit). "
+                            f"Needs {min_drop}% drop from exit (currently {drop_needed:.1f}%) to re-buy."
+                        )
+                    else:
+                        logger.info(
+                            f"✅ RE-BUY ALLOWED: Price dropped {100-price_ratio:.1f}% from exit "
+                            f"(${last_exit_price:.8f} → ${current_price:.8f})"
+                        )
+        
         # CRITICAL SECTION: Check position limit with lock to prevent race condition
         async with TradeExecutor._position_lock:
             # Check position limits (chain-type aware)

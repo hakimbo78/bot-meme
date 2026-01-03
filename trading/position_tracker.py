@@ -289,3 +289,37 @@ class PositionTracker:
         except Exception as e:
             logger.error(f"Failed to update status for position {position_id}: {e}")
             return False
+    
+    def get_last_exit_price(self, token_address: str, chain: str) -> Optional[float]:
+        """
+        Get the last exit price for a token (for re-buy prevention).
+        
+        Args:
+            token_address: Token contract address
+            chain: Chain name
+            
+        Returns:
+            Last exit price or None if never traded
+        """
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
+            # Find most recent CLOSED position for this token
+            cursor.execute("""
+                SELECT exit_price FROM positions 
+                WHERE token_address = ? AND chain = ? 
+                AND status LIKE 'CLOSED%'
+                ORDER BY exit_timestamp DESC 
+                LIMIT 1
+            """, (token_address, chain))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row and row[0]:
+                return float(row[0])
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get last exit price for {token_address}: {e}")
+            return None

@@ -71,6 +71,12 @@ TRADING_CONFIG = {
         
         # Global Settings (backward compatibility)
         'monitor_interval_seconds': 30,
+        
+        # Re-Buy Prevention (Avoid chasing or dead coins)
+        'rebuy_prevention': {
+            'enabled': True,
+            'min_drop_percent': 85,  # Allow re-buy only if price dropped 85% from exit
+        },
     },
     
     # RISK MANAGEMENT (Aggressive)
