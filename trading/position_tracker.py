@@ -109,7 +109,7 @@ class PositionTracker:
             """
             
             cursor.execute(sql, (
-                price, amount, value_usd, tx_hash, int(time.time()),
+                price, str(amount), value_usd, tx_hash, int(time.time()),
                 pnl_usd, pnl_percent, new_status, int(time.time()), position_id
             ))
             
