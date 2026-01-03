@@ -1909,6 +1909,24 @@ async def main():
             except Exception as mon_e:
                  print(f"{Fore.RED}⚠️ Failed to start Position Monitor: {mon_e}")
             # --------------------------------------------
+            
+            # --- INTEGRATION: TELEGRAM COMMAND HANDLER ---
+            # Add interactive commands for trade monitoring
+            try:
+                if trade_executor and pt and telegram:
+                    from telegram_commands import TelegramCommandHandler
+                    command_handler = TelegramCommandHandler(pt, trade_executor, telegram)
+                    if command_handler.enabled:
+                        print(f"{Fore.CYAN}📱 Launching Telegram Command Handler...")
+                        tasks.append(asyncio.create_task(command_handler.start_polling(), name="telegram_commands"))
+                        print(f"{Fore.GREEN}   Commands: /positions, /summary, /close [id]")
+                    else:
+                        print(f"{Fore.YELLOW}⚠️ Telegram commands disabled (check config)")
+            except ImportError:
+                print(f"{Fore.YELLOW}⚠️ Telegram commands module not found")
+            except Exception as cmd_e:
+                print(f"{Fore.RED}⚠️ Failed to start Telegram commands: {cmd_e}")
+            # ----------------------------------------------
 
             tasks.append(asyncio.create_task(consumer_task(), name="consumer"))
             
