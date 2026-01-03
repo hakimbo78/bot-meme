@@ -162,6 +162,24 @@ class TokenSnifferAnalyzer:
                         
                     print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
             
+            # TERTIARY: Raydium LaunchLab (Bonding Curve)
+            elif mtype == 'raydium_launchlab':
+                bonding_curve_market = market
+                platform = 'launchlab'
+                
+                # LaunchLab is a Bonding Curve.
+                # Assume 0% completion if we can't determine otherwise (SAFE BLOCK).
+                # Only when it migrates to standard AMM/CLMM does it count as graduated.
+                current_completion = 0.0
+                
+                # Try to find completion signals if available (future work)
+                # For now, if marketType is launchlab, it's NOT graduated.
+                
+                if completion_pct == 100.0:
+                    completion_pct = current_completion
+                
+                print(f"   [BC DEBUG] LaunchLab BC Detected: {completion_pct:.1f}% (Blocked until migration)")
+            
             
             
             # Track DEX pools (post-graduation)
