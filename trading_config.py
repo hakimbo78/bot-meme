@@ -31,7 +31,7 @@ TRADING_CONFIG = {
     'trading': {
         # EVM Chains (Base, Ethereum)
         'evm': {
-            'budget_per_trade_usd': 1.0,
+            'budget_per_trade_usd': 5.0,
             'max_open_positions': 1,
             'max_position_per_token': 1,
             'min_signal_score': 55,
@@ -40,7 +40,7 @@ TRADING_CONFIG = {
             'exit_strategy': {
                 'enabled': True,
                 'stop_loss_percent': -999.0,      # DISABLED
-                'take_profit_percent': 250.0,     # 2.5x
+                'take_profit_percent': 300.0,     # 3x
                 'moonbag_enabled': True,
                 'take_profit_sell_percent': 100.0, # Sell 100% at TP
                 'moonbag_trailing_stop': True,
