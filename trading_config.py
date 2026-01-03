@@ -32,7 +32,7 @@ TRADING_CONFIG = {
         # EVM Chains (Base, Ethereum)
         'evm': {
             'budget_per_trade_usd': 1.0,
-            'max_open_positions': 5,
+            'max_open_positions': 1,
             'max_position_per_token': 1,
             'min_signal_score': 55,
             
@@ -40,9 +40,9 @@ TRADING_CONFIG = {
             'exit_strategy': {
                 'enabled': True,
                 'stop_loss_percent': -999.0,      # DISABLED
-                'take_profit_percent': 150.0,     # 2.5x
+                'take_profit_percent': 250.0,     # 2.5x
                 'moonbag_enabled': True,
-                'take_profit_sell_percent': 50.0, # Sell 50% at TP
+                'take_profit_sell_percent': 100.0, # Sell 100% at TP
                 'moonbag_trailing_stop': True,
                 'trailing_stop': False,
                 'emergency_exit_liq_drop': 0.50,
@@ -51,8 +51,8 @@ TRADING_CONFIG = {
         
         # Solana Chain
         'solana': {
-            'budget_per_trade_usd': 0.5,
-            'max_open_positions': 10,
+            'budget_per_trade_usd': 1.0,
+            'max_open_positions': 1,
             'max_position_per_token': 1,
             'min_signal_score': 50,
             
@@ -62,7 +62,7 @@ TRADING_CONFIG = {
                 'stop_loss_percent': -999.0,      # DISABLED
                 'take_profit_percent': 200.0,     # 3x (more aggressive)
                 'moonbag_enabled': True,
-                'take_profit_sell_percent': 30.0, # Sell 30% at TP (hold more)
+                'take_profit_sell_percent': 100.0, # Sell 100% at TP (hold more)
                 'moonbag_trailing_stop': True,
                 'trailing_stop': False,
                 'emergency_exit_liq_drop': 0.50,
