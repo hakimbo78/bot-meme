@@ -15,6 +15,7 @@ from trading.config_manager import ConfigManager
 from trading.wallet_manager import WalletManager
 from trading.trade_executor import TradeExecutor
 from trading.trading_state_machine import TradingStateMachine
+import aiohttp
 
 init(autoreset=True)
 load_dotenv()
@@ -77,7 +78,53 @@ async def monitor_positions():
                         chain_config = ConfigManager.get_chain_config(chain)
                         native_token = "So11111111111111111111111111111111111111112" if chain == 'solana' else "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
                         
-                        # Get quote for selling
+                        # --- FEATURE 1: WALLET SYNC (Manual Sell Detection) ---
+                        real_balance = wallet_manager.get_token_balance(chain, token_addr)
+                        
+                        if real_balance >= 0:
+                            # 5% threshold: If we have less than 5% of entry amount, assume sold
+                            if real_balance < (entry_amount * 0.05):
+                                print(f"{Fore.YELLOW}⚠️  MANUAL SELL DETECTED (Balance: {real_balance:,.0f} < {entry_amount:,.0f})")
+                                print(f"{Fore.RED}🛑 Closing position in DB...")
+                                position_tracker.update_status(pos['id'], 'CLOSED_MANUAL', exit_price=0, exit_value=0)
+                                continue # Skip to next position
+                        # -------------------------------------------------------
+
+                        # --- FEATURE 2: RUG PULL / LIQUIDITY CHECK ---
+                        # Fetch DexScreener Data for accurate Liquidity & Price
+                        # (We use direct specific token endpoint to save calls compared to search)
+                        current_liquidity = 0
+                        ds_price = 0
+                        try:
+                            url = f"https://api.dexscreener.com/latest/dex/tokens/{token_addr}"
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(url, timeout=5) as resp:
+                                    if resp.status == 200:
+                                        ds_data = await resp.json()
+                                        pairs = ds_data.get('pairs', [])
+                                        
+                                        if pairs:
+                                            primary_pair = pairs[0]
+                                            current_liquidity = float(primary_pair.get('liquidity', {}).get('usd', 0))
+                                            ds_price = float(primary_pair.get('priceUsd', 0))
+                                            
+                                            # RUG CHECK: Liquidity < $500 (Extreme drop)
+                                            if current_liquidity < 500:
+                                                print(f"{Fore.RED}💀 RUG PULL DETECTED! Liquidity dropped to ${current_liquidity:,.2f}")
+                                                print(f"{Fore.RED}🛑 Closing position as RUGGED...")
+                                                position_tracker.update_status(pos['id'], 'CLOSED_RUG', exit_price=ds_price, exit_value=ds_price*real_balance)
+                                                continue
+                                        else:
+                                            print(f"{Fore.YELLOW}⚠️  DexScreener: No pairs found (Possible Delist/Rug)")
+                                    else:
+                                        print(f"{Fore.YELLOW}⚠️  DexScreener API Error: {resp.status}")
+                                
+                        except Exception as req_e:
+                            print(f"{Fore.YELLOW}⚠️  Market Data Fetch Error: {req_e}")
+                            ds_price = 0 # Fallback to quote calculation below
+                        # -------------------------------------------------------
+
+                        # Get quote for selling (Estimate Value)
                         amount_in = str(int(entry_amount))
                         quote = await okx_client.get_quote(
                             chain=chain,
@@ -86,6 +133,8 @@ async def monitor_positions():
                             amount=amount_in,
                             slippage=0.01
                         )
+                        
+                        current_usd = 0
                         
                         if quote:
                             # Calculate current value
@@ -96,7 +145,12 @@ async def monitor_positions():
                             # Estimate native token price (rough)
                             native_price = 200.0 if chain == 'solana' else 3500.0
                             current_usd = real_out * native_price
-                            
+                        elif ds_price > 0:
+                            # Fallback to DexScreener price if quote fails
+                            current_usd = ds_price * entry_amount
+                            print(f"{Fore.YELLOW}ℹ️  Using DexScreener Price (Quote Failed)")
+
+                        if current_usd > 0:
                             # Calculate P&L
                             pnl_usd = current_usd - entry_usd
                             pnl_pct = ((current_usd - entry_usd) / entry_usd) * 100 if entry_usd > 0 else 0
@@ -108,16 +162,19 @@ async def monitor_positions():
                             print(f"\n{arrow} Current:")
                             print(f"  Value:   ${current_usd:.2f}")
                             print(f"{color}  P&L:     ${pnl_usd:+.2f} ({pnl_pct:+.1f}%){Style.RESET_ALL}")
-                            
+                            # Warn if Liquidity Low
+                            if current_liquidity > 0 and current_liquidity < 5000:
+                                print(f"{Fore.RED}⚠️  LOW LIQUIDITY: ${current_liquidity:,.0f} (High Risk)")
+
                             # ------ STATE MACHINE INTEGRATION ------
                             # Pass data to State Machine for active management (Stop Loss / Take Profit)
                             
-                            # Construct market data with current price derived from entry and PnL
-                            # Price = Value / Amount
-                            implied_price = current_usd / entry_amount if entry_amount > 0 else 0
+                            # Use DexScreener price if available, else implied
+                            final_price = ds_price if ds_price > 0 else (current_usd / entry_amount)
                             
                             market_data = {
-                                'price_usd': implied_price,
+                                'price_usd': final_price,
+                                'liquidity_usd': current_liquidity
                             }
                             
                             print(f"{Fore.CYAN}  🤖 Checking Exit Rules...")
@@ -142,7 +199,7 @@ async def monitor_positions():
                             total_entry_value += entry_usd
                             total_current_value += current_usd
                         else:
-                            print(f"\n{Fore.YELLOW}⚠️  Unable to fetch current price (low liquidity or API error)")
+                            print(f"\n{Fore.YELLOW}⚠️  Unable to fetch current price (Quote Failed & API Error)")
                             print(f"  Last Value: ${entry_usd:.2f}")
                             total_entry_value += entry_usd
                             total_current_value += entry_usd
