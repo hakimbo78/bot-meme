@@ -187,7 +187,8 @@ class TokenSnifferAnalyzer:
             
             
             # Track DEX pools (post-graduation)
-            elif mtype in ['raydium_clmm', 'raydium_amm', 'orca_whirlpool']:
+            # Jupiter is an aggregator, so we check the underlying pools (Orca, Raydium, Meteora DLMM)
+            elif mtype in ['raydium_clmm', 'raydium_amm', 'raydium_cpmm', 'orca_whirlpool', 'meteora_dlmm']:
                 dex_pools.append(market)
         
         # MIGRATION OVERRIDE:
