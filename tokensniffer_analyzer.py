@@ -474,8 +474,16 @@ class TokenSnifferAnalyzer:
             # 4. HOLDER CONCENTRATION
             holders = t_data.get('holders', [])
             top10 = 0
+            
+            # Safe float conversion helper
+            def safe_float(val, default=0.0):
+                try:
+                    return float(val) if val not in [None, '', 'null'] else default
+                except:
+                    return default
+            
             for h in holders[:10]:
-                pct = float(h.get('percent', 0))
+                pct = safe_float(h.get('percent', 0))
                 # Auto-scale if needed (some APIs return 0.5 for 50%, some 50)
                 if pct < 1.0 and pct > 0: pct *= 100
                 top10 += pct
@@ -491,8 +499,10 @@ class TokenSnifferAnalyzer:
                 details.append(f"📊 Top 10 Holders: {top10:.1f}%")
             
             # 5. TAX RISK
-            buy_tax = float(t_data.get('buy_tax', 0)) * 100 if float(t_data.get('buy_tax', 0)) < 1 else float(t_data.get('buy_tax', 0))
-            sell_tax = float(t_data.get('sell_tax', 0)) * 100 if float(t_data.get('sell_tax', 0)) < 1 else float(t_data.get('sell_tax', 0))
+            buy_tax_raw = safe_float(t_data.get('buy_tax', 0))
+            sell_tax_raw = safe_float(t_data.get('sell_tax', 0))
+            buy_tax = buy_tax_raw * 100 if buy_tax_raw < 1 else buy_tax_raw
+            sell_tax = sell_tax_raw * 100 if sell_tax_raw < 1 else sell_tax_raw
             
             if buy_tax > 15 or sell_tax > 15:
                 score += 15
