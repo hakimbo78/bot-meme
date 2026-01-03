@@ -146,24 +146,26 @@ class TokenSnifferAnalyzer:
                     bonding_curve_market = market
                     platform = 'meteora_bc'
                     
-                    # For Meteora, estimate completion based on liquidity vs typical BC threshold
-                    # Typical Meteora BC completes around $69K-85K liquidity
-                    lp = market.get('lp', {})
-                    total_liq_usd = float(lp.get('quoteUSD', 0)) + float(lp.get('baseUSD', 0))
-                    
-                    current_completion = 0.0
-                    
-                    if total_liq_usd > 0:
-                        # Estimate: 85K = 100% completion
-                        current_completion = min(100.0, (total_liq_usd / 85000) * 100)
-                    
-                    # Reset global default if needed
-                    if completion_pct == 100.0: 
-                        completion_pct = current_completion
-                    else:
-                        completion_pct = max(completion_pct, current_completion)
-                        
-                    print(f"   [BC DEBUG] METEORA BC: ${total_liq_usd:,.0f} = {completion_pct:.1f}%")
+            # CATCH-ALL: If dexId has 'meteora' and it's NOT DLMM, treat as BC (Safety First)
+            elif (mtype in ['meteora_damm_v2', 'meteora_dbc']) or \
+                 ('meteoradbc' in dex_id) or \
+                 ('meteora' in dex_id and mtype != 'meteora_dlmm'):
+                 
+                is_meteora_bc = True
+                bonding_curve_market = market
+                platform = 'meteora_bc'
+                
+                # Try to find completion data in description/name if available?
+                # Meteora doesn't expose strict completion% in API metadata usually.
+                # We inferred it from liquidity before, but user report implies high liquidity exists on BC.
+                # SO: We assume 0% completion (BLOCK) unless we see explicit graduation signals.
+                completion_pct = 0.0
+                
+                # Check liquidity to guess if graduated?
+                # User had $927k liq on BC. So liquidity size is NOT a reliable "Graduate" signal for Meteora DBC.
+                # We MUST rely on Market Type 'meteora_dlmm' or Raydium presence.
+                
+                print(f"   [BC DEBUG] METEORA BC: Assuming {completion_pct:.1f}% (Blocked until explicit graduation)")
             
             # TERTIARY: Raydium LaunchLab (Bonding Curve)
             # ALSO CHECKS: dexId for 'launchlab'
