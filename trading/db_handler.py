@@ -119,7 +119,7 @@ class TradingDB:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            cursor.execute("SELECT * FROM positions WHERE status = 'OPEN'")
+            cursor.execute("SELECT * FROM positions WHERE status IN ('OPEN', 'PARTIAL_OPEN')")
             rows = cursor.fetchall()
             conn.close()
             

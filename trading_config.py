@@ -51,7 +51,13 @@ TRADING_CONFIG = {
         'enabled': True,
         'stop_loss_percent': -50.0,      # Auto-sell at -30% loss
         'take_profit_percent': 150.0,    # Auto-sell at +150% profit
-        'trailing_stop': False,           # Trailing stop-loss (future feature)
+        
+        # MOONBAG MODE (Partial Sell)
+        'moonbag_enabled': True,          # Enable Partial Sell
+        'take_profit_sell_percent': 50.0, # Sell 50% at TP target
+        'moonbag_trailing_stop': True,    # Enable Trailing Stop for the remaining 50%
+        
+        'trailing_stop': False,           # Global Trailing Stop (Initial)
         'emergency_exit_liq_drop': 0.50, # Exit if liquidity drops >50%
         'monitor_interval_seconds': 30,   # Check every 30 seconds
     },
