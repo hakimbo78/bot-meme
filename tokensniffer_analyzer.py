@@ -60,10 +60,13 @@ class TokenSnifferAnalyzer:
         
         return result
         
-    def _check_bonding_curve_status(self, data: Dict) -> tuple:
+    def _check_bonding_curve_status(self, data: Dict, ext_liq: float = 0) -> tuple:
         """
         Detect bonding curve status for Pump.fun and Meteora tokens.
         Returns: (is_bonding_curve, completion_pct, platform, dex_pools)
+        Args:
+            data: RugCheck API response data
+            ext_liq: External liquidity from DexScreener (fallback if API doesn't report it)
         """
         markets = data.get('markets', [])
         
@@ -98,9 +101,10 @@ class TokenSnifferAnalyzer:
         }
 
         # GLOBAL HIGH LIQUIDITY OVERRIDE
-        # If ANY market has significant liquidity (>$25k), consider it established/tradable regardless of platform.
+        # If ANY market has significant liquidity (>$15k), consider it established/tradable regardless of platform.
         # This prevents blocking established tokens that might be on Meteora or other platforms.
-        max_liquidity = 0
+        # ALSO: Use external liquidity (from DexScreener) as fallback if RugCheck doesn't report it.
+        max_liquidity = ext_liq  # Start with external liquidity as baseline
         for market in markets:
             liq = float(market.get('liquidity', {}).get('usd', 0))
             if liq > max_liquidity:
@@ -320,7 +324,7 @@ class TokenSnifferAnalyzer:
                     details.append(f"🚨 LP Not Secured (0%)")
             
             # 4. BONDING CURVE DETECTION & RISK SCORING (NEW)
-            is_bc, completion, platform, dex_pools = self._check_bonding_curve_status(data)
+            is_bc, completion, platform, dex_pools = self._check_bonding_curve_status(data, ext_liq)
             
             print(f"   [BC BLOCK CHECK] is_bc={is_bc}, completion={completion:.1f}%, platform={platform}")
             
