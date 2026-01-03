@@ -45,7 +45,14 @@ async def monitor_positions():
         wallet_manager.import_wallet_solana(sol_key)
     else:
         # Warn only if we have Solana positions? Or generic warning
-        pass
+        print(f"{Fore.YELLOW}⚠️  SOLANA_PRIVATE_KEY missing.")
+
+    # DEBUG: Verify Wallet Import
+    base_addr = wallet_manager.get_address('base')
+    print(f"{Fore.MAGENTA}DEBUG: Wallet Manager State:")
+    print(f"  - Base Address: {base_addr}")
+    if not base_addr:
+         print(f"{Fore.RED}  ❌ CRITICAL: Base Address is NONE. Auto-Trade will FAIL.")
 
     trade_executor = TradeExecutor(wallet_manager, okx_client, position_tracker)
     state_machine = TradingStateMachine(trade_executor, position_tracker)
