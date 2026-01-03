@@ -157,16 +157,24 @@ class TelegramCommandHandler:
                 status = pos.get('status', 'OPEN')
                 high_pnl = pos.get('high_pnl', 0)
                 
+                # Format status for display (remove underscores)
+                status_display = status.replace('_', ' ')
+                
                 # Status emoji
                 status_emoji = "🌙" if "PARTIAL" in status or "MOONBAG" in status else "📈"
                 pnl_emoji = "🟢" if pnl_usd >= 0 else "🔴"
                 
                 response += f"*#{pos_id}* - {chain} | `{token_short}`\n"
                 response += f"💰 Entry: ${entry_val:.2f}\n"
-                response += f"📈 Current: ${current_val:.2f} ({pnl_emoji}{pnl_pct:+.1f}%)\n"
+                
+                # If current_value is 0 or very stale, indicate price is updating
+                if current_val == 0 or abs(pnl_pct) > 99:
+                    response += f"📈 Current: Updating... ⏳\n"
+                else:
+                    response += f"📈 Current: ${current_val:.2f} ({pnl_emoji}{pnl_pct:+.1f}%)\n"
                 
                 if status != 'OPEN':
-                    response += f"Status: {status} {status_emoji}\n"
+                    response += f"Status: {status_display} {status_emoji}\n"
                 if high_pnl > 0:
                     response += f"High PnL: {high_pnl:.1f}%\n"
                 
