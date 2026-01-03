@@ -72,148 +72,71 @@ class TokenSnifferAnalyzer:
         
         bonding_curve_market = None
         platform = 'none'
-        dex_pools = []
-        # Default to 100% if NO BC detected (so we don't block normal tokens)
-        # But if BC IS detected, we will reset this to 0.0 inside the loop logic
-        completion_pct = 100.0
+        # STRATEGY: "Guilty until Proven Innocent" (Allowlist)
+        # 1. Default assumption: Token is a Bonding Curve (Blocked)
+        # 2. To be "Innocent" (Graduated), it MUST have a valid pool on a Trusted DEX with significant liquidity.
         
+        has_graduated_pool = False
+        bonding_curve_platform = 'unknown_bc' # Default label if blocked
+        dex_pools = [] # Initialize here to collect valid graduated pools
+        
+        # Accepted "Graduated" DEX types
+        # Note: Meteora DLMM is accepted. Meteora DBC/DAMM is NOT.
+        TRUSTED_DEX_TYPES = [
+            'raydium_clmm', 'raydium_amm', 'raydium_cpmm', 
+            'orca_whirlpool', 
+            'meteora_dlmm'
+        ]
+        
+        # Known Bonding Curve types (for labeling purposes)
+        BC_IDENTIFIERS = {
+            'pump': 'pump_fun',
+            'launchlab': 'launchlab',
+            'moonshot': 'moonshot',
+            'meteora': 'meteora_bc', # Generic term for likely BC
+            'pumpswap': 'pump_fun'
+        }
+
         for market in markets:
-            # FIX: Force lowercase for robust matching
             mtype = market.get('marketType', '').lower()
             dex_id = market.get('dexId', '').lower()
-            print(f"   [BC DEBUG] Market type: {mtype} | DexID: {dex_id}")
             
-            # PRIMARY: Pump.fun bonding curve (most common)
-            # HANDLES: pump_fun_amm AND pump_fun (both variations seen in production)
-            # ALSO CHECKS: dexId for 'pump' (fallback)
-            if mtype in ['pump_fun_amm', 'pump_fun', 'pumpfun'] or 'pump' in dex_id:
-                bonding_curve_market = market
-                platform = 'pump_fun'
-                
-                # Default to 0.0 for detected BC (Safe Default)
-                # If calculations fail/data missing, we assume incomplete -> BLOCK
-                current_completion = 0.0
-                
-                # Calculate completion for Pump.fun
-                lp = market.get('lp', {})
-                current = float(lp.get('lpCurrentSupply', 0))
-                total = float(lp.get('lpTotalSupply', 0))
-                
-                if total > 0:
-                    current_completion = (current / total) * 100
-                
-                # Update main completion_pct only if we found a valid calculation
-                # Or force it to 0 if it's the first BC we found
-                if completion_pct == 100.0: # Resetting the global default
-                     completion_pct = current_completion
-                else:
-                     completion_pct = max(completion_pct, current_completion)
-                     
-                print(f"   [BC DEBUG] PUMP.FUN BC: {completion_pct:.1f}%")
-            
-            
-            
-            # SECONDARY: Meteora Dynamic BC
-            # NOTE: Meteora BC has lpTotalSupply=0, so we detect by marketType + risk indicators
-            # ALSO CHECKS: dexId (e.g. 'meteoradbc')
-            elif mtype in ['meteora_damm_v2', 'meteora_dbc'] or 'meteoradbc' in dex_id:
-                print(f"   [BC DEBUG] Meteora BC ({mtype} | {dex_id}) detected")
-                
-                # meteora_dbc = Dynamic Bonding Curve (IS a BC by definition!)
-                # meteora_damm_v2 = Dynamic AMM (check risks to confirm if BC phase)
-                is_meteora_bc = False
-                
-                if mtype == 'meteora_dbc' or 'meteoradbc' in dex_id:
-                    # DBC = always a bonding curve
-                    is_meteora_bc = True
-                    print(f"   [BC DEBUG] meteora_dbc confirmed (BC by definition)")
-                else:
-                    # DAMM v2 - check risks to confirm BC phase
-                    risks = data.get('risks', [])
-                    print(f"   [BC DEBUG] meteora_damm_v2 - checking {len(risks)} risks")
-                    
-                    has_unlocked_lp_risk = any(
-                        'LP Unlocked' in risk.get('name', '') or 
-                        'Low amount of LP Providers' in risk.get('name', '')
-                        for risk in risks
-                    )
-                    
-                    print(f"   [BC DEBUG] Has unlocked LP risk: {has_unlocked_lp_risk}")
-                    is_meteora_bc = has_unlocked_lp_risk
-                
-                # If confirmed as Meteora BC
-                if is_meteora_bc:
-                    bonding_curve_market = market
-                    platform = 'meteora_bc'
-                    
-            # CATCH-ALL: If dexId has 'meteora' and it's NOT DLMM, treat as BC (Safety First)
-            elif (mtype in ['meteora_damm_v2', 'meteora_dbc']) or \
-                 ('meteoradbc' in dex_id) or \
-                 ('meteora' in dex_id and mtype != 'meteora_dlmm'):
-                 
-                is_meteora_bc = True
-                bonding_curve_market = market
-                platform = 'meteora_bc'
-                
-                # Try to find completion data in description/name if available?
-                # Meteora doesn't expose strict completion% in API metadata usually.
-                # We inferred it from liquidity before, but user report implies high liquidity exists on BC.
-                # SO: We assume 0% completion (BLOCK) unless we see explicit graduation signals.
-                completion_pct = 0.0
-                
-                # Check liquidity to guess if graduated?
-                # User had $927k liq on BC. So liquidity size is NOT a reliable "Graduate" signal for Meteora DBC.
-                # We MUST rely on Market Type 'meteora_dlmm' or Raydium presence.
-                
-                print(f"   [BC DEBUG] METEORA BC: Assuming {completion_pct:.1f}% (Blocked until explicit graduation)")
-            
-            # TERTIARY: Raydium LaunchLab (Bonding Curve)
-            # ALSO CHECKS: dexId for 'launchlab'
-            elif mtype == 'raydium_launchlab' or ('launchlab' in dex_id):
-                bonding_curve_market = market
-                platform = 'launchlab'
-                
-                # LaunchLab is a Bonding Curve.
-                # Assume 0% completion if we can't determine otherwise (SAFE BLOCK).
-                # Only when it migrates to standard AMM/CLMM does it count as graduated.
-                current_completion = 0.0
-                
-                # Try to find completion signals if available (future work)
-                # For now, if marketType is launchlab, it's NOT graduated.
-                
-                if completion_pct == 100.0:
-                    completion_pct = current_completion
-                
-                print(f"   [BC DEBUG] LaunchLab BC Detected: {completion_pct:.1f}% (Blocked until migration)")
-            
-            
-            
-            # Track DEX pools (post-graduation)
-            # Jupiter is an aggregator, so we check the underlying pools (Orca, Raydium, Meteora DLMM)
-            elif mtype in ['raydium_clmm', 'raydium_amm', 'raydium_cpmm', 'orca_whirlpool', 'meteora_dlmm']:
-                # MIGRATION VALIDITY CHECK:
-                # Only accept as "Graduated" if liquidity is significant (> $3,000).
-                # This prevents "Fake Graduation" where a scammer adds $10 to Raydium to trick the bot.
+            # --- CHECK FOR GRADUATION (ALLOWLIST) ---
+            if mtype in TRUSTED_DEX_TYPES:
+                # Liquidity Check (Anti-Fake Graduation)
                 pool_liq = float(market.get('liquidity', {}).get('usd', 0))
+                
                 if pool_liq > 3000:
+                    print(f"   [BC DEBUG] FOUND GRADUATED POOL: {dex_id}/{mtype} (${pool_liq:,.0f})")
+                    has_graduated_pool = True
                     dex_pools.append(market)
                 else:
-                    print(f"   [BC DEBUG] Ignoring tiny graduated pool ({mtype}) Liq: ${pool_liq:,.0f} (Threshold: $3k)")
-        
-        # MIGRATION OVERRIDE:
-        # If we found standard DEX pools (AMM/CLMM), the token has graduated!
-        # Even if we also found a BC market (e.g. leftover LaunchLab), we treat it as Graduated.
-        if dex_pools:
-            print(f"   [BC DEBUG] MIGRATION DETECTED: Found {len(dex_pools)} standard DEX pools. OVERRIDING BC status.")
-            return False, 100.0, 'migrated_dex', dex_pools
+                    print(f"   [BC DEBUG] Ignoring tiny graduated pool ({mtype}) Liq: ${pool_liq:,.0f}")
+            
+            # --- IDENTIFY PLATFORM (For Labeling) ---
+            # Even if we found a graduated pool, we still want to know where it came from if possible
+            # Check marketType match
+            if mtype == 'pump_fun_amm': bonding_curve_platform = 'pump_fun'
+            elif mtype == 'raydium_launchlab': bonding_curve_platform = 'launchlab'
+            elif mtype in ['meteora_dbc', 'meteora_damm_v2']: bonding_curve_platform = 'meteora_bc'
+            
+            # Check dexId match (Catch-all)
+            for key, label in BC_IDENTIFIERS.items():
+                if key in dex_id:
+                     # If we haven't found a precise type yet, use this label
+                     if bonding_curve_platform == 'unknown_bc' or bonding_curve_platform == 'meteora_bc':
+                         bonding_curve_platform = label
 
-        # Return BC status
-        if bonding_curve_market:
-            print(f"   [BC DEBUG] DETECTED: {platform} at {completion_pct:.1f}%")
-            return True, completion_pct, platform, dex_pools
-        
-        print(f"   [BC DEBUG] NO BC DETECTED")
-        return False, 100.0, platform, dex_pools
+        # FINAL VERDICT
+        if has_graduated_pool:
+            print(f"   [BC DEBUG] STATUS: GRADUATED (Found valid pools)")
+            return False, 100.0, 'migrated_dex', dex_pools
+        else:
+            # If no graduated pool found, it is BLOCKED.
+            # Even if we didn't explicitly identify it as 'pump' or 'meteora',
+            # if it's on Solana and NOT graduated -> High Risk / BC.
+            print(f"   [BC DEBUG] STATUS: BONDING CURVE/RISK ({bonding_curve_platform}) - No valid graduated pool found")
+            return True, 0.0, bonding_curve_platform, dex_pools
     
     
     def _analyze_solana_rugcheck(self, token_address: str, result: Dict, ext_liq: float = 0):
