@@ -51,8 +51,8 @@ async def monitor_positions():
     
     # Import Wallets for Active Trading
     # Try multiple common names
-    evm_key = os.getenv('EVM_PRIVATE_KEY') or os.getenv('PRIVATE_KEY') or os.getenv('ETH_PRIVATE_KEY')
-    sol_key = os.getenv('SOLANA_PRIVATE_KEY') or os.getenv('SOL_PRIVATE_KEY')
+    evm_key = os.getenv('EVM_PRIVATE_KEY') or os.getenv('PRIVATE_KEY') or os.getenv('ETH_PRIVATE_KEY') or os.getenv('PRIVATE_KEY_EVM')
+    sol_key = os.getenv('SOLANA_PRIVATE_KEY') or os.getenv('SOL_PRIVATE_KEY') or os.getenv('PRIVATE_KEY_SOLANA')
     
     if evm_key:
         wallet_manager.import_wallet_evm(evm_key, 'ethereum')
