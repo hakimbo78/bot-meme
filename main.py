@@ -1143,6 +1143,7 @@ async def main():
                                         print(f"{Fore.YELLOW}    ⚠️  No adapter for {chain_name}, skipping RPC verify")
                                         continue
 
+
                                     # 1. ANALYZE ON-CHAIN
                                     onchain_analysis = {}
                                     if chain_name == 'solana':
@@ -1153,12 +1154,25 @@ async def main():
                                              onchain_analysis = await solana_scanner._create_unified_event_async_wrapper(pair_data) or {}
                                     else:
                                         # EVM - use full TokenAnalyzer
-                                        try:
-                                            analyzer = TokenAnalyzer(adapter=adapter)
-                                            onchain_analysis = analyzer.analyze_token(pair_data)
-                                        except Exception as e:
-                                            print(f"{Fore.YELLOW}    ⚠️  On-chain analysis error: {e}")
+                                        # VALIDATION: Check if pair_address is valid before on-chain verification
+                                        pair_address = pair_data.get('pair_address', '')
+                                        
+                                        # Validate: Address should be 42 chars (0x + 40), TX hash is 66 chars (0x + 64)
+                                        if pair_address and len(pair_address) == 66:
+                                            print(f"{Fore.YELLOW}    ⚠️  Invalid pair_address (TX hash): {pair_address[:10]}...")
+                                            print(f"{Fore.YELLOW}    ⏭️  Skipping on-chain verification (using off-chain data only)")
                                             onchain_analysis = {}
+                                        elif pair_address and len(pair_address) != 42:
+                                            print(f"{Fore.YELLOW}    ⚠️  Invalid pair_address length ({len(pair_address)}): {pair_address[:10]}...")
+                                            print(f"{Fore.YELLOW}    ⏭️  Skipping on-chain verification (using off-chain data only)")
+                                            onchain_analysis = {}
+                                        else:
+                                            try:
+                                                analyzer = TokenAnalyzer(adapter=adapter)
+                                                onchain_analysis = analyzer.analyze_token(pair_data)
+                                            except Exception as e:
+                                                print(f"{Fore.YELLOW}    ⚠️  On-chain analysis error: {e}")
+                                                onchain_analysis = {}
 
                                     if onchain_analysis:
                                         # 2. SCORE ON-CHAIN
