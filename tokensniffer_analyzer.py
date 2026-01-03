@@ -132,7 +132,34 @@ class TokenSnifferAnalyzer:
             print(f"   [BC DEBUG] STATUS: GRADUATED (Found valid pools)")
             return False, 100.0, 'migrated_dex', dex_pools
         else:
-            # If no graduated pool found, it is BLOCKED.
+            # --- EXCEPTION: LEGIT PUMP.FUN TOKENS ---
+            # If no graduated pool found, we usually BLOCK.
+            # BUT: User requested exception for Pump.fun tokens with High Liquidity (> $15k).
+            # This allows trading "Legit" Pump tokens before they graduate.
+            
+            is_pump_exception = False
+            pump_liq = 0
+            
+            for market in markets:
+                mtype = market.get('marketType', '').lower()
+                dex_id = market.get('dexId', '').lower()
+                
+                # Check if it is Pump.fun (Strict check)
+                if mtype in ['pump_fun_amm', 'pump_fun', 'pumpfun'] or 'pump' in dex_id:
+                     liq = float(market.get('liquidity', {}).get('usd', 0))
+                     if liq > 15000:
+                         is_pump_exception = True
+                         pump_liq = liq
+                         # We must add this market to dex_pools so the bot has a place to trade!
+                         dex_pools.append(market)
+                         break # Found one valid pump market is enough
+            
+            if is_pump_exception:
+                print(f"   [BC DEBUG] PUMP.FUN EXCEPTION: Allowed (Liq ${pump_liq:,.0f} > $15k)")
+                # Return False (Not Blocked) but label it clearly
+                return False, 50.0, 'pump_fun_high_liq', dex_pools
+
+            # If no exception met, it is BLOCKED.
             # Even if we didn't explicitly identify it as 'pump' or 'meteora',
             # if it's on Solana and NOT graduated -> High Risk / BC.
             print(f"   [BC DEBUG] STATUS: BONDING CURVE/RISK ({bonding_curve_platform}) - No valid graduated pool found")
