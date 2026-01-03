@@ -104,3 +104,13 @@ class ConfigManager:
     def get_chain_config(chain: str):
         return TRADING_CONFIG['chains'].get(chain.lower(), {})
 
+    # NEW: Min Signal Score (chain-aware)
+    @staticmethod
+    def get_min_signal_score(chain: str = None) -> int:
+        """Get min signal score for chain type."""
+        if chain:
+            chain_type = ConfigManager.get_chain_type(chain)
+            return TRADING_CONFIG['trading'].get(chain_type, {}).get('min_signal_score', 60)
+        # Fallback: return default
+        return 60
+

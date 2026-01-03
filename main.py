@@ -479,7 +479,9 @@ async def main():
                     )
                     
                     print(f"{Fore.GREEN}    - Status: ENABLED")
-                    print(f"{Fore.GREEN}    - Budget: ${TradingConfig.get_config()['trading']['budget_per_trade_usd']}")
+                    evm_budget = TradingConfig.get_budget('evm')
+                    sol_budget = TradingConfig.get_budget('solana')
+                    print(f"{Fore.GREEN}    - Budget: ${evm_budget} (EVM) | ${sol_budget} (SOL)")
                     print(f"{Fore.GREEN}    - Auto-TP/SL: ENABLED")
                     print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in ['base', 'ethereum', 'solana'] if TradingConfig.is_chain_enabled(c)])}")
                 else:
@@ -1223,7 +1225,8 @@ async def main():
                                         thresholds = {'INFO': 40, 'WATCH': 60, 'TRADE': 75}
                                     
                                     # Use TradingConfig as authoritative source for TRADING threshold
-                                    trade_threshold = TradingConfig.get_config()['trading'].get('min_signal_score', thresholds.get('TRADE', 75))
+                                    # Fix: Use get_min_signal_score for chain awareness
+                                    trade_threshold = TradingConfig.get_min_signal_score(chain_name)
                                     
                                     if check_score >= trade_threshold:
                                         print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")

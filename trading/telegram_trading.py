@@ -21,7 +21,7 @@ class TelegramTrading:
             status = "✅" if data['enabled'] else "❌"
             chains_status.append(f"- {chain.title()}: {status}")
             
-        budget = config['trading']['budget_per_trade_usd']
+        budget = ConfigManager.get_budget('evm')
         
         msg = [
             "🤖 **AUTO-TRADING STATUS**",
