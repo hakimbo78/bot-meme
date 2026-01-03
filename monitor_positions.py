@@ -24,6 +24,20 @@ env_path = os.path.join(script_dir, '.env')
 load_dotenv(env_path)
 print(f"DEBUG: Loaded .env from {env_path}")
 
+# DEBUG: Inspect keys inside .env (Names only)
+if os.path.exists(env_path):
+    try:
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+            keys_in_file = [l.strip().split('=')[0] for l in lines if '=' in l and not l.strip().startswith('#')]
+            print(f"DEBUG: Keys found in .env file: {keys_in_file}")
+    except Exception as e:
+        print(f"DEBUG: Failed to read .env file: {e}")
+            
+# DEBUG: Inspect relevant OS Env Vars
+candidates = [k for k in os.environ.keys() if 'KEY' in k.upper() or 'PRIVATE' in k.upper() or 'SECRET' in k.upper()]
+print(f"DEBUG: Environment Variables with 'KEY/PRIVATE': {candidates}")
+
 async def monitor_positions():
     """Monitor all open positions with live P&L calculation (FOREVER LOOP)"""
     
