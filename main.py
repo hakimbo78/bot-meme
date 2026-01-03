@@ -1895,6 +1895,21 @@ async def main():
                     finally:
                         queue.task_done()
 
+            # PHASE 5: EVENT-DRIVEN MODE (Optional)
+            # if args.event_mode: ... (Logic already in place for blocks)
+
+            # --- INTEGRATION: ACTIVE POSITION MONITOR ---
+            # Automatically start position monitoring in background
+            try:
+                from monitor_positions import monitor_positions
+                print(f"{Fore.CYAN}🚀 Launching Integrated Position Monitor...")
+                tasks.append(asyncio.create_task(monitor_positions(), name="position_monitor"))
+            except ImportError:
+                 print(f"{Fore.RED}⚠️ Failed to import monitor_positions (Module not found)")
+            except Exception as mon_e:
+                 print(f"{Fore.RED}⚠️ Failed to start Position Monitor: {mon_e}")
+            # --------------------------------------------
+
             tasks.append(asyncio.create_task(consumer_task(), name="consumer"))
             
             # Run everything
