@@ -408,16 +408,76 @@ class TokenSnifferAnalyzer:
     def _analyze_evm_goplus(self, token_address, pair_address, result):
         """Deep analysis for EVM using GoPlus with SCORE-BASED detection."""
         chain_id = self._get_goplus_id()
-        try:
-            url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}?contract_addresses={token_address}"
-            resp = requests.get(url, timeout=10)
-            data = resp.json()
+        
+        # RETRY LOGIC FOR TIMEOUTS
+        max_retries = 3
+        retry_delay = 1  # Start with 1 second
+        
+        goplus_success = False
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}?contract_addresses={token_address}"
+                timeout = 10 + (attempt * 2)  # Increase timeout on retries
+                
+                print(f"   [GoPlus] Attempt {attempt + 1}/{max_retries} (timeout: {timeout}s)")
+                resp = requests.get(url, timeout=timeout)
+                data = resp.json()
+                
+                if data['code'] != 1:
+                    result['contract_analysis']['details'] = [f"⚠️ GoPlus API Error: {data.get('message')}"]
+                    result['risk_score'] = 50
+                    result['risk_level'] = 'WARN'
+                    return
+                
+                # SUCCESS - break retry loop
+                goplus_success = True
+                break
+                
+            except requests.Timeout as e:
+                last_error = f"Timeout after {timeout}s"
+                print(f"   ⚠️ GoPlus timeout on attempt {attempt + 1}/{max_retries}")
+                
+                if attempt < max_retries - 1:
+                    print(f"   ⏳ Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                continue
+                
+            except Exception as e:
+                last_error = str(e)
+                print(f"   ⚠️ GoPlus error on attempt {attempt + 1}/{max_retries}: {e}")
+                
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                continue
+        
+        # IF GOPLUS FAILED AFTER RETRIES, TRY SECONDARY API
+        if not goplus_success:
+            print(f"   ⚠️ GoPlus failed after {max_retries} attempts: {last_error}")
+            print(f"   🔄 Falling back to TokenSniffer API...")
             
-            if data['code'] != 1:
-                result['contract_analysis']['details'] = [f"⚠️ GoPlus API Error: {data.get('message')}"]
-                result['risk_score'] = 50
-                result['risk_level'] = 'WARN'
-                return
+            try:
+                fallback_result = self._analyze_evm_tokensniffer(token_address, result)
+                if fallback_result:
+                    print(f"   ✅ TokenSniffer fallback successful")
+                    return  # TokenSniffer filled result
+            except Exception as fallback_error:
+                print(f"   ❌ TokenSniffer fallback also failed: {fallback_error}")
+            
+            # BOTH APIS FAILED - Use safe default
+            if 'contract_analysis' not in result: result['contract_analysis'] = {}
+            if 'details' not in result['contract_analysis']: result['contract_analysis']['details'] = []
+            
+            result['contract_analysis']['details'].append(f"Error: {last_error}")
+            result['risk_score'] = 50
+            result['risk_level'] = 'WARN'
+            return
+        
+        # GOPLUS SUCCESS - Continue with normal analysis
+        try:
             
             t_data = data['result'].get(token_address.lower(), {})
             
@@ -575,6 +635,81 @@ class TokenSnifferAnalyzer:
             result['contract_analysis']['details'].append(f"Error: {e}")
             result['risk_score'] = 50
             result['risk_level'] = 'WARN'
+    
+    def _analyze_evm_tokensniffer(self, token_address: str, result: Dict) -> bool:
+        """
+        Fallback analysis using TokenSniffer API.
+        Returns True if successful, False if failed.
+        """
+        try:
+            # TokenSniffer API endpoint (free tier)
+            url = f"https://tokensniffer.com/api/v2/tokens/{self.chain_name}/{token_address}"
+            resp = requests.get(url, timeout=8)
+            
+            if resp.status_code != 200:
+                print(f"   ⚠️ TokenSniffer returned status {resp.status_code}")
+                return False
+            
+            data = resp.json()
+            
+            # Extract relevant data
+            score = 0
+            details = []
+            
+            # Contract verification
+            is_verified = data.get('is_contract_verified', False)
+            if not is_verified:
+                score += 15
+                details.append("⚠️ Contract Not Verified")
+            
+            # Honeypot check
+            is_honeypot = data.get('is_honeypot', False)
+            if is_honeypot:
+                score += 100
+                details.append("⛔ HONEYPOT DETECTED (TokenSniffer)")
+            
+            # Holder analysis
+            holder_count = data.get('holder_count', 0)
+            if holder_count < 50:
+                score += 50
+                details.append(f"⛔ LOW HOLDERS: {holder_count}")
+            elif holder_count < 100:
+                score += 20
+                details.append(f"⚠️ Few HOLDERS: {holder_count}")
+            
+            # Trading restrictions
+            can_buy = data.get('can_buy', True)
+            can_sell = data.get('can_sell', True)
+            
+            if not can_buy:
+                score += 20
+                details.append("🚨 Cannot Buy")
+            if not can_sell:
+                score += 20
+                details.append("🚨 Cannot Sell")
+            
+            # Calculate final score
+            final_score = min(100, max(0, score))
+            risk_level = self._determine_risk_level(final_score)
+            
+            # Populate result
+            result['risk_score'] = final_score
+            result['risk_level'] = risk_level
+            result['contract_analysis'] = {
+                'is_verified': is_verified,
+                'details': details
+            }
+            result['swap_analysis'] = {
+                'is_honeypot': is_honeypot,
+                'details': []
+            }
+            
+            details.insert(0, f"📊 TokenSniffer Risk Score: {final_score}/100 ({risk_level})")
+            return True
+            
+        except Exception as e:
+            print(f"   ⚠️ TokenSniffer error: {e}")
+            return False
 
     def _calculate_overall_score(self, res):
         """
