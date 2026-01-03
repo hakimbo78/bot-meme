@@ -191,7 +191,14 @@ class TokenSnifferAnalyzer:
             # Track DEX pools (post-graduation)
             # Jupiter is an aggregator, so we check the underlying pools (Orca, Raydium, Meteora DLMM)
             elif mtype in ['raydium_clmm', 'raydium_amm', 'raydium_cpmm', 'orca_whirlpool', 'meteora_dlmm']:
-                dex_pools.append(market)
+                # MIGRATION VALIDITY CHECK:
+                # Only accept as "Graduated" if liquidity is significant (> $3,000).
+                # This prevents "Fake Graduation" where a scammer adds $10 to Raydium to trick the bot.
+                pool_liq = float(market.get('liquidity', {}).get('usd', 0))
+                if pool_liq > 3000:
+                    dex_pools.append(market)
+                else:
+                    print(f"   [BC DEBUG] Ignoring tiny graduated pool ({mtype}) Liq: ${pool_liq:,.0f} (Threshold: $3k)")
         
         # MIGRATION OVERRIDE:
         # If we found standard DEX pools (AMM/CLMM), the token has graduated!
