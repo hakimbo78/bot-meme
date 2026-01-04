@@ -9,7 +9,8 @@ TRADING_CONFIG = {
     # SIGNAL MODE SETTINGS (NEW)
     'signal_mode': {
         'enabled': True,
-        'max_age_hours': 3.0,           # Only coins < 3 hours old
+        'max_age_hours': 24.0,          # Max age 24 hours (Stable)
+        'min_age_hours': 1.0,           # Min age 1 hour (Avoid fresh launch chaos)
         'scan_interval_seconds': 30,    # Scan every 30 seconds
         'min_liquidity': 20000,         # Minimum $20K liquidity for recommendations
         

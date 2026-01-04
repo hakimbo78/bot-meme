@@ -36,7 +36,8 @@ class SignalIntegration:
         # Config
         signal_config = TRADING_CONFIG.get('signal_mode', {})
         self.enabled = signal_config.get('enabled', False)
-        self.max_age_hours = signal_config.get('max_age_hours', 1.0)
+        self.max_age_hours = signal_config.get('max_age_hours', 24.0)
+        self.min_age_hours = signal_config.get('min_age_hours', 1.0)    # NEW: Min age 1h
         self.min_liquidity = signal_config.get('min_liquidity', 20000)  # $20K default
         
         # Score thresholds
@@ -56,14 +57,18 @@ class SignalIntegration:
             'skipped_low_score': 0,
         }
         
-        print(f"[SIGNAL] 🚀 Signal Mode Initialized (enabled={self.enabled}, max_age={self.max_age_hours}h, min_liq=${self.min_liquidity:,.0f})")
+        print(f"[SIGNAL] 🚀 Signal Mode Initialized (enabled={self.enabled}, age={self.min_age_hours}h-{self.max_age_hours}h, min_liq=${self.min_liquidity:,.0f})")
     
     def check_age_filter(self, pair_data: Dict) -> Tuple[bool, str]:
         """
-        Check if token is fresh enough (e.g. < 1 hour).
+        Check if token is within age range (min_age < age < max_age).
         """
         age_hours = pair_data.get('pair_age_hours', pair_data.get('age_days', 0) * 24)
         
+        if age_hours < self.min_age_hours:
+            self.stats['age_filtered'] += 1
+            return False, f"Age {age_hours:.2f}h < {self.min_age_hours}h min limit"
+            
         if age_hours > self.max_age_hours:
             self.stats['age_filtered'] += 1
             return False, f"Age {age_hours:.2f}h > {self.max_age_hours}h limit"
