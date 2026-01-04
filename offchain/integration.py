@@ -350,8 +350,7 @@ class OffChainScreenerIntegration:
             
             if signal_tier:
                 print(f"[OFFCHAIN] 📡 SIGNAL MODE: {signal_tier} recommendation sent for {normalized.get('token_symbol', '???')}")
-                # Mark as processed in deduplicator
-                self.deduplicator.add(token_address, chain)
+                # Note: Deduplication already recorded when is_duplicate() returned False earlier
             else:
                 print(f"[OFFCHAIN] ⏭️ SIGNAL MODE: {normalized.get('token_symbol', '???')} filtered (age/BC/score)")
             
