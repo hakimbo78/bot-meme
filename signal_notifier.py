@@ -90,7 +90,8 @@ class SignalNotifier:
             # Build proper DexScreener URL with chain mapping
             chain_map = {'SOLANA': 'solana', 'BASE': 'base', 'ETHEREUM': 'ethereum', 'ETH': 'ethereum'}
             chain_slug = chain_map.get(chain.upper(), chain.lower())
-            dexscreener_url = token_data.get('url', f"https://dexscreener.com/{chain_slug}/{address}")
+            # Use 'or' to handle empty string case (not just None)
+            dexscreener_url = token_data.get('url') or f"https://dexscreener.com/{chain_slug}/{address}"
             
             # Security data
             lp_locked = security_data.get('lp_locked_percent', 100) if security_data else 100
@@ -162,7 +163,8 @@ class SignalNotifier:
             # Build proper DexScreener URL with chain mapping
             chain_map = {'SOLANA': 'solana', 'BASE': 'base', 'ETHEREUM': 'ethereum', 'ETH': 'ethereum'}
             chain_slug = chain_map.get(chain.upper(), chain.lower())
-            dexscreener_url = token_data.get('url', f"https://dexscreener.com/{chain_slug}/{address}")
+            # Use 'or' to handle empty string case (not just None)
+            dexscreener_url = token_data.get('url') or f"https://dexscreener.com/{chain_slug}/{address}"
             
             # Security data
             lp_locked = security_data.get('lp_locked_percent', 100) if security_data else 100
