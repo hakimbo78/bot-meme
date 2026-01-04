@@ -59,10 +59,13 @@ def check_bonding_curve(token_address: str, chain: str) -> Dict:
             # Case B: Unknown DEX or Zero Liquidity -> Bonding Curve
             valid_dex_found = False
             for m in markets:
-                dex_name = m.get('dex', '').lower()
+                dex_name = (m.get('dex') or '').lower()
+                market_type = (m.get('type') or '').lower()
                 liq_usd = m.get('liquidityA', {}).get('usd', 0)
                 
                 # Known graduated DEXes
+                # Note: Meteora has "meteora" as dex, but we should be careful.
+                # If market_type indicates DBC, we might want to flag it, but usually 'liquidity' check handles it.
                 if dex_name in ['raydium', 'orca', 'meteora', 'fluxbeam'] and liq_usd > 500:
                     valid_dex_found = True
                     break
