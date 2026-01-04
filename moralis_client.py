@@ -32,7 +32,7 @@ class MoralisClient:
         self._cache_ttl = 300  # 5 minutes cache
         
         if not self.api_key:
-            logger.warning("⚠️ MORALIS_API_KEY not set - Bonding curve checks will be skipped")
+            print("[MORALIS] ⚠️ MORALIS_API_KEY not set - Bonding curve checks will be skipped")
     
     def _rate_limit(self):
         """Enforce rate limiting between requests."""
@@ -90,7 +90,7 @@ class MoralisClient:
             
             # Handle rate limit response
             if resp.status_code == 429:
-                logger.warning(f"[Moralis] Rate limited - backing off")
+                print(f"[MORALIS] ⚠️ Rate limited - backing off")
                 time.sleep(2)  # Back off for 2 seconds
                 return {'is_graduated': True, 'progress': 100, 'error': 'Rate limited'}
             
@@ -102,7 +102,7 @@ class MoralisClient:
             
             if resp.status_code != 200:
                 # API error - assume graduated to avoid blocking (fail-safe)
-                logger.warning(f"[Moralis] API error {resp.status_code}: {resp.text[:100]}")
+                print(f"[MORALIS] ⚠️ API error {resp.status_code}: {resp.text[:100]}")
                 return {'is_graduated': True, 'progress': 100, 'error': f'API {resp.status_code}'}
             
             data = resp.json()
@@ -118,14 +118,16 @@ class MoralisClient:
             # Cache the result
             self._set_cache(token_mint, result)
             
-            logger.info(f"[Moralis] {token_mint[:8]}... -> Progress: {progress:.1f}%, Graduated: {result['is_graduated']}")
+            # Always print BC check result for visibility
+            status_emoji = "✅" if result['is_graduated'] else "⏳"
+            print(f"[MORALIS] {status_emoji} {token_mint[:16]}... -> Progress: {progress:.1f}%, Graduated: {result['is_graduated']}")
             return result
             
         except requests.Timeout:
-            logger.warning(f"[Moralis] Timeout for {token_mint[:8]}...")
+            print(f"[MORALIS] ⚠️ Timeout for {token_mint[:16]}...")
             return {'is_graduated': True, 'progress': 100, 'error': 'Timeout'}
         except Exception as e:
-            logger.error(f"[Moralis] Error checking {token_mint[:8]}...: {e}")
+            print(f"[MORALIS] ❌ Error checking {token_mint[:16]}...: {e}")
             # On error, assume graduated to avoid blocking (fail-safe)
             return {'is_graduated': True, 'progress': 100, 'error': str(e)}
     

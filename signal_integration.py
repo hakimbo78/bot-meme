@@ -53,7 +53,7 @@ class SignalIntegration:
             'skipped_low_score': 0,
         }
         
-        logger.info(f"[SignalIntegration] Initialized (enabled={self.enabled}, max_age={self.max_age_hours}h, min_liq=${self.min_liquidity:,.0f})")
+        print(f"[SIGNAL] 🚀 Signal Mode Initialized (enabled={self.enabled}, max_age={self.max_age_hours}h, min_liq=${self.min_liquidity:,.0f})")
     
     def check_age_filter(self, pair_data: Dict) -> Tuple[bool, str]:
         """
@@ -120,20 +120,20 @@ class SignalIntegration:
         # 1. AGE FILTER
         age_passed, age_reason = self.check_age_filter(pair_data)
         if not age_passed:
-            logger.debug(f"[Signal] {symbol} skipped: {age_reason}")
+            print(f"[SIGNAL] ⏳ {symbol} skipped: {age_reason}")
             return None
         
         # 2. BONDING CURVE CHECK (Solana only)
         bc_passed, bc_progress, bc_reason = self.check_bonding_curve(token_address, chain)
         if not bc_passed:
-            logger.info(f"[Signal] ⏳ {symbol} skipped: {bc_reason}")
+            print(f"[SIGNAL] ⛔ {symbol} skipped: {bc_reason}")
             return None
         
         # 3. LIQUIDITY FILTER (Minimum $20K)
         liquidity = pair_data.get('liquidity', pair_data.get('liquidity_usd', 0))
         if liquidity < self.min_liquidity:
             self.stats['liquidity_filtered'] += 1
-            logger.info(f"[Signal] 💰 {symbol} skipped: Liq ${liquidity:,.0f} < ${self.min_liquidity:,.0f}")
+            print(f"[SIGNAL] 💰 {symbol} skipped: Liq ${liquidity:,.0f} < ${self.min_liquidity:,.0f}")
             return None
         
         # 4. SCORE THRESHOLD CHECK
@@ -145,7 +145,7 @@ class SignalIntegration:
             tier = 'WATCH'
         else:
             self.stats['skipped_low_score'] += 1
-            logger.debug(f"[Signal] {symbol} skipped: Score {score:.0f} < {self.threshold_watch}")
+            print(f"[SIGNAL] 📉 {symbol} skipped: Score {score:.0f} < {self.threshold_watch}")
             return None
         
         # 4. SEND RECOMMENDATION
