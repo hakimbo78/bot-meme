@@ -93,17 +93,25 @@ class SignalNotifier:
             # Use 'or' to handle empty string case (not just None)
             dexscreener_url = token_data.get('url') or f"https://dexscreener.com/{chain_slug}/{address}"
             
-            # Security data
-            lp_locked = security_data.get('lp_locked_percent', 100) if security_data else 100
+            # Security data from audit
+            lp_locked = security_data.get('lp_locked_percent', 0) if security_data else 0
+            lp_burned = security_data.get('lp_burned_percent', 0) if security_data else 0
             top10_holders = security_data.get('top10_holders_percent', 0) if security_data else 0
             honeypot = security_data.get('is_honeypot', False) if security_data else False
-            risk_level = security_data.get('risk_level', 'SAFE') if security_data else 'SAFE'
+            is_mintable = security_data.get('is_mintable', False) if security_data else False
+            is_freezable = security_data.get('is_freezable', False) if security_data else False
+            risk_level = security_data.get('risk_level', 'UNKNOWN') if security_data else 'UNKNOWN'
+            risk_score = security_data.get('risk_score', 50) if security_data else 50
+            api_source = security_data.get('api_source', 'N/A') if security_data else 'N/A'
             
             # Format age
             if age_hours < 1:
                 age_str = f"{int(age_hours * 60)} minutes"
             else:
                 age_str = f"{age_hours:.1f} hours"
+            
+            # Security status emoji
+            sec_emoji = '✅' if risk_level == 'SAFE' else '⚠️' if risk_level == 'WARN' else '❌'
             
             # Build message with FULL contract address and clickable link
             message = f"""🚀 *BUY RECOMMENDATION* 🚀
@@ -117,12 +125,14 @@ class SignalNotifier:
 • Age: {age_str} (Fresh Launch)
 • Volume 24h: ${volume_24h:,.0f}
 • Price 1h: {'+' if price_change_1h >= 0 else ''}{price_change_1h:.1f}%
-• Risk: {risk_level} ✅
 
-🔐 *Security:*
-• LP Lock: {lp_locked:.0f}%
-• Top10 Holders: {top10_holders:.1f}%
+🔐 *Security Audit ({api_source.upper()}):* {sec_emoji} {risk_level}
+• Risk Score: {risk_score}/100
 • Honeypot: {'❌ YES' if honeypot else '✅ NO'}
+• Mintable: {'⚠️ YES' if is_mintable else '✅ NO'}
+• Freezable: {'⚠️ YES' if is_freezable else '✅ NO'}
+• LP Lock: {lp_locked:.0f}% | Burn: {lp_burned:.0f}%
+• Top10 Holders: {top10_holders:.1f}%
 
 📝 *Contract:*
 `{address}`
@@ -166,10 +176,18 @@ class SignalNotifier:
             # Use 'or' to handle empty string case (not just None)
             dexscreener_url = token_data.get('url') or f"https://dexscreener.com/{chain_slug}/{address}"
             
-            # Security data
-            lp_locked = security_data.get('lp_locked_percent', 100) if security_data else 100
+            # Security data from audit
+            lp_locked = security_data.get('lp_locked_percent', 0) if security_data else 0
+            lp_burned = security_data.get('lp_burned_percent', 0) if security_data else 0
             top10_holders = security_data.get('top10_holders_percent', 0) if security_data else 0
-            risk_level = security_data.get('risk_level', 'WARN') if security_data else 'WARN'
+            is_mintable = security_data.get('is_mintable', False) if security_data else False
+            is_freezable = security_data.get('is_freezable', False) if security_data else False
+            risk_level = security_data.get('risk_level', 'UNKNOWN') if security_data else 'UNKNOWN'
+            risk_score = security_data.get('risk_score', 50) if security_data else 50
+            api_source = security_data.get('api_source', 'N/A') if security_data else 'N/A'
+            
+            # Get risks from audit for "Why Watch" reasons
+            audit_risks = security_data.get('risks', []) if security_data else []
             
             # Format age
             if age_hours < 1:
@@ -177,16 +195,23 @@ class SignalNotifier:
             else:
                 age_str = f"{age_hours:.1f} hours"
             
-            # Determine "Why Watch" reasons
+            # Security status emoji
+            sec_emoji = '✅' if risk_level == 'SAFE' else '⚠️' if risk_level == 'WARN' else '❌'
+            
+            # Determine "Why Watch" reasons - include security risks
             watch_reasons = []
-            if lp_locked < 90:
+            
+            # Add audit risks first
+            for r in audit_risks[:2]:
+                watch_reasons.append(r.replace('⚠️ ', '').replace('🚨 ', ''))
+            
+            # Add other reasons
+            if lp_locked < 80:
                 watch_reasons.append(f"LP Lock {lp_locked:.0f}%")
-            if top10_holders > 50:
-                watch_reasons.append(f"Top10 Hold {top10_holders:.1f}%")
-            if liquidity < 20000:
-                watch_reasons.append(f"Low Liq ${liquidity:,.0f}")
+            if top10_holders > 60:
+                watch_reasons.append(f"Top10 {top10_holders:.0f}%")
             if score < 70:
-                watch_reasons.append(f"Score {score:.0f}/70")
+                watch_reasons.append(f"Score {score:.0f}")
             
             if not watch_reasons:
                 watch_reasons.append("Borderline - needs confirmation")
@@ -206,8 +231,10 @@ class SignalNotifier:
 
 ⚠️ *Why Watch:* {reasons_str}
 
-🔐 *Security:*
-• LP: {lp_locked:.0f}% | Top10: {top10_holders:.1f}% | Risk: {risk_level}
+🔐 *Security ({api_source.upper()}):* {sec_emoji} {risk_level}
+• Honeypot: {'❌' if security_data.get('is_honeypot') else '✅'} | Mint: {'⚠️' if is_mintable else '✅'} | Freeze: {'⚠️' if is_freezable else '✅'}
+• LP: {lp_locked:.0f}% Lock | {lp_burned:.0f}% Burn
+• Top10: {top10_holders:.0f}%
 
 📝 *Contract:*
 `{address}`

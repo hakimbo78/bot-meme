@@ -1,10 +1,12 @@
 """
 Signal Integration Module
 Orchestrates the signal-only mode flow:
-1. Age Filter (< 1 hour)
+1. Age Filter (< 3 hours)
 2. Moralis Bonding Curve Check (Solana)
-3. Security Analysis
-4. BUY/WATCH Recommendation Dispatch
+3. Liquidity Filter (>= $20K)
+4. Security Audit (RugCheck/GoPlus)
+5. Score Threshold Check
+6. BUY/WATCH Recommendation Dispatch
 """
 
 import logging
@@ -13,6 +15,7 @@ from typing import Dict, Optional, Tuple
 from moralis_client import get_moralis_client
 from signal_notifier import SignalNotifier, get_signal_notifier
 from trading_config import TRADING_CONFIG
+from security_audit import audit_token
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,8 @@ class SignalIntegration:
             'processed': 0,
             'age_filtered': 0,
             'bc_filtered': 0,
-            'liquidity_filtered': 0,  # NEW: Track liquidity filtering
+            'liquidity_filtered': 0,
+            'security_filtered': 0,  # NEW: Security audit failures
             'buy_signals': 0,
             'watch_signals': 0,
             'skipped_low_score': 0,
@@ -136,7 +140,20 @@ class SignalIntegration:
             print(f"[SIGNAL] 💰 {symbol} skipped: Liq ${liquidity:,.0f} < ${self.min_liquidity:,.0f}")
             return None
         
-        # 4. SCORE THRESHOLD CHECK
+        # 4. SECURITY AUDIT (RugCheck for Solana, GoPlus for EVM)
+        print(f"[SIGNAL] 🔐 Running security audit for {symbol}...")
+        security_data = audit_token(token_address, chain)
+        
+        if security_data.get('risk_level') == 'FAIL':
+            self.stats['security_filtered'] += 1
+            risks = security_data.get('risks', ['Unknown risk'])
+            risk_str = ', '.join(risks[:2]) if risks else 'High risk score'
+            print(f"[SIGNAL] 🚫 {symbol} skipped: SECURITY FAIL - {risk_str}")
+            return None
+        
+        print(f"[SIGNAL] ✅ {symbol} security: {security_data.get('risk_level')} (Score: {security_data.get('risk_score', 0)})")
+        
+        # 5. SCORE THRESHOLD CHECK
         score = score_data.get('final_score', score_data.get('offchain_score', 0))
         
         if score >= self.threshold_buy:
@@ -148,7 +165,7 @@ class SignalIntegration:
             print(f"[SIGNAL] 📉 {symbol} skipped: Score {score:.0f} < {self.threshold_watch}")
             return None
         
-        # 4. SEND RECOMMENDATION
+        # 6. SEND RECOMMENDATION
         if self.signal_notifier:
             # Prepare token_data with required fields
             token_data = {
@@ -163,6 +180,7 @@ class SignalIntegration:
                 'url': pair_data.get('url', ''),
             }
             
+            # Pass REAL security data from audit
             await self.signal_notifier.send_recommendation(token_data, score_data, security_data)
             
             if tier == 'BUY':
