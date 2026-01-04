@@ -86,7 +86,11 @@ class SignalNotifier:
             price_change_1h = token_data.get('price_change_h1', 0)
             age_hours = token_data.get('pair_age_hours', 0)
             address = token_data.get('address', token_data.get('token_address', ''))
-            dexscreener_url = token_data.get('url', f"https://dexscreener.com/{chain.lower()}/{address}")
+            
+            # Build proper DexScreener URL with chain mapping
+            chain_map = {'SOLANA': 'solana', 'BASE': 'base', 'ETHEREUM': 'ethereum', 'ETH': 'ethereum'}
+            chain_slug = chain_map.get(chain.upper(), chain.lower())
+            dexscreener_url = token_data.get('url', f"https://dexscreener.com/{chain_slug}/{address}")
             
             # Security data
             lp_locked = security_data.get('lp_locked_percent', 100) if security_data else 100
@@ -100,7 +104,7 @@ class SignalNotifier:
             else:
                 age_str = f"{age_hours:.1f} hours"
             
-            # Build message
+            # Build message with FULL contract address and clickable link
             message = f"""🚀 *BUY RECOMMENDATION* 🚀
 
 🪙 *Token:* {self._escape_md(name)} ({symbol})
@@ -111,18 +115,20 @@ class SignalNotifier:
 • Liquidity: ${liquidity:,.0f}
 • Age: {age_str} (Fresh Launch)
 • Volume 24h: ${volume_24h:,.0f}
-• Price Change 1h: {'+' if price_change_1h >= 0 else ''}{price_change_1h:.1f}%
-• Risk Level: {risk_level} ✅
+• Price 1h: {'+' if price_change_1h >= 0 else ''}{price_change_1h:.1f}%
+• Risk: {risk_level} ✅
 
-🔐 *Security Audit:*
-• LP Locked: {lp_locked:.0f}%
-• Top 10 Holders: {top10_holders:.1f}%
-• Honeypot Check: {'❌ DETECTED' if honeypot else '✅ PASS'}
+🔐 *Security:*
+• LP Lock: {lp_locked:.0f}%
+• Top10 Holders: {top10_holders:.1f}%
+• Honeypot: {'❌ YES' if honeypot else '✅ NO'}
 
-🔗 [DexScreener]({dexscreener_url})
-📝 Contract: `{address[:20]}...{address[-8:]}`
+📝 *Contract:*
+`{address}`
 
-⚠️ _DYOR - This is a recommendation, not financial advice._"""
+🔗 [View on DexScreener]({dexscreener_url})
+
+⚠️ _DYOR - Not financial advice._"""
             
             await self.telegram._enqueue_message(message)
             logger.info(f"📤 [BUY SIGNAL] {symbol} (Score: {score:.0f})")
@@ -152,7 +158,11 @@ class SignalNotifier:
             price_change_1h = token_data.get('price_change_h1', 0)
             age_hours = token_data.get('pair_age_hours', 0)
             address = token_data.get('address', token_data.get('token_address', ''))
-            dexscreener_url = token_data.get('url', f"https://dexscreener.com/{chain.lower()}/{address}")
+            
+            # Build proper DexScreener URL with chain mapping
+            chain_map = {'SOLANA': 'solana', 'BASE': 'base', 'ETHEREUM': 'ethereum', 'ETH': 'ethereum'}
+            chain_slug = chain_map.get(chain.upper(), chain.lower())
+            dexscreener_url = token_data.get('url', f"https://dexscreener.com/{chain_slug}/{address}")
             
             # Security data
             lp_locked = security_data.get('lp_locked_percent', 100) if security_data else 100
@@ -165,47 +175,44 @@ class SignalNotifier:
             else:
                 age_str = f"{age_hours:.1f} hours"
             
-            # Determine "Why Watch" reasons based on issues
+            # Determine "Why Watch" reasons
             watch_reasons = []
             if lp_locked < 90:
-                watch_reasons.append(f"LP Lock only {lp_locked:.0f}% (Need 90%+)")
+                watch_reasons.append(f"LP Lock {lp_locked:.0f}%")
             if top10_holders > 50:
-                watch_reasons.append(f"Top 10 Holders: {top10_holders:.1f}% (Concentrated)")
+                watch_reasons.append(f"Top10 Hold {top10_holders:.1f}%")
             if liquidity < 20000:
-                watch_reasons.append(f"Liquidity ${liquidity:,.0f} (Low)")
+                watch_reasons.append(f"Low Liq ${liquidity:,.0f}")
             if score < 70:
-                watch_reasons.append(f"Score {score:.0f} (Below BUY threshold)")
+                watch_reasons.append(f"Score {score:.0f}/70")
             
             if not watch_reasons:
-                watch_reasons.append("Borderline metrics - needs confirmation")
+                watch_reasons.append("Borderline - needs confirmation")
             
-            reasons_str = '\n'.join([f"• {r}" for r in watch_reasons[:3]])
+            reasons_str = ' | '.join(watch_reasons[:3])
             
-            # Build message
-            message = f"""👀 *WATCH - MONITOR THIS* 👀
+            # Build message with FULL contract address and clickable link
+            message = f"""👀 *WATCH - MONITOR* 👀
 
 🪙 *Token:* {self._escape_md(name)} ({symbol})
 🔗 *Chain:* {chain}
 📊 *Score:* {score:.0f}/100
 
-📊 *Potential Indicators:*
-• Liquidity: ${liquidity:,.0f}
-• Age: {age_str}
-• Volume 24h: ${volume_24h:,.0f}
-• Price Change 1h: {'+' if price_change_1h >= 0 else ''}{price_change_1h:.1f}%
+📊 *Stats:*
+• Liq: ${liquidity:,.0f} | Vol 24h: ${volume_24h:,.0f}
+• Age: {age_str} | Price 1h: {'+' if price_change_1h >= 0 else ''}{price_change_1h:.1f}%
 
-⚠️ *Why Watch (Not Buy Yet):*
-{reasons_str}
+⚠️ *Why Watch:* {reasons_str}
 
-🔐 *Security Status:*
-• LP Locked: {lp_locked:.0f}%
-• Top 10 Holders: {top10_holders:.1f}%
-• Risk Level: {risk_level}
+🔐 *Security:*
+• LP: {lp_locked:.0f}% | Top10: {top10_holders:.1f}% | Risk: {risk_level}
 
-🔗 [DexScreener]({dexscreener_url})
-📝 Contract: `{address[:20]}...{address[-8:]}`
+📝 *Contract:*
+`{address}`
 
-💡 _Monitor for: Volume spike, LP lock improvement, or holder distribution change._"""
+🔗 [View on DexScreener]({dexscreener_url})
+
+💡 _Monitor for volume spike or LP improvement._"""
             
             await self.telegram._enqueue_message(message)
             logger.info(f"📤 [WATCH SIGNAL] {symbol} (Score: {score:.0f})")
