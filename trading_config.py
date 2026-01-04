@@ -11,6 +11,7 @@ TRADING_CONFIG = {
         'enabled': True,
         'max_age_hours': 1.0,           # Only coins < 1 hour old
         'scan_interval_seconds': 30,    # Scan every 30 seconds
+        'min_liquidity': 20000,         # Minimum $20K liquidity for recommendations
         
         # Score Thresholds for Recommendations
         'score_thresholds': {

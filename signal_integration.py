@@ -35,6 +35,7 @@ class SignalIntegration:
         signal_config = TRADING_CONFIG.get('signal_mode', {})
         self.enabled = signal_config.get('enabled', False)
         self.max_age_hours = signal_config.get('max_age_hours', 1.0)
+        self.min_liquidity = signal_config.get('min_liquidity', 20000)  # $20K default
         
         # Score thresholds
         thresholds = signal_config.get('score_thresholds', {})
@@ -46,12 +47,13 @@ class SignalIntegration:
             'processed': 0,
             'age_filtered': 0,
             'bc_filtered': 0,
+            'liquidity_filtered': 0,  # NEW: Track liquidity filtering
             'buy_signals': 0,
             'watch_signals': 0,
             'skipped_low_score': 0,
         }
         
-        logger.info(f"[SignalIntegration] Initialized (enabled={self.enabled}, max_age={self.max_age_hours}h)")
+        logger.info(f"[SignalIntegration] Initialized (enabled={self.enabled}, max_age={self.max_age_hours}h, min_liq=${self.min_liquidity:,.0f})")
     
     def check_age_filter(self, pair_data: Dict) -> Tuple[bool, str]:
         """
@@ -97,10 +99,11 @@ class SignalIntegration:
         Process a pair through signal-only flow.
         
         Flow:
-        1. Age Filter
-        2. Moralis BC Check (Solana)
-        3. Score Threshold Check
-        4. Send Recommendation
+        1. Age Filter (< max_age_hours)
+        2. Moralis BC Check (Solana only)
+        3. Liquidity Filter (>= $20K)
+        4. Score Threshold Check (BUY >= 70, WATCH >= 50)
+        5. Send Recommendation
         
         Returns:
             'BUY', 'WATCH', or None
@@ -126,7 +129,14 @@ class SignalIntegration:
             logger.info(f"[Signal] ⏳ {symbol} skipped: {bc_reason}")
             return None
         
-        # 3. SCORE THRESHOLD CHECK
+        # 3. LIQUIDITY FILTER (Minimum $20K)
+        liquidity = pair_data.get('liquidity', pair_data.get('liquidity_usd', 0))
+        if liquidity < self.min_liquidity:
+            self.stats['liquidity_filtered'] += 1
+            logger.info(f"[Signal] 💰 {symbol} skipped: Liq ${liquidity:,.0f} < ${self.min_liquidity:,.0f}")
+            return None
+        
+        # 4. SCORE THRESHOLD CHECK
         score = score_data.get('final_score', score_data.get('offchain_score', 0))
         
         if score >= self.threshold_buy:
