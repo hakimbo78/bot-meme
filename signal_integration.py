@@ -12,10 +12,9 @@ Orchestrates the signal-only mode flow:
 import logging
 from typing import Dict, Optional, Tuple
 
-from moralis_client import get_moralis_client
 from signal_notifier import SignalNotifier, get_signal_notifier
 from trading_config import TRADING_CONFIG
-from security_audit import audit_token
+from security_audit import audit_token, check_bonding_curve
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ class SignalIntegration:
     """
     
     def __init__(self, telegram_notifier=None):
-        self.moralis = get_moralis_client()
+        self.moralis = None # Removed direct moralis client usage
         self.signal_notifier = None
         
         if telegram_notifier:
@@ -51,7 +50,7 @@ class SignalIntegration:
             'age_filtered': 0,
             'bc_filtered': 0,
             'liquidity_filtered': 0,
-            'security_filtered': 0,  # NEW: Security audit failures
+            'security_filtered': 0,
             'buy_signals': 0,
             'watch_signals': 0,
             'skipped_low_score': 0,
@@ -61,16 +60,9 @@ class SignalIntegration:
     
     def check_age_filter(self, pair_data: Dict) -> Tuple[bool, str]:
         """
-        Check if token is within age limit (< max_age_hours).
-        
-        Returns:
-            (passed, reason)
+        Check if token is fresh enough (e.g. < 1 hour).
         """
-        age_hours = pair_data.get('pair_age_hours', 0)
-        if age_hours == 0:
-            # Try age_days conversion
-            age_days = pair_data.get('age_days', 0)
-            age_hours = age_days * 24
+        age_hours = pair_data.get('pair_age_hours', pair_data.get('age_days', 0) * 24)
         
         if age_hours > self.max_age_hours:
             self.stats['age_filtered'] += 1
@@ -81,6 +73,7 @@ class SignalIntegration:
     def check_bonding_curve(self, token_address: str, chain: str) -> Tuple[bool, float, str]:
         """
         Check bonding curve graduation status (Solana only).
+        Uses security_audit module (RugCheck + Moralis fallback).
         
         Returns:
             (passed, progress, reason)
@@ -89,13 +82,14 @@ class SignalIntegration:
         if chain.lower() != 'solana':
             return True, 100.0, "Not Solana (skip BC check)"
         
-        result = self.moralis.check_bonding_status(token_address)
+        # Use improved check from security_audit
+        result = check_bonding_curve(token_address, chain)
         
-        if result['is_graduated']:
-            return True, result['progress'], "Graduated"
-        else:
+        if result['is_bonding_curve']:
             self.stats['bc_filtered'] += 1
-            return False, result['progress'], f"Bonding Curve {result['progress']:.1f}% (Not Graduated)"
+            return False, result['progress'], f"Bonding Curve {result['progress']:.1f}% ({result['reason']})"
+        
+        return True, 100.0, "Graduated"
     
     async def process_signal(self, pair_data: Dict, score_data: Dict, 
                               security_data: Dict = None) -> Optional[str]:
