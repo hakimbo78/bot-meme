@@ -35,6 +35,15 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from telegram_notifier import TelegramNotifier
 
+# Signal Mode Integration (2026-01-04)
+try:
+    from signal_integration import get_signal_integration, SignalIntegration
+    from trading_config import TRADING_CONFIG
+    SIGNAL_MODE_AVAILABLE = True
+except ImportError as e:
+    SIGNAL_MODE_AVAILABLE = False
+    print(f"⚠️ Signal integration not available: {e}")
+
 
 class OffChainScreenerIntegration:
     """
@@ -78,6 +87,19 @@ class OffChainScreenerIntegration:
         
         # Telegram notifier for alerts
         self.telegram_notifier = TelegramNotifier()
+        
+        # SIGNAL MODE INTEGRATION (2026-01-04)
+        self.signal_mode_enabled = False
+        self.signal_integration = None
+        if SIGNAL_MODE_AVAILABLE:
+            signal_config = TRADING_CONFIG.get('signal_mode', {})
+            if signal_config.get('enabled', False):
+                self.signal_mode_enabled = True
+                self.signal_integration = get_signal_integration(self.telegram_notifier)
+                print(f"[OFFCHAIN] 🚀 SIGNAL MODE ENABLED")
+                print(f"[OFFCHAIN]    Max Age: {signal_config.get('max_age_hours', 1.0)}h")
+                print(f"[OFFCHAIN]    BUY >= {signal_config.get('score_thresholds', {}).get('buy', 70)}")
+                print(f"[OFFCHAIN]    WATCH >= {signal_config.get('score_thresholds', {}).get('watch', 50)}")
         
         # Enabled chains
         self.enabled_chains = self.config.get('enabled_chains', ['base'])
@@ -309,6 +331,34 @@ class OffChainScreenerIntegration:
         tier = self._determine_tier(score)
         normalized['tier'] = tier
         
+        # ====== SIGNAL MODE ROUTING ======
+        # If signal mode is enabled, route through signal_integration instead of trading
+        if self.signal_mode_enabled and self.signal_integration:
+            # Add chain info to normalized data
+            normalized['chain'] = chain
+            
+            # Prepare score_data for signal integration
+            score_data = {
+                'final_score': score,
+                'offchain_score': score,
+                'verdict': verdict,
+                'tier': tier,
+            }
+            
+            # Process through signal integration (age filter, Moralis BC check, recommendations)
+            signal_tier = await self.signal_integration.process_signal(normalized, score_data)
+            
+            if signal_tier:
+                print(f"[OFFCHAIN] 📡 SIGNAL MODE: {signal_tier} recommendation sent for {normalized.get('token_symbol', '???')}")
+                # Mark as processed in deduplicator
+                self.deduplicator.add(token_address, chain)
+            else:
+                print(f"[OFFCHAIN] ⏭️ SIGNAL MODE: {normalized.get('token_symbol', '???')} filtered (age/BC/score)")
+            
+            # In signal mode, we don't enqueue for trading
+            return None
+        
+        # ====== LEGACY TRADING MODE (DISABLED) ======
         # 5. SEND TELEGRAM ALERT (Tiered - LOW tier suppressed)
         print(f"[OFFCHAIN] ✅ {chain.upper()} | {pair_address[:10]}... | Score: {score:.1f} | Tier: {tier}")
         

@@ -1,9 +1,27 @@
 """
 AUTO-TRADING CONFIGURATION
+NOTE: Trading is DISABLED. Bot operates in SIGNAL-ONLY mode.
 """
 
 TRADING_CONFIG = {
-    'enabled': True,  # Master switch
+    'enabled': False,  # DISABLED - Signal Only Mode
+    
+    # SIGNAL MODE SETTINGS (NEW)
+    'signal_mode': {
+        'enabled': True,
+        'max_age_hours': 1.0,           # Only coins < 1 hour old
+        'scan_interval_seconds': 30,    # Scan every 30 seconds
+        
+        # Score Thresholds for Recommendations
+        'score_thresholds': {
+            'buy': 70,    # Score >= 70: BUY recommendation
+            'watch': 50,  # Score 50-69: WATCH recommendation
+            # Score < 50: No recommendation (skip)
+        },
+        
+        # Chains to scan
+        'chains': ['solana', 'base', 'ethereum'],
+    },
     
     # CHAIN SETTINGS (Dynamic enable/disable)
     'chains': {
