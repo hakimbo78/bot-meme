@@ -133,13 +133,13 @@ class SecondaryScanner:
                         continue
                     
                     try:
-                        # Use Web3 contract event filter (handles topics automatically)
+                        # Use Web3 contract event get_logs (handles topics automatically)
                         if dex_type == 'uniswap_v2':
                             factory_contract = self.web3.eth.contract(
                                 address=factory_address,
                                 abi=self.v2_factory_abi
                             )
-                            event_filter = factory_contract.events.PairCreated.create_filter(
+                            logs = factory_contract.events.PairCreated.get_logs(
                                 fromBlock=from_block,
                                 toBlock=latest_block
                             )
@@ -148,15 +148,12 @@ class SecondaryScanner:
                                 address=factory_address,
                                 abi=self.v3_factory_abi
                             )
-                            event_filter = factory_contract.events.PoolCreated.create_filter(
+                            logs = factory_contract.events.PoolCreated.get_logs(
                                 fromBlock=from_block,
                                 toBlock=latest_block
                             )
                         else:
                             continue
-                        
-                        # Get all events
-                        logs = event_filter.get_all_entries()
                         
                         print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
                         
