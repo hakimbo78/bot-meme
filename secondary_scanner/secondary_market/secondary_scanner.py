@@ -134,20 +134,20 @@ class SecondaryScanner:
                     
                     # Set topics based on dex type
                     if dex_type == 'uniswap_v2':
-                        topics = pair_created_sig  # Single topic as string
+                        topics = [pair_created_sig]  # Array with single topic
                     elif dex_type == 'uniswap_v3':
-                        topics = pair_created_sig  # Single topic as string, fee from data
+                        topics = [pair_created_sig]  # Array with single topic
                     else:
                         continue
                     
-                    # Enforce topics string guard
-                    assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
+                    # Enforce topics as list
+                    assert isinstance(topics, list), f"Topics must be list, got {type(topics)}"
                     assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
                     
                     # Build valid eth_getLogs payload
                     payload = {
                         'address': factory_address,
-                        'topics': topics,
+                        'topics': topics,  # Now correctly as array
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
                     }
@@ -280,15 +280,15 @@ class SecondaryScanner:
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
 
-            # Enforce topics string
-            topics = signature
-            assert isinstance(topics, str)
+            # Enforce topics as list
+            topics = [signature]  # Wrap in array
+            assert isinstance(topics, list)
             assert isinstance(from_block, int)
 
             # Build valid payload
             payload = {
                 'address': pair_address,
-                'topics': topics,
+                'topics': topics,  # Now correctly as array
                 'fromBlock': hex(from_block),
                 'toBlock': hex(latest_block)
             }
