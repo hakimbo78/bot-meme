@@ -42,29 +42,30 @@ class SignalNotifier:
             return 'WATCH'
         return None
     
-    async def send_recommendation(self, token_data: dict, score_data: dict, 
+    async def send_recommendation(self, signal_type: str, token_data: dict, score_data: dict, 
                                    security_data: dict = None) -> bool:
         """
-        Send appropriate recommendation based on score tier.
+        Send appropriate recommendation based on signal type.
         
         Args:
+            signal_type: 'BUY', 'WATCH', or 'REBOUND'
             token_data: Token info from DexScreener
-            score_data: Scoring result with 'final_score'
+            score_data: Scoring result
             security_data: Security audit results (RugCheck/GoPlus)
             
         Returns:
             True if recommendation sent, False otherwise
         """
-        score = score_data.get('final_score', 0)
-        tier = self.get_signal_tier(score)
-        
-        if tier == 'BUY':
+        if signal_type == 'BUY':
             return await self.send_buy_recommendation(token_data, score_data, security_data)
-        elif tier == 'WATCH':
+        elif signal_type == 'WATCH':
             return await self.send_watch_recommendation(token_data, score_data, security_data)
+        elif signal_type == 'REBOUND':
+            return await self.send_rebound_recommendation(token_data, score_data, security_data)
         else:
-            logger.debug(f"Score {score} below WATCH threshold - no recommendation")
+            logger.debug(f"Unknown signal type: {signal_type}")
             return False
+    
     
     async def send_buy_recommendation(self, token_data: dict, score_data: dict,
                                        security_data: dict = None) -> bool:
@@ -249,6 +250,67 @@ class SignalNotifier:
             
         except Exception as e:
             logger.error(f"Failed to send WATCH recommendation: {e}")
+            return False
+    
+    async def send_rebound_recommendation(self, token_data: dict, score_data: dict,
+                                           security_data: dict = None) -> bool:
+        """
+        Send REBOUND OPPORTUNITY alert to Telegram (ATH recovery play).
+        """
+        if not self.telegram.enabled:
+            return False
+        
+        try:
+            # Extract data
+            symbol = token_data.get('symbol', '???')
+            chain = token_data.get('chain', 'UNKNOWN').upper()
+            score = score_data.get('score', 0)
+            
+            liquidity = token_data.get('liquidity', 0)
+            volume_24h = token_data.get('volume_24h', 0)
+            address = token_data.get('address', '')
+            
+            # ATH-specific data
+            ath = token_data.get('ath', 0)
+            ath_drop_pct = token_data.get('ath_drop_percent', 0)
+            current_price = token_data.get('price', 0)
+            
+            # Build URL
+            chain_map = {'SOLANA': 'solana', 'BASE': 'base', 'ETHEREUM': 'ethereum'}
+            chain_slug = chain_map.get(chain, chain.lower())
+            dexscreener_url = f"https://dexscreener.com/{chain_slug}/{address}"
+            
+            # Security info
+            risk_level = security_data.get('risk_level', 'UNKNOWN') if security_data else 'UNKNOWN'
+            risk_score = security_data.get('risk_score', 0) if security_data else 0
+            
+            # Build message
+            message = f"🔄 **REBOUND OPPORTUNITY** 🔄\n\n"
+            message += f"**Token:** {symbol} ({chain})\n"
+            message += f"**Score:** {score}/100\n\n"
+            
+            message += f"📉 **ATH Analysis:**\n"
+            message += f"• All-Time High: ${ath:.8f}\n"
+            message += f"• Current Price: ${current_price:.8f}\n"
+            message += f"• **Drop from ATH: {ath_drop_pct:.1f}%** 📉\n"
+            message += f"• Potential Upside: {((ath/current_price - 1) * 100):.0f}% to ATH\n\n"
+            
+            message += f"💰 **Market Data:**\n"
+            message += f"• Liquidity: ${liquidity:,.0f}\n"
+            message += f"• Volume 24h: ${volume_24h:,.0f}\n\n"
+            
+            message += f"🔐 **Security:** {risk_level} ({risk_score}/100)\n\n"
+            
+            message += f"⚠️ **Recovery Play Risk Level: HIGH**\n"
+            message += f"Only enter if you believe in recovery potential\n\n"
+            
+            message += f"[View on DexScreener]({dexscreener_url})"
+            
+            await self.telegram.send_message_async(message)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send REBOUND recommendation: {e}")
             return False
     
     @staticmethod

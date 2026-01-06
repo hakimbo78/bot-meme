@@ -1,108 +1,244 @@
 """
 Security Audit Module for Signal-Only Mode
 Lightweight module to call RugCheck (Solana) and GoPlus (EVM) APIs.
-No Web3 dependency required.
+Fully Asynchronous (aiohttp) with Caching.
 """
 
-import requests
+import aiohttp
+import asyncio
 import time
+import logging
 from typing import Dict, Optional
 
-# Rate limiting
+logger = logging.getLogger(__name__)
+
+# Cache settings
+_audit_cache = {}
+CACHE_TTL = 1800  # 30 minutes
+
+# Rate limiting (per process)
 _last_request_time = 0
-_min_request_interval = 0.2  # 200ms between requests
+_min_request_interval = 0.2
 
-
-def _rate_limit():
+async def _rate_limit():
     """Enforce rate limiting between requests."""
     global _last_request_time
     elapsed = time.time() - _last_request_time
     if elapsed < _min_request_interval:
-        time.sleep(_min_request_interval - elapsed)
+        await asyncio.sleep(_min_request_interval - elapsed)
     _last_request_time = time.time()
 
+def _get_cache(key: str) -> Optional[Dict]:
+    """Get from cache if valid."""
+    if key in _audit_cache:
+        timestamp, data = _audit_cache[key]
+        if time.time() - timestamp < CACHE_TTL:
+            return data
+        else:
+            del _audit_cache[key]
+    return None
 
-def check_bonding_curve(token_address: str, chain: str) -> Dict:
+def _set_cache(key: str, data: Dict):
+    """Set cache with timestamp."""
+    _audit_cache[key] = (time.time(), data)
+
+
+# ============================================
+# PHASE 2: CIRCUIT BREAKER & RETRY MECHANISM
+# ============================================
+
+class CircuitBreaker:
+    """
+    Circuit Breaker pattern for API resilience.
+    Tracks failure rate and disables failing APIs temporarily.
+    """
+    def __init__(self, name: str, failure_threshold: float = 0.5, timeout: int = 300):
+        self.name = name
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.results = []  # Last 10 results (True/False)
+        self.state = 'CLOSED'  # CLOSED, OPEN, HALF_OPEN
+        self.last_failure_time = 0
+        self.alert_sent = False
+    
+    def record_success(self):
+        """Record successful API call."""
+        self.results.append(True)
+        if len(self.results) > 10:
+            self.results.pop(0)
+        
+        # If we were open and got success, close circuit
+        if self.state == 'HALF_OPEN':
+            self.state = 'CLOSED'
+            self.alert_sent = False
+            print(f"[CIRCUIT] ✅ {self.name} recovered - Circuit CLOSED")
+    
+    def record_failure(self):
+        """Record failed API call."""
+        self.results.append(False)
+        if len(self.results) > 10:
+            self.results.pop(0)
+        
+        # Calculate failure rate
+        if len(self.results) >= 5:  # Need at least 5 samples
+            failure_rate = 1 - (sum(self.results) / len(self.results))
+            
+            if failure_rate >= self.failure_threshold and self.state == 'CLOSED':
+                self.state = 'OPEN'
+                self.last_failure_time = time.time()
+                print(f"[CIRCUIT] 🔴 {self.name} failure rate {failure_rate:.0%} - Circuit OPEN")
+                return True  # Signal to send alert
+        
+        return False
+    
+    def can_attempt(self) -> bool:
+        """Check if API call is allowed."""
+        if self.state == 'CLOSED':
+            return True
+        
+        if self.state == 'OPEN':
+            # Check if timeout elapsed
+            if time.time() - self.last_failure_time >= self.timeout:
+                self.state = 'HALF_OPEN'
+                print(f"[CIRCUIT] 🟡 {self.name} attempting recovery - Circuit HALF_OPEN")
+                return True
+            return False
+        
+        # HALF_OPEN: Allow one test call
+        return True
+
+
+# Circuit breakers for each API
+_rugcheck_breaker = CircuitBreaker('RugCheck', failure_threshold=0.6, timeout=300)
+_goplus_breaker = CircuitBreaker('GoPlus', failure_threshold=0.6, timeout=300)
+
+# Telegram notifier for alerts (lazy init)
+_telegram_notifier = None
+
+def set_telegram_notifier(notifier):
+    """Set Telegram notifier for circuit breaker alerts."""
+    global _telegram_notifier
+    _telegram_notifier = notifier
+
+
+async def _send_circuit_alert(api_name: str, state: str):
+    """Send Telegram alert when circuit opens."""
+    if _telegram_notifier:
+        try:
+            message = f"🔴 **SECURITY AUDIT ALERT**\n\n"
+            message += f"API: {api_name}\n"
+            message += f"Status: Circuit {state}\n"
+            message += f"Impact: All tokens will be BLOCKED until API recovers\n"
+            message += f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            await _telegram_notifier.send_message_async(message)
+        except Exception as e:
+            logger.error(f"Failed to send circuit alert: {e}")
+
+
+async def _api_call_with_retry(session, url: str, max_retries: int = 3) -> Optional[Dict]:
+    """
+    Make API call with exponential backoff retry.
+    Returns: JSON response or None if all retries fail.
+    """
+    for attempt in range(max_retries):
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                
+                # Retryable errors (5xx server errors)
+                if resp.status >= 500 and attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s
+                    continue
+                
+                # Non-retryable (4xx client errors)
+                return None
+                
+        except asyncio.TimeoutError:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            return None
+        
+        except Exception as e:
+            logger.warning(f"API call error: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            return None
+    
+    return None
+
+
+async def check_bonding_curve(token_address: str, chain: str) -> Dict:
     """
     Check if a token is still in bonding curve (Solana).
     Uses RugCheck markets data + Moralis fallback.
-    
-    Returns:
-        {
-            'is_bonding_curve': bool, 
-            'progress': float, 
-            'reason': str
-        }
+    Async implementation.
     """
     if chain.lower() != 'solana':
         return {'is_bonding_curve': False, 'progress': 100, 'reason': 'Not Solana'}
 
-    _rate_limit()
-    
     # 1. Try RugCheck First (More reliable for fresh tokens)
     try:
+        await _rate_limit()
         url = f"https://api.rugcheck.xyz/v1/tokens/{token_address.strip()}/report"
-        resp = requests.get(url, timeout=10)
         
-        if resp.status_code == 200:
-            data = resp.json()
-            markets = data.get('markets', [])
-            
-            # Case A: No markets at all -> Likely Bonding Curve or Dead
-            if not markets:
-                return {
-                    'is_bonding_curve': True,
-                    'progress': 0,
-                    'reason': 'No markets found (RugCheck)'
-                }
-                
-            # Case B: Unknown DEX or Zero Liquidity -> Bonding Curve
-            valid_dex_found = False
-            for m in markets:
-                dex_name = (m.get('dex') or '').lower()
-                market_type = (m.get('type') or '').lower()
-                liq_usd = m.get('liquidityA', {}).get('usd', 0)
-                
-                # Known graduated DEXes
-                # Note: Meteora has "meteora" as dex, but we should be careful.
-                # If market_type indicates DBC, we might want to flag it, but usually 'liquidity' check handles it.
-                if dex_name in ['raydium', 'orca', 'meteora', 'fluxbeam'] and liq_usd > 500:
-                    valid_dex_found = True
-                    break
-            
-            if not valid_dex_found:
-                 return {
-                    'is_bonding_curve': True,
-                    'progress': 99,
-                    'reason': f"No valid DEX found (Markets: {[m.get('dex') for m in markets]})"
-                }
-                
-            # If we get here, it has a valid DEX market
-            return {
-                'is_bonding_curve': False, 
-                'progress': 100, 
-                'reason': 'Valid DEX market found'
-            }
-            
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    markets = data.get('markets', [])
+                    
+                    # Case A: No markets at all -> Likely Bonding Curve or Dead
+                    if not markets:
+                        return {
+                            'is_bonding_curve': True,
+                            'progress': 0,
+                            'reason': 'No markets found (RugCheck)'
+                        }
+                        
+                    # Case B: Unknown DEX or Zero Liquidity -> Bonding Curve
+                    valid_dex_found = False
+                    for m in markets:
+                        dex_name = (m.get('dex') or '').lower()
+                        market_type = (m.get('type') or '').lower()
+                        liq_usd = m.get('liquidityA', {}).get('usd', 0)
+                        
+                        if dex_name in ['raydium', 'orca', 'meteora', 'fluxbeam'] and liq_usd > 500:
+                            valid_dex_found = True
+                            break
+                    
+                    if not valid_dex_found:
+                         return {
+                            'is_bonding_curve': True,
+                            'progress': 99,
+                            'reason': f"No valid DEX found (Markets: {[m.get('dex') for m in markets]})"
+                        }
+                    
+                    return {
+                        'is_bonding_curve': False, 
+                        'progress': 100, 
+                        'reason': 'Valid DEX market found'
+                    }
+                    
     except Exception as e:
-        print(f"[BC_CHECK] ⚠️ RugCheck failed: {e}")
+        logger.warning(f"[BC_CHECK] ⚠️ RugCheck failed: {e}")
         # Fallthrough to Moralis
     
     # 2. Fallback to Moralis (if RugCheck fails)
-    # Note: We import inside function to avoid circular imports if any
+    # Keeping Moralis sync for now as it uses library, but it's rarely used if RugCheck works.
+    # To prevent blocking, run in executor if possible, or just accept small block.
+    # Ideally should move Moralis to async too, but keeping it simple for now.
     try:
         from moralis_client import get_moralis_client
         client = get_moralis_client()
         if not client.api_key:
              return {'is_bonding_curve': False, 'progress': 100, 'reason': 'No API Key'}
              
-        res = client.check_bonding_status(token_address)
-        
-        # INTERPRETATION FIX: 
-        # If Moralis returns 404 (error=None but graduated=True in my wrapper), 
-        # it might actually be a fresh BC token.
-        # But we can't be sure. 
-        # Ideally, if RugCheck failed, we might want to be conservative.
+        # Run sync call in thread pool to avoid blocking loop
+        res = await asyncio.to_thread(client.check_bonding_status, token_address)
         
         if not res['is_graduated']:
              return {
@@ -118,352 +254,292 @@ def check_bonding_curve(token_address: str, chain: str) -> Dict:
         }
         
     except Exception as e:
-        print(f"[BC_CHECK] ❌ Moralis failed: {e}")
+        logger.error(f"[BC_CHECK] ❌ Moralis failed: {e}")
     
-    # Default Safe (allow if checks fail? or block? User wants STRICT)
-    # User said "masih ada signal token yang masih dalam proses BC lolos"
-    # So we should default to BLOCK (True) if we are unsure?
-    # But usually fail-safe is to allow. 
-    # Let's stick to 'False' (not BC) but with a warning log, 
-    # UNLESS the logic above caught it.
     return {'is_bonding_curve': False, 'progress': 100, 'reason': 'Checks Failed (Default Safe)'}
 
 
-def audit_solana_token(token_address: str) -> Dict:
+async def audit_solana_token(token_address: str) -> Dict:
     """
-    Audit Solana token using RugCheck API.
-    
-    Returns:
-        dict with security analysis
+    Audit Solana token using RugCheck API (Async with Circuit Breaker).
     """
+    cache_key = f"solana_{token_address}"
+    cached = _get_cache(cache_key)
+    if cached:
+        return cached
+
     result = {
-        'risk_score': 50,
-        'risk_level': 'WARN',
-        'is_honeypot': False,
-        'is_mintable': False,
-        'is_freezable': False,
-        'lp_locked_percent': 0,
-        'lp_burned_percent': 0,
-        'top10_holders_percent': 0,
-        'holder_count': 0,
-        'risks': [],
-        'api_source': 'rugcheck',
-        'api_error': None
+        'risk_score': 50, 'risk_level': 'WARN', 'is_honeypot': False, 'is_mintable': False,
+        'is_freezable': False, 'lp_locked_percent': 0, 'lp_burned_percent': 0,
+        'top10_holders_percent': 0, 'holder_count': 0, 'risks': [],
+        'api_source': 'rugcheck', 'api_error': None
     }
     
     if not token_address or len(token_address) < 32:
         result['api_error'] = 'Invalid address'
         return result
     
-    _rate_limit()
+    # PHASE 2: Circuit Breaker Check
+    if not _rugcheck_breaker.can_attempt():
+        result['api_error'] = 'Circuit OPEN (API Down)'
+        result['risk_level'] = 'FAIL'  # OPTION B: Fail-safe mode
+        result['risks'] = ['⛔ Security audit unavailable (RugCheck down)']
+        print(f"[SECURITY] ⛔ RugCheck circuit OPEN - Blocking token")
+        return result
+    
+    await _rate_limit()
     
     try:
         url = f"https://api.rugcheck.xyz/v1/tokens/{token_address.strip()}/report"
-        resp = requests.get(url, timeout=10)
         
-        if resp.status_code != 200:
-            print(f"[SECURITY] ⚠️ RugCheck API Error {resp.status_code}")
-            result['api_error'] = f'API {resp.status_code}'
+        async with aiohttp.ClientSession() as session:
+            # PHASE 2: Use retry mechanism
+            data = await _api_call_with_retry(session, url)
+            
+            if not data:
+                # Record failure
+                should_alert = _rugcheck_breaker.record_failure()
+                if should_alert and not _rugcheck_breaker.alert_sent:
+                    await _send_circuit_alert('RugCheck', 'OPEN')
+                    _rugcheck_breaker.alert_sent = True
+                
+                result['api_error'] = 'API call failed after retries'
+                result['risk_level'] = 'FAIL'  # OPTION B: Fail-safe
+                result['risks'] = ['⛔ Security audit failed (RugCheck timeout)']
+                print(f"[SECURITY] ⚠️ RugCheck failed after retries")
+                return result
+            
+            # Record success
+            _rugcheck_breaker.record_success()
+            
+            # Base score from RugCheck
+            base_score = data.get('score', 50)
+            score = base_score
+            risks = []
+            
+            # Analyze risks
+            for r in data.get('risks', []):
+                name = r.get('name', '')
+                level = r.get('level', 'info')
+                
+                if 'Mint' in name:
+                    result['is_mintable'] = True
+                    if level in ['danger', 'critical']:
+                        score += 25
+                        risks.append('🚨 Mintable (CRITICAL)')
+                    else:
+                        score += 10
+                        risks.append('⚠️ Mintable')
+                
+                if 'Freeze' in name:
+                    result['is_freezable'] = True
+                    if level in ['danger', 'critical']:
+                        score += 20
+                        risks.append('🚨 Freezable (CRITICAL)')
+                    else:
+                        score += 10
+                        risks.append('⚠️ Freezable')
+                
+                if level == 'danger' and 'Mint' not in name and 'Freeze' not in name:
+                    score += 15
+                    risks.append(f'🚨 {name}')
+                elif level == 'warning':
+                    score += 5
+                    risks.append(f'⚠️ {name}')
+            
+            # Analyze holders
+            top_holders = data.get('topHolders', [])
+            known_accounts = data.get('knownAccounts', {})
+            filtered_holders = [
+                h for h in top_holders 
+                if known_accounts.get(h.get('owner', ''), {}).get('type', '') not in ['AMM', 'LOCKER']
+                and h.get('owner') != '11111111111111111111111111111111'
+            ]
+            
+            top10_pct = sum(float(h.get('pct', 0)) for h in filtered_holders[:10])
+            result['top10_holders_percent'] = top10_pct
+            result['holder_count'] = data.get('totalHolders', 0)
+            
+            if top10_pct > 80: score += 15; risks.append(f'🚨 Top10: {top10_pct:.1f}%')
+            elif top10_pct > 60: score += 5; risks.append(f'⚠️ Top10: {top10_pct:.1f}%')
+            
+            # Analyze LP
+            markets = data.get('markets', [])
+            if markets:
+                m = markets[0]
+                result['lp_locked_percent'] = m.get('lpLockedPct', 0)
+                result['lp_burned_percent'] = m.get('lpBurnedPct', 0)
+                total_lp_safe = result['lp_locked_percent'] + result['lp_burned_percent']
+                if total_lp_safe < 50:
+                    score += 10
+                    risks.append(f'⚠️ LP Not Locked: {total_lp_safe:.0f}%')
+            
+            score = min(score, 100)
+            result['risk_score'] = score
+            result['risks'] = risks[:5]
+            
+            if score <= 30: result['risk_level'] = 'SAFE'
+            elif score <= 60: result['risk_level'] = 'WARN'
+            else: result['risk_level'] = 'FAIL'
+            
+            print(f"[SECURITY] 🔐 RugCheck: {token_address[:16]}... → Score: {score}, Level: {result['risk_level']}")
+            _set_cache(cache_key, result)
             return result
-        
-        data = resp.json()
-        
-        # Base score from RugCheck (0-100, lower = better token)
-        base_score = data.get('score', 50)
-        score = base_score
-        risks = []
-        
-        # Analyze risks
-        for r in data.get('risks', []):
-            name = r.get('name', '')
-            level = r.get('level', 'info')
-            
-            if 'Mint' in name:
-                result['is_mintable'] = True
-                if level in ['danger', 'critical']:
-                    score += 25
-                    risks.append('🚨 Mintable (CRITICAL)')
-                else:
-                    score += 10
-                    risks.append('⚠️ Mintable')
-            
-            if 'Freeze' in name:
-                result['is_freezable'] = True
-                if level in ['danger', 'critical']:
-                    score += 20
-                    risks.append('🚨 Freezable (CRITICAL)')
-                else:
-                    score += 10
-                    risks.append('⚠️ Freezable')
-            
-            if level == 'danger' and 'Mint' not in name and 'Freeze' not in name:
-                score += 15
-                risks.append(f'🚨 {name}')
-            elif level == 'warning':
-                score += 5
-                risks.append(f'⚠️ {name}')
-        
-        # Analyze holders (filter out AMM/LOCKER)
-        top_holders = data.get('topHolders', [])
-        known_accounts = data.get('knownAccounts', {})
-        
-        filtered_holders = []
-        for h in top_holders:
-            owner = h.get('owner', '')
-            acc_info = known_accounts.get(owner, {})
-            acc_type = acc_info.get('type', '')
-            if acc_type not in ['AMM', 'LOCKER'] and owner != '11111111111111111111111111111111':
-                filtered_holders.append(h)
-        
-        top10_pct = sum(float(h.get('pct', 0)) for h in filtered_holders[:10])
-        result['top10_holders_percent'] = top10_pct
-        result['holder_count'] = data.get('totalHolders', 0)
-        
-        if top10_pct > 80:
-            score += 15
-            risks.append(f'🚨 Top10 Holders: {top10_pct:.1f}%')
-        elif top10_pct > 60:
-            score += 5
-            risks.append(f'⚠️ Top10 Holders: {top10_pct:.1f}%')
-        
-        # Analyze LP
-        markets = data.get('markets', [])
-        if markets:
-            m = markets[0]
-            result['lp_locked_percent'] = m.get('lpLockedPct', 0)
-            result['lp_burned_percent'] = m.get('lpBurnedPct', 0)
-            
-            total_lp_safe = result['lp_locked_percent'] + result['lp_burned_percent']
-            if total_lp_safe < 50:
-                score += 10
-                risks.append(f'⚠️ LP Not Locked: {total_lp_safe:.0f}%')
-        
-        # Cap score at 100
-        score = min(score, 100)
-        result['risk_score'] = score
-        result['risks'] = risks[:5]  # Max 5 risks
-        
-        # Determine risk level
-        if score <= 30:
-            result['risk_level'] = 'SAFE'
-        elif score <= 60:
-            result['risk_level'] = 'WARN'
-        else:
-            result['risk_level'] = 'FAIL'
-        
-        print(f"[SECURITY] 🔐 RugCheck: {token_address[:16]}... → Score: {score}, Level: {result['risk_level']}")
-        return result
-        
-    except requests.Timeout:
-        print(f"[SECURITY] ⚠️ RugCheck Timeout")
-        result['api_error'] = 'Timeout'
-        return result
+                
     except Exception as e:
+        # Record failure
+        should_alert = _rugcheck_breaker.record_failure()
+        if should_alert and not _rugcheck_breaker.alert_sent:
+            await _send_circuit_alert('RugCheck', 'OPEN')
+            _rugcheck_breaker.alert_sent = True
+        
         print(f"[SECURITY] ❌ RugCheck Error: {e}")
         result['api_error'] = str(e)
+        result['risk_level'] = 'FAIL'  # OPTION B: Fail-safe
+        result['risks'] = ['⛔ Security audit error']
         return result
 
 
-def audit_evm_token(token_address: str, chain: str = 'base') -> Dict:
+async def audit_evm_token(token_address: str, chain: str = 'base') -> Dict:
     """
-    Audit EVM token using GoPlus API.
-    
-    Args:
-        token_address: Token contract address
-        chain: 'base' or 'ethereum'
-    
-    Returns:
-        dict with security analysis
+    Audit EVM token using GoPlus API (Async with Circuit Breaker).
     """
+    cache_key = f"{chain}_{token_address}"
+    cached = _get_cache(cache_key)
+    if cached:
+        return cached
+
     result = {
-        'risk_score': 50,
-        'risk_level': 'WARN',
-        'is_honeypot': False,
-        'is_mintable': False,
-        'is_freezable': False,
-        'lp_locked_percent': 0,
-        'lp_burned_percent': 0,
-        'top10_holders_percent': 0,
-        'holder_count': 0,
-        'risks': [],
-        'api_source': 'goplus',
-        'api_error': None
+        'risk_score': 50, 'risk_level': 'WARN', 'is_honeypot': False, 'is_mintable': False,
+        'is_freezable': False, 'lp_locked_percent': 0, 'lp_burned_percent': 0,
+        'top10_holders_percent': 0, 'holder_count': 0, 'risks': [],
+        'api_source': 'goplus', 'api_error': None
     }
     
     if not token_address:
         result['api_error'] = 'Invalid address'
         return result
     
-    # Chain ID mapping
-    chain_map = {
-        'base': '8453',
-        'ethereum': '1',
-        'eth': '1',
-        'bsc': '56',
-        'polygon': '137'
-    }
+    # PHASE 2: Circuit Breaker Check
+    if not _goplus_breaker.can_attempt():
+        result['api_error'] = 'Circuit OPEN (API Down)'
+        result['risk_level'] = 'FAIL'  # OPTION B: Fail-safe mode
+        result['risks'] = ['⛔ Security audit unavailable (GoPlus down)']
+        print(f"[SECURITY] ⛔ GoPlus circuit OPEN - Blocking token")
+        return result
+    
+    chain_map = {'base': '8453', 'ethereum': '1', 'eth': '1', 'bsc': '56', 'polygon': '137'}
     chain_id = chain_map.get(chain.lower(), '8453')
     
-    _rate_limit()
+    await _rate_limit()
     
     try:
         url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}?contract_addresses={token_address.lower()}"
-        resp = requests.get(url, timeout=10)
         
-        if resp.status_code != 200:
-            print(f"[SECURITY] ⚠️ GoPlus API Error {resp.status_code}")
-            result['api_error'] = f'API {resp.status_code}'
-            return result
-        
-        data = resp.json()
-        
-        if data.get('code') != 1:
-            result['api_error'] = 'Invalid response'
-            return result
-        
-        token_data = data.get('result', {}).get(token_address.lower(), {})
-        if not token_data:
-            result['api_error'] = 'Token not found'
-            return result
-        
-        score = 0
-        risks = []
-        
-        # Check honeypot
-        is_honeypot = token_data.get('is_honeypot', '0') == '1'
-        result['is_honeypot'] = is_honeypot
-        if is_honeypot:
-            score += 100
-            risks.append('🚨 HONEYPOT DETECTED')
-        
-        # Check mintable
-        is_mintable = token_data.get('is_mintable', '0') == '1'
-        result['is_mintable'] = is_mintable
-        if is_mintable:
-            score += 20
-            risks.append('⚠️ Mintable')
-        
-        # Check proxy
-        is_proxy = token_data.get('is_proxy', '0') == '1'
-        if is_proxy:
-            score += 15
-            risks.append('⚠️ Proxy Contract')
-        
-        # Check ownership
-        can_take_back_ownership = token_data.get('can_take_back_ownership', '0') == '1'
-        if can_take_back_ownership:
-            score += 15
-            risks.append('⚠️ Can Take Back Ownership')
-        
-        # Check hidden owner
-        hidden_owner = token_data.get('hidden_owner', '0') == '1'
-        if hidden_owner:
-            score += 20
-            risks.append('🚨 Hidden Owner')
-        
-        # Check trading pause
-        trading_cooldown = token_data.get('trading_cooldown', '0') == '1'
-        if trading_cooldown:
-            score += 10
-            risks.append('⚠️ Has Trading Cooldown')
-        
-        # Check blacklist
-        is_blacklisted = token_data.get('is_blacklisted', '0') == '1'
-        if is_blacklisted:
-            score += 15
-            risks.append('⚠️ Has Blacklist Function')
-        
-        # Check anti-whale
-        is_anti_whale = token_data.get('is_anti_whale', '0') == '1'
-        if is_anti_whale:
-            score += 5
-            risks.append('⚠️ Anti-Whale Mechanism')
-        
-        # Holder concentration
-        try:
-            holder_count = int(token_data.get('holder_count', 0))
-            result['holder_count'] = holder_count
+        async with aiohttp.ClientSession() as session:
+            # PHASE 2: Use retry mechanism
+            data = await _api_call_with_retry(session, url)
             
-            if holder_count < 50:
-                score += 15
-                risks.append(f'⚠️ Low Holders: {holder_count}')
-        except:
-            pass
-        
-        # Top 10 holders
-        try:
-            holders = token_data.get('holders', [])
-            if holders:
-                top10_pct = sum(float(h.get('percent', 0)) * 100 for h in holders[:10])
-                result['top10_holders_percent'] = top10_pct
+            if not data or data.get('code') != 1:
+                # Record failure
+                should_alert = _goplus_breaker.record_failure()
+                if should_alert and not _goplus_breaker.alert_sent:
+                    await _send_circuit_alert('GoPlus', 'OPEN')
+                    _goplus_breaker.alert_sent = True
                 
-                if top10_pct > 80:
-                    score += 15
-                    risks.append(f'🚨 Top10 Holders: {top10_pct:.1f}%')
-                elif top10_pct > 60:
-                    score += 5
-                    risks.append(f'⚠️ Top10 Holders: {top10_pct:.1f}%')
-        except:
-            pass
-        
-        # LP info
-        try:
-            lp_holders = token_data.get('lp_holders', [])
-            if lp_holders:
+                result['api_error'] = 'API call failed after retries'
+                result['risk_level'] = 'FAIL'  # OPTION B: Fail-safe
+                result['risks'] = ['⛔ Security audit failed (GoPlus timeout)']
+                print(f"[SECURITY] ⚠️ GoPlus failed after retries")
+                return result
+            
+            token_data = data.get('result', {}).get(token_address.lower(), {})
+            if not token_data:
+                _goplus_breaker.record_failure()
+                result['api_error'] = 'Token not found'
+                result['risk_level'] = 'FAIL'
+                result['risks'] = ['⛔ Token not found in GoPlus']
+                return result
+            
+            # Record success
+            _goplus_breaker.record_success()
+            
+            score = 0
+            risks = []
+            
+            is_honeypot = token_data.get('is_honeypot', '0') == '1'
+            result['is_honeypot'] = is_honeypot
+            if is_honeypot: score += 100; risks.append('🚨 HONEYPOT DETECTED')
+            
+            if token_data.get('is_mintable', '0') == '1':
+                result['is_mintable'] = True; score += 20; risks.append('⚠️ Mintable')
+            if token_data.get('is_proxy', '0') == '1':
+                score += 15; risks.append('⚠️ Proxy Contract')
+            if token_data.get('can_take_back_ownership', '0') == '1':
+                score += 15; risks.append('⚠️ Can Take Back Ownership')
+            if token_data.get('hidden_owner', '0') == '1':
+                score += 20; risks.append('🚨 Hidden Owner')
+            if token_data.get('trading_cooldown', '0') == '1':
+                score += 10; risks.append('⚠️ Has Trading Cooldown')
+            if token_data.get('is_blacklisted', '0') == '1':
+                score += 15; risks.append('⚠️ Has Blacklist Function')
+            if token_data.get('is_anti_whale', '0') == '1':
+                score += 5; risks.append('⚠️ Anti-Whale Mechanism')
+            
+            # Check holders
+            try:
+                result['holder_count'] = int(token_data.get('holder_count', 0))
+                if result['holder_count'] < 50: score += 15; risks.append(f"⚠️ Low Holders: {result['holder_count']}")
+            except: pass
+            
+            try:
+                holders = token_data.get('holders', [])
+                if holders:
+                    top10 = sum(float(h.get('percent', 0)) * 100 for h in holders[:10])
+                    result['top10_holders_percent'] = top10
+                    if top10 > 80: score += 15; risks.append(f'🚨 Top10: {top10:.1f}%')
+                    elif top10 > 60: score += 5; risks.append(f'⚠️ Top10: {top10:.1f}%')
+            except: pass
+            
+            # Check LP
+            try:
                 locked_pct = 0
-                for lp in lp_holders:
-                    if lp.get('is_locked', 0) == 1:
-                        locked_pct += float(lp.get('percent', 0)) * 100
+                for lp in token_data.get('lp_holders', []):
+                    if lp.get('is_locked', 0) == 1: locked_pct += float(lp.get('percent', 0)) * 100
                 result['lp_locked_percent'] = locked_pct
-                
-                if locked_pct < 50:
-                    score += 10
-                    risks.append(f'⚠️ LP Lock: {locked_pct:.0f}%')
-        except:
-            pass
-        
-        # Cap score
-        score = min(score, 100)
-        result['risk_score'] = score
-        result['risks'] = risks[:5]
-        
-        # Determine risk level
-        if is_honeypot:
-            result['risk_level'] = 'FAIL'
-        elif score <= 30:
-            result['risk_level'] = 'SAFE'
-        elif score <= 60:
-            result['risk_level'] = 'WARN'
-        else:
-            result['risk_level'] = 'FAIL'
-        
-        print(f"[SECURITY] 🔐 GoPlus: {token_address[:16]}... → Score: {score}, Level: {result['risk_level']}")
-        return result
-        
-    except requests.Timeout:
-        print(f"[SECURITY] ⚠️ GoPlus Timeout")
-        result['api_error'] = 'Timeout'
-        return result
+                if locked_pct < 50: score += 10; risks.append(f'⚠️ LP Lock: {locked_pct:.0f}%')
+            except: pass
+            
+            score = min(score, 100)
+            result['risk_score'] = score
+            result['risks'] = risks[:5]
+            
+            if is_honeypot: result['risk_level'] = 'FAIL'
+            elif score <= 30: result['risk_level'] = 'SAFE'
+            elif score <= 60: result['risk_level'] = 'WARN'
+            else: result['risk_level'] = 'FAIL'
+            
+            print(f"[SECURITY] 🔐 GoPlus: {token_address[:16]}... → Score: {score}, Level: {result['risk_level']}")
+            _set_cache(cache_key, result)
+            return result
+
     except Exception as e:
+        # Record failure
+        should_alert = _goplus_breaker.record_failure()
+        if should_alert and not _goplus_breaker.alert_sent:
+            await _send_circuit_alert('GoPlus', 'OPEN')
+            _goplus_breaker.alert_sent = True
+        
         print(f"[SECURITY] ❌ GoPlus Error: {e}")
         result['api_error'] = str(e)
+        result['risk_level'] = 'FAIL'  # OPTION B: Fail-safe
+        result['risks'] = ['⛔ Security audit error']
         return result
 
 
-def audit_token(token_address: str, chain: str) -> Dict:
-    """
-    Route to appropriate security audit based on chain.
-    
-    Args:
-        token_address: Token contract address
-        chain: 'solana', 'base', 'ethereum', etc.
-    
-    Returns:
-        dict with security analysis
-    """
-    chain_lower = chain.lower()
-    
-    if chain_lower == 'solana':
-        return audit_solana_token(token_address)
+async def audit_token(token_address: str, chain: str) -> Dict:
+    """Route to appropriate async security audit."""
+    if chain.lower() == 'solana':
+        return await audit_solana_token(token_address)
     else:
-        return audit_evm_token(token_address, chain_lower)
+        return await audit_evm_token(token_address, chain.lower())

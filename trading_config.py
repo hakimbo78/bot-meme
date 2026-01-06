@@ -22,6 +22,30 @@ TRADING_CONFIG = {
         },
         
         # Chains to scan
+    },
+    
+    # REBOUND MODE SETTINGS (ATH Recovery Scanner)
+    'rebound_mode': {
+        'enabled': True,
+        'max_age_hours': 720.0,         # Max 30 days old (30 * 24)
+        'min_age_hours': 1.0,           # Min 1 hour (same as signal mode)
+        'min_ath_drop_percent': 80.0,  # Minimum 80% drop from ATH
+        'min_liquidity': 10000,         # Lower threshold for older tokens
+        'min_volume_24h': 10000,        # Must have >$10K daily volume (still active)
+        
+        # Score Thresholds
+        'score_thresholds': {
+            'rebound': 60,   # Score >= 60: REBOUND recommendation
+            # Lower threshold since these are recovery plays
+        },
+        
+        # Activity Filters (ensures token not dead/rugpulled)
+        'activity_filters': {
+            'min_txn_24h': 50,           # Minimum 50 transactions/day
+            'max_holder_drop_percent': 30,  # Max 30% holder decrease (not mass exodus)
+        },
+        
+        # Chains to scan
         'chains': ['solana', 'base', 'ethereum'],
     },
     

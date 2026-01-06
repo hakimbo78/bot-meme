@@ -9,7 +9,6 @@ from web3 import Web3
 from .market_metrics import MarketMetrics
 from .triggers import TriggerEngine
 from .secondary_state import SecondaryStateManager, SecondaryState
-from modules.block_listener import TimestampCache
 
 
 class SecondaryScanner:
@@ -33,18 +32,11 @@ class SecondaryScanner:
         self.max_pairs_per_scan = 100
         self.min_liquidity_threshold = chain_config.get('secondary_scanner', {}).get('min_liquidity', 50000)
 
-        # Block range configuration
-        # V2: 6 hours (moderate lookback)
-        self.lookback_blocks_v2 = {
+        # Block range configuration (6 hours worth)
+        self.lookback_blocks = {
             'ethereum': 1800,  # ~6 hours at 12s blocks
             'base': 3000,      # ~6 hours at 7.2s blocks
         }.get(self.chain_name, 1800)
-        
-        # V3: 24 hours (longer lookback due to lower activity)
-        self.lookback_blocks_v3 = {
-            'ethereum': 7200,  # ~24 hours at 12s blocks (7200 blocks)
-            'base': 12000,     # ~24 hours at 7.2s blocks (12000 blocks)
-        }.get(self.chain_name, 7200)
 
         # Status tracking
         self.secondary_status = "ACTIVE"
@@ -53,16 +45,16 @@ class SecondaryScanner:
         # Known pairs to monitor: {pair_address: {'token_address': str, 'dex_type': str, 'last_scan': float}}
         self.monitored_pairs = {}
 
-        # Swap event signatures (Keccak-256 hash)
+        # Swap event signatures
         self.swap_signatures = {
-            'uniswap_v2': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',
-            'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'
+            'uniswap_v2': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822e',
+            'uniswap_v3': '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67b'
         }
 
-        # Pair/Pool created event signatures (Keccak-256 hash)
+        # Pair/Pool created event signatures
         self.pair_created_sigs = {
-            'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9',
-            'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee71718'
+            'uniswap_v2': '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28ed612',
+            'uniswap_v3': '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4ee871103'
         }
 
         # Uniswap V2 Factory ABI (minimal for events)
@@ -114,16 +106,11 @@ class SecondaryScanner:
             pairs = []
             chain_config = self.config
             
-            # Get factory addresses and disabled dexes
+            # Get factory addresses
             factories = chain_config.get('factories', {})
-            disabled_dexes = chain_config.get('secondary_scanner', {}).get('disabled_dexes', [])
             
             for dex_type, factory_address in factories.items():
                 if dex_type not in ['uniswap_v2', 'uniswap_v3']:
-                    continue
-                
-                if dex_type in disabled_dexes:
-                    # Silently skip disabled dexes
                     continue
                     
                 try:
@@ -131,9 +118,7 @@ class SecondaryScanner:
                     factory_address = Web3.to_checksum_address(factory_address)
                     
                     # Resolve block range using configured lookback
-                    # Use longer lookback for V3 due to lower activity
-                    lookback = self.lookback_blocks_v3 if dex_type == 'uniswap_v3' else self.lookback_blocks_v2
-                    from_block, latest_block = self.resolve_secondary_block_range(lookback)
+                    from_block, latest_block = self.resolve_secondary_block_range(self.lookback_blocks)
                     
                     # Use cached last scanned block to avoid re-scanning
                     last_scanned = self.last_scanned_block.get(dex_type, 0)
@@ -147,16 +132,16 @@ class SecondaryScanner:
                     if not pair_created_sig:
                         continue
                     
-                    # Set topics based on dex type (must be array for eth_getLogs)
+                    # Set topics based on dex type
                     if dex_type == 'uniswap_v2':
-                        topics = [pair_created_sig]  # Array with single topic
+                        topics = pair_created_sig  # Single topic as string
                     elif dex_type == 'uniswap_v3':
-                        topics = [pair_created_sig]  # Array with single topic
+                        topics = pair_created_sig  # Single topic as string, fee from data
                     else:
                         continue
                     
-                    # Enforce topics array guard
-                    assert isinstance(topics, list), f"Topics must be list, got {type(topics)}"
+                    # Enforce topics string guard
+                    assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
                     assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
                     
                     # Build valid eth_getLogs payload
@@ -167,22 +152,11 @@ class SecondaryScanner:
                         'toBlock': hex(latest_block)
                     }
                     
-                    # Debug V3 queries
-                    if dex_type == 'uniswap_v3':
-                        print(f"🔍 [V3 DEBUG] {self.chain_name.upper()}: Querying V3 factory")
-                        print(f"   Factory: {factory_address}")
-                        print(f"   Signature: {pair_created_sig}")
-                        print(f"   Topics: {topics}")
-                        print(f"   From block: {from_block} ({hex(from_block)})")
-                        print(f"   To block: {latest_block} ({hex(latest_block)})")
-                    
                     try:
                         # Query PairCreated/PoolCreated events
                         logs = self.web3.eth.get_logs(payload)
                         
-                        # Calculate blocks scanned
-                        blocks_scanned = latest_block - from_block
-                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {blocks_scanned} blocks")
+                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
                         
                         # Update last scanned block
                         self.last_scanned_block[dex_type] = latest_block
@@ -199,87 +173,39 @@ class SecondaryScanner:
                         raise e
                     
                     # Process last 100 pairs (most recent)
-                    parsed_count = 0
-                    skip_reasons = {'no_weth': 0, 'parse_error': 0, 'invalid_data': 0}
-                    
-                    logs_to_process = logs[-100:]
-                    print(f"🔍 [SECONDARY DEBUG] {self.chain_name.upper()}: Processing {len(logs_to_process)} {dex_type.upper()} events...")
-                    
-                    for idx, log in enumerate(logs_to_process):
+                    for log in logs[-100:]:
                         try:
                             # Decode event data
                             data = log['data']
                             topics = log['topics']
                             
-                            # Convert HexBytes to hex string if needed
-                            if hasattr(data, 'hex'):
-                                data_hex = data.hex()
-                            else:
-                                data_hex = data
-                            
-                            # Debug first event
-                            if idx == 0:
-                                print(f"🔍 [SECONDARY DEBUG] First event - data type: {type(data)}, topics count: {len(topics)}")
-                            
                             if len(topics) >= 3:
                                 # topics[1] = token0, topics[2] = token1
-                                # Topics are 32 bytes (64 hex chars) with address in last 20 bytes (40 hex chars)
-                                if hasattr(topics[1], 'hex'):
-                                    # Extract last 40 hex chars (20 bytes) for address
-                                    token0 = '0x' + topics[1].hex()[-40:]
-                                    token1 = '0x' + topics[2].hex()[-40:]
-                                else:
-                                    token0 = '0x' + topics[1][-40:]
-                                    token1 = '0x' + topics[2][-40:]
-                                
-                                # Debug first token pair
-                                if idx == 0:
-                                    print(f"🔍 [SECONDARY DEBUG] token0: {token0}, token1: {token1}")
+                                token0 = '0x' + topics[1].hex()[26:]  # Remove padding
+                                token1 = '0x' + topics[2].hex()[26:]
                                 
                                 # Extract pair/pool address from data
                                 if dex_type == 'uniswap_v2':
-                                    # V2 PairCreated data structure:
-                                    # - Field 1 (bytes 0-31, hex 0-63): pair address (padded to 32 bytes)
-                                    # - Field 2 (bytes 32-63, hex 64-127): counter uint256
-                                    if len(data_hex) >= 64:
-                                        # Extract address from first 32 bytes (last 20 bytes of first field)
-                                        # Chars 0-23 = padding, chars 24-63 = address
-                                        pair_address = '0x' + data_hex[24:64]
+                                    # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
+                                    if len(data) >= 64:
+                                        pair_address = '0x' + data[2:66]  # Skip 0x, take 64 chars (32 bytes)
                                     else:
-                                        skip_reasons['invalid_data'] += 1
                                         continue
                                 elif dex_type == 'uniswap_v3':
-                                    # V3 PoolCreated data structure:
-                                    # - Field 1 (bytes 0-31, hex 0-63): tickSpacing int24 (padded)
-                                    # - Field 2 (bytes 32-63, hex 64-127): pool address (padded to 32 bytes)
-                                    if len(data_hex) >= 128:
-                                        # Extract address from second 32 bytes (last 20 bytes)
-                                        # Chars 64-87 = padding, chars 88-127 = address
-                                        pair_address = '0x' + data_hex[88:128]
+                                    # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
+                                    if len(data) >= 128:
+                                        pair_address = '0x' + data[66:130]  # After tickSpacing
                                     else:
-                                        skip_reasons['invalid_data'] += 1
                                         continue
-                                
-                                # Debug first pair address
-                                if idx == 0:
-                                    print(f"🔍 [SECONDARY DEBUG] pair_address: {pair_address}")
                                 
                                 # For simplicity, assume token1 is the meme token (not WETH)
                                 weth_address = chain_config.get('weth_address', '').lower()
-                                
-                                # Debug WETH check
-                                if idx == 0:
-                                    print(f"🔍 [SECONDARY DEBUG] WETH address: {weth_address}")
-                                    print(f"🔍 [SECONDARY DEBUG] token0 == WETH: {token0.lower() == weth_address}")
-                                    print(f"🔍 [SECONDARY DEBUG] token1 == WETH: {token1.lower() == weth_address}")
-                                
                                 if token0.lower() == weth_address:
                                     token_address = token1
                                 elif token1.lower() == weth_address:
                                     token_address = token0
                                 else:
                                     # Skip non-WETH pairs for now
-                                    skip_reasons['no_weth'] += 1
                                     continue
                                 
                                 pair_data = {
@@ -292,20 +218,9 @@ class SecondaryScanner:
                                 }
                                 
                                 pairs.append(pair_data)
-                                parsed_count += 1
                                 
                         except Exception as e:
-                            # Log first few errors for debugging
-                            skip_reasons['parse_error'] += 1
-                            if skip_reasons['parse_error'] <= 3:
-                                print(f"⚠️  [SECONDARY DEBUG] Error parsing log #{idx}: {e}")
                             continue  # Skip malformed logs
-                    
-                    # Print summary
-                    print(f"📊 [SECONDARY DEBUG] {self.chain_name.upper()} {dex_type.upper()}: Parsed {parsed_count}/{len(logs_to_process)} pairs")
-                    print(f"   ├─ Skipped (no WETH): {skip_reasons['no_weth']}")
-                    print(f"   ├─ Skipped (invalid data): {skip_reasons['invalid_data']}")
-                    print(f"   └─ Skipped (parse errors): {skip_reasons['parse_error']}")
                     
                 except Exception as e:
                     print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
@@ -337,7 +252,7 @@ class SecondaryScanner:
             return []
 
     def add_pair_to_monitor(self, pair_address: str, token_address: str,
-                           dex_type: str, token_decimals: int = 18, **kwargs):
+                           dex_type: str, token_decimals: int = 18):
         """Add a pair to the monitoring list"""
         self.monitored_pairs[pair_address] = {
             'token_address': token_address,
@@ -347,11 +262,10 @@ class SecondaryScanner:
             'weth_address': self.config.get('weth_address', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2')
         }
 
-    async def scan_pair_events(self, pair_address: str, pair_data: Dict, target_block: int = None) -> List[Dict]:
+    async def scan_pair_events(self, pair_address: str, pair_data: Dict) -> List[Dict]:
         """
         Scan recent events for a pair to update metrics.
         Returns list of swap events with volume data.
-        Uses DELTA SCANNING (last_block to current) for RPC efficiency correctness.
         """
         try:
             dex_type = pair_data['dex_type']
@@ -360,30 +274,15 @@ class SecondaryScanner:
                 return []
 
             # Get latest block
-            if target_block:
-                latest_block = target_block
-            else:
-                latest_block = self.web3.eth.block_number
-                
-            # Delta Scan Logic
-            last_scanned = pair_data.get('last_block', 0)
-            if last_scanned == 0:
-                # First scan: look back 100 blocks
-                from_block = max(0, latest_block - 100)
-            else:
-                # Subsequent scans: continue from last
-                from_block = last_scanned + 1
-                
-            # Optimization: If no new blocks, skip
-            if from_block > latest_block:
-                return []
+            latest_block = self.web3.eth.block_number
+            from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
 
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
 
-            # Enforce topics array (must be array for eth_getLogs)
-            topics = [signature]
-            assert isinstance(topics, list)
+            # Enforce topics string
+            topics = signature
+            assert isinstance(topics, str)
             assert isinstance(from_block, int)
 
             # Build valid payload
@@ -397,12 +296,7 @@ class SecondaryScanner:
             try:
                 # Query events
                 logs = self.web3.eth.get_logs(payload)
-                
-                # Update last scanned block on success
-                pair_data['last_block'] = latest_block
-                
             except Exception as e:
-                # RPC error handling
                 if hasattr(e, 'args') and len(e.args) > 0:
                     error_data = e.args[0]
                     if isinstance(error_data, dict) and error_data.get('code') == -32602:
@@ -418,7 +312,7 @@ class SecondaryScanner:
                 events.append({
                     'block_number': log['blockNumber'],
                     'transaction_hash': log['transactionHash'].hex(),
-                    'timestamp': TimestampCache.get_timestamp(self.chain_name, log['blockNumber'], self.web3),
+                    'timestamp': self.web3.eth.get_block(log['blockNumber'])['timestamp'],
                     'volume_usd': 0  # Would calculate from event data
                 })
 
@@ -428,7 +322,7 @@ class SecondaryScanner:
             print(f"⚠️  Error scanning events for {pair_address}: {e}")
             return []
 
-    async def process_pair(self, pair_address: str, target_block: int = None) -> Optional[Dict]:
+    async def process_pair(self, pair_address: str) -> Optional[Dict]:
         """
         Process a single pair: update metrics, evaluate triggers.
         Returns signal data if secondary signal detected.
@@ -451,7 +345,7 @@ class SecondaryScanner:
                 return None
 
             # Scan recent swap events for volume
-            swap_events = await self.scan_pair_events(pair_address, pair_data, target_block)
+            swap_events = await self.scan_pair_events(pair_address, pair_data)
 
             # Add volume data (simplified - would sum actual volumes)
             total_volume = sum(event.get('volume_usd', 0) for event in swap_events)
@@ -503,7 +397,7 @@ class SecondaryScanner:
 
         return None
 
-    async def scan_all_pairs(self, target_block: int = None) -> List[Dict]:
+    async def scan_all_pairs(self) -> List[Dict]:
         """
         Scan all monitored pairs for signals.
         Returns list of detected signals.
@@ -515,7 +409,7 @@ class SecondaryScanner:
 
         async def process_with_limit(pair_addr):
             async with semaphore:
-                result = await self.process_pair(pair_addr, target_block)
+                result = await self.process_pair(pair_addr)
                 if result:
                     signals.append(result)
 

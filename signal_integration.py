@@ -26,35 +26,54 @@ class SignalIntegration:
     Replaces trading execution with recommendation alerts.
     """
     
+    
     def __init__(self, telegram_notifier=None):
         self.moralis = None # Removed direct moralis client usage
         self.signal_notifier = None
         
         if telegram_notifier:
             self.signal_notifier = SignalNotifier(telegram_notifier)
+            
+            # PHASE 2: Initialize Circuit Breaker Telegram notifier
+            from security_audit import set_telegram_notifier
+            set_telegram_notifier(telegram_notifier)
         
-        # Config
+        # Config - Stable Pump Mode
         signal_config = TRADING_CONFIG.get('signal_mode', {})
-        self.enabled = signal_config.get('enabled', False)
+        self.enabled = signal_config.get('enabled', False) # Keep this line for the print statement
         self.max_age_hours = signal_config.get('max_age_hours', 24.0)
-        self.min_age_hours = signal_config.get('min_age_hours', 1.0)    # NEW: Min age 1h
-        self.min_liquidity = signal_config.get('min_liquidity', 20000)  # $20K default
+        self.min_age_hours = signal_config.get('min_age_hours', 1.0)
+        self.min_liquidity = signal_config.get('min_liquidity', 20000)
+        self.score_thresholds = signal_config.get('score_thresholds', {'buy': 70, 'watch': 50})
         
-        # Score thresholds
-        thresholds = signal_config.get('score_thresholds', {})
-        self.threshold_buy = thresholds.get('buy', 70)
-        self.threshold_watch = thresholds.get('watch', 50)
+        # Config - Rebound Mode
+        rebound_config = TRADING_CONFIG.get('rebound_mode', {})
+        self.rebound_enabled = rebound_config.get('enabled', False)
+        self.rebound_max_age = rebound_config.get('max_age_hours', 720.0)  # 30 days
+        self.rebound_min_age = rebound_config.get('min_age_hours', 1.0)
+        self.rebound_min_ath_drop = rebound_config.get('min_ath_drop_percent', 80.0)
+        self.rebound_min_liquidity = rebound_config.get('min_liquidity', 10000)
+        self.rebound_min_volume = rebound_config.get('min_volume_24h', 10000)
+        self.rebound_score_threshold = rebound_config.get('score_thresholds', {}).get('rebound', 60)
+        
+        # Birdeye Client for ATH tracking
+        if self.rebound_enabled:
+            from birdeye_client import get_birdeye_client
+            self.birdeye = get_birdeye_client()
+        else:
+            self.birdeye = None
         
         # Stats
         self.stats = {
-            'processed': 0,
+            'total_processed': 0,
             'age_filtered': 0,
             'bc_filtered': 0,
             'liquidity_filtered': 0,
             'security_filtered': 0,
-            'buy_signals': 0,
-            'watch_signals': 0,
-            'skipped_low_score': 0,
+            'score_filtered': 0,
+            'signals_sent': 0,
+            'rebound_candidates': 0,  # NEW
+            'rebound_signals': 0       # NEW
         }
         
         print(f"[SIGNAL] 🚀 Signal Mode Initialized (enabled={self.enabled}, age={self.min_age_hours}h-{self.max_age_hours}h, min_liq=${self.min_liquidity:,.0f})")
@@ -75,7 +94,7 @@ class SignalIntegration:
         
         return True, ""
     
-    def check_bonding_curve(self, token_address: str, chain: str) -> Tuple[bool, float, str]:
+    async def check_bonding_curve(self, token_address: str, chain: str) -> Tuple[bool, float, str]:
         """
         Check bonding curve graduation status (Solana only).
         Uses security_audit module (RugCheck + Moralis fallback).
@@ -88,13 +107,58 @@ class SignalIntegration:
             return True, 100.0, "Not Solana (skip BC check)"
         
         # Use improved check from security_audit
-        result = check_bonding_curve(token_address, chain)
+        result = await check_bonding_curve(token_address, chain)
         
         if result['is_bonding_curve']:
             self.stats['bc_filtered'] += 1
             return False, result['progress'], f"Bonding Curve {result['progress']:.1f}% ({result['reason']})"
         
-        return True, 100.0, "Graduated"
+        return True, 100.0, "Graduated (Raydium/Orca/Meteora)"
+    
+    async def check_ath_rebound(self, token_address: str, chain: str, pair_data: Dict) -> Tuple[bool, Optional[Dict]]:
+        """
+        Check if token is a rebound candidate (>80% drop from ATH + still active).
+        
+        Returns:
+            (is_candidate, ath_data)
+        """
+        if not self.rebound_enabled or not self.birdeye:
+            return False, None
+        
+        try:
+            # 1. Calculate ATH from Birdeye OHLCV
+            ath_data = await self.birdeye.calculate_ath(token_address, chain)
+            
+            if ath_data.get('error'):
+                print(f"[REBOUND] ⚠️ ATH calculation failed: {ath_data['error']}")
+                return False, None
+            
+            drop_pct = ath_data.get('drop_percent', 0)
+            
+            # 2. Check if drop >= threshold
+            if drop_pct < self.rebound_min_ath_drop:
+                return False, None
+            
+            # 3. Check activity (still active, not dead)
+            volume_24h = pair_data.get('volume', {}).get('h24', 0)
+            if volume_24h < self.rebound_min_volume:
+                print(f"[REBOUND] ⏭️ Low volume: ${volume_24h:,.0f} < ${self.rebound_min_volume:,.0f}")
+                return False, None
+            
+            # 4. Check liquidity
+            liquidity = pair_data.get('liquidity', pair_data.get('liquidity_usd', 0))
+            if liquidity < self.rebound_min_liquidity:
+                print(f"[REBOUND] ⏭️ Low liquidity: ${liquidity:,.0f} < ${self.rebound_min_liquidity:,.0f}")
+                return False, None
+            
+            print(f"[REBOUND] 🎯 CANDIDATE FOUND! ATH: ${ath_data['ath']:.8f}, Current: ${ath_data['current_price']:.8f}, Drop: {drop_pct:.1f}%")
+            self.stats['rebound_candidates'] += 1
+            
+            return True, ath_data
+            
+        except Exception as e:
+            print(f"[REBOUND] ❌ Error checking ATH: {e}")
+            return False, None
     
     async def process_signal(self, pair_data: Dict, score_data: Dict, 
                               security_data: Dict = None) -> Optional[str]:
@@ -126,8 +190,9 @@ class SignalIntegration:
             print(f"[SIGNAL] ⏳ {symbol} skipped: {age_reason}")
             return None
         
+        
         # 2. BONDING CURVE CHECK (Solana only)
-        bc_passed, bc_progress, bc_reason = self.check_bonding_curve(token_address, chain)
+        bc_passed, bc_progress, bc_reason = await self.check_bonding_curve(token_address, chain)
         if not bc_passed:
             print(f"[SIGNAL] ⛔ {symbol} skipped: {bc_reason}")
             return None
@@ -141,7 +206,7 @@ class SignalIntegration:
         
         # 4. SECURITY AUDIT (RugCheck for Solana, GoPlus for EVM)
         print(f"[SIGNAL] 🔐 Running security audit for {symbol}...")
-        security_data = audit_token(token_address, chain)
+        security_data = await audit_token(token_address, chain)
         
         if security_data.get('risk_level') == 'FAIL':
             self.stats['security_filtered'] += 1
@@ -153,41 +218,71 @@ class SignalIntegration:
         print(f"[SIGNAL] ✅ {symbol} security: {security_data.get('risk_level')} (Score: {security_data.get('risk_score', 0)})")
         
         # 5. SCORE THRESHOLD CHECK
-        score = score_data.get('final_score', score_data.get('offchain_score', 0))
+        score = score_data.get('score', 0)
         
-        if score >= self.threshold_buy:
-            tier = 'BUY'
-        elif score >= self.threshold_watch:
-            tier = 'WATCH'
+        if score >= self.score_thresholds['buy']:
+            signal_type = 'BUY'
+        elif score >= self.score_thresholds['watch']:
+            signal_type = 'WATCH'
         else:
-            self.stats['skipped_low_score'] += 1
-            print(f"[SIGNAL] 📉 {symbol} skipped: Score {score:.0f} < {self.threshold_watch}")
-            return None
+            print(f"[SIGNAL] ⏭️ {symbol} skipped: Score {score} < {self.score_thresholds['watch']}")
+            self.stats['score_filtered'] += 1
+            
+            # PHASE 3: Check if it's a REBOUND candidate instead
+            if self.rebound_enabled:
+                is_rebound, ath_data = await self.check_ath_rebound(token_address, chain, pair_data)
+                
+                if is_rebound:
+                    # Rebound-specific score check
+                    if score >= self.rebound_score_threshold:
+                        signal_type = 'REBOUND'
+                        print(f"[REBOUND] ✅ {symbol} qualified as REBOUND signal (score={score})")
+                    else:
+                        print(f"[REBOUND] ⏭️ {symbol} score too low for rebound: {score} < {self.rebound_score_threshold}")
+                        return None
+                else:
+                    return None
+            else:
+                return None
         
         # 6. SEND RECOMMENDATION
-        if self.signal_notifier:
-            # Prepare token_data with required fields
-            token_data = {
-                'name': pair_data.get('name', pair_data.get('token_name', symbol)),
-                'symbol': symbol,
-                'chain': chain,
-                'address': token_address,
-                'liquidity_usd': pair_data.get('liquidity', pair_data.get('liquidity_usd', 0)),
-                'volume_24h': pair_data.get('volume_24h', 0),
-                'price_change_h1': pair_data.get('price_change_1h', pair_data.get('price_change_h1', 0)),
-                'pair_age_hours': pair_data.get('pair_age_hours', pair_data.get('age_days', 0) * 24),
-                'url': pair_data.get('url', ''),
-            }
-            
-            # Pass REAL security data from audit
-            await self.signal_notifier.send_recommendation(token_data, score_data, security_data)
-            
-            if tier == 'BUY':
-                self.stats['buy_signals'] += 1
-            else:
-                self.stats['watch_signals'] += 1
+        if not self.signal_notifier:
+            print(f"[SIGNAL] ⚠️ No notifier configured - cannot send {signal_type} signal")
+            return None
         
-        return tier
+        # Prepare token data for notifier (include ATH data for REBOUND signals)
+        token_data = {
+            'symbol': symbol,
+            'address': token_address,
+            'chain': chain,
+            'pair_address': pair_data.get('pair_address', ''),
+            'price': pair_data.get('price', 0),
+            'liquidity': pair_data.get('liquidity', pair_data.get('liquidity_usd', 0)),
+            'volume_24h': pair_data.get('volume', {}).get('h24', 0),
+            'score': score
+        }
+        
+        # Add ATH data for rebound signals
+        if signal_type == 'REBOUND' and ath_data:
+            token_data['ath'] = ath_data.get('ath', 0)
+            token_data['ath_drop_percent'] = ath_data.get('drop_percent', 0)
+            token_data['ath_time'] = ath_data.get('ath_time', 0)
+        
+        # Send recommendation
+        await self.signal_notifier.send_recommendation(
+            signal_type=signal_type,
+            token_data=token_data,
+            score_data=score_data,
+            security_data=security_data
+        )
+        
+        if signal_type == 'REBOUND':
+            self.stats['rebound_signals'] += 1
+        else:
+            self.stats['signals_sent'] += 1
+        
+        print(f"[SIGNAL] ✅ {signal_type} recommendation sent for {symbol}")
+        return signal_type
     
     def get_stats(self) -> Dict:
         """Get signal integration statistics."""

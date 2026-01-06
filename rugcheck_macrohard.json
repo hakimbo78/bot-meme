@@ -1,0 +1,260 @@
+{
+  "mint": "52qPXcXpo3us1p3gMiKA1NDqum8MNR3WB5TBwYfu1V8z",
+  "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "creator": "8bB14y9k8ZWh5U1G7bBCVF2EC7kjpVLNkXnQnczqTHnT",
+  "creatorBalance": 207633758081560,
+  "token": {
+    "mintAuthority": null,
+    "supply": 1000000000000000,
+    "decimals": 6,
+    "isInitialized": true,
+    "freezeAuthority": null
+  },
+  "token_extensions": null,
+  "tokenMeta": {
+    "name": "MACROHARD AI AGENTS",
+    "symbol": "MACROHARD",
+    "uri": "https://ipfs.io/ipfs/bafkreif5cfv6kmhbtxkhmoinfg7psooijan4d6rcaz5n4wqvwli5vl4ama",
+    "mutable": false,
+    "updateAuthority": "11111111111111111111111111111111"
+  },
+  "topHolders": [
+    {
+      "address": "89jEZBksh4LtdcNkUzDmRiJKHuq8AHZ79zZerjh6Fqup",
+      "amount": 791859918250729,
+      "decimals": 6,
+      "pct": 79.1859918250729,
+      "uiAmount": 791859918.250729,
+      "uiAmountString": "791859918.250729",
+      "owner": "CYZNdxbsy16JnnrKo4QFNvq9er9FpHHcpL8VBD3aRYRP",
+      "insider": false
+    },
+    {
+      "address": "EnVfM6RPHnQoUGKoZb5VdAqqnazpVjGxGnM8Ng8DmocL",
+      "amount": 207633758081560,
+      "decimals": 6,
+      "pct": 20.763375808156002,
+      "uiAmount": 207633758.08156,
+      "uiAmountString": "207633758.08156",
+      "owner": "8bB14y9k8ZWh5U1G7bBCVF2EC7kjpVLNkXnQnczqTHnT",
+      "insider": false
+    },
+    {
+      "address": "HKEFXfsMxC31d7a1tCu4nkCLWXzBhGE6qrQmJGLwGRYi",
+      "amount": 505081611836,
+      "decimals": 6,
+      "pct": 0.050508161183600006,
+      "uiAmount": 505081.611836,
+      "uiAmountString": "505081.611836",
+      "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+      "insider": false
+    },
+    {
+      "address": "ASzkSykCAr13JRYodPJYqPu8fpQ4G3tQUpdN4984A9tq",
+      "amount": 91933941243,
+      "decimals": 6,
+      "pct": 0.009193394124300001,
+      "uiAmount": 0,
+      "uiAmountString": "91933.941243",
+      "owner": "11111111111111111111111111111111",
+      "insider": false
+    },
+    {
+      "address": "9UZKtAPsCQhVn4px8a38Pm25gYCThh6Rnu6zRAxQ7A2F",
+      "amount": 1242055875,
+      "decimals": 6,
+      "pct": 0.00012420558750000002,
+      "uiAmount": 1242.055875,
+      "uiAmountString": "1242.055875",
+      "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+      "insider": false
+    }
+  ],
+  "freezeAuthority": null,
+  "mintAuthority": null,
+  "risks": [
+    {
+      "name": "Large Amount of LP Unlocked",
+      "value": "100.00%",
+      "description": "A large amount of LP tokens are unlocked, allowing the owner to remove liquidity at any point.",
+      "score": 11000,
+      "level": "danger"
+    },
+    {
+      "name": "Top 10 holders high ownership",
+      "value": "",
+      "description": "The top 10 users hold more than 70% token supply",
+      "score": 10095,
+      "level": "danger"
+    },
+    {
+      "name": "Low Amount of holders",
+      "value": "",
+      "description": "Not many holders are holding the token",
+      "score": 10000,
+      "level": "warn"
+    },
+    {
+      "name": "Single holder ownership",
+      "value": "20.76%",
+      "description": "One user holds a large amount of the token supply",
+      "score": 9994,
+      "level": "warn"
+    },
+    {
+      "name": "Single holder ownership",
+      "value": "79.19%",
+      "description": "One user holds a large amount of the token supply",
+      "score": 7918,
+      "level": "danger"
+    },
+    {
+      "name": "Low Liquidity",
+      "value": "$0.03",
+      "description": "Low amount of liquidity in the token pool",
+      "score": 2999,
+      "level": "danger"
+    },
+    {
+      "name": "High ownership",
+      "value": "",
+      "description": "The top users hold more than 80% token supply",
+      "score": 1499,
+      "level": "danger"
+    },
+    {
+      "name": "Low amount of LP Providers",
+      "value": "",
+      "description": "Only a few users are providing liquidity",
+      "score": 500,
+      "level": "warn"
+    }
+  ],
+  "score": 54006,
+  "score_normalised": 72,
+  "fileMeta": {
+    "description": "",
+    "name": "MACROHARD AI AGENTS",
+    "symbol": "MACROHARD",
+    "image": "https://images.pump.fun/coin-image/2McgT3WjkmDZ1JqsXiKGnPXbeDGHV8mpJYHf7RZ2pump?variant=86x86&src=https%3A%2F%2Faxiomtrading.sfo3.cdn.digitaloceanspaces.com%2FFbfr6GAstVGvA9WLwcsxzu9kMMSNLGRSaVvM8FjZpump.webp"
+  },
+  "lockerOwners": {},
+  "lockers": {},
+  "markets": [
+    {
+      "pubkey": "F3QBgMNqxA3SoEVBCnNxVELgn1tEPcZHBWj3TfQ95iU7",
+      "marketType": "meteora_damm_v2",
+      "mintA": "52qPXcXpo3us1p3gMiKA1NDqum8MNR3WB5TBwYfu1V8z",
+      "mintB": "So11111111111111111111111111111111111111112",
+      "mintLP": "11111111111111111111111111111111",
+      "liquidityA": "9UZKtAPsCQhVn4px8a38Pm25gYCThh6Rnu6zRAxQ7A2F",
+      "liquidityB": "5NFEHRXQzqwELNj5nz9aSfidJPtW4CVzNTpS9SWm4TYf",
+      "mintAAccount": {
+        "mintAuthority": null,
+        "supply": 1000000000000000,
+        "decimals": 6,
+        "isInitialized": true,
+        "freezeAuthority": null
+      },
+      "mintBAccount": {
+        "mintAuthority": null,
+        "supply": 0,
+        "decimals": 9,
+        "isInitialized": true,
+        "freezeAuthority": null
+      },
+      "mintLPAccount": {
+        "mintAuthority": null,
+        "supply": 0,
+        "decimals": 0,
+        "isInitialized": false,
+        "freezeAuthority": null
+      },
+      "liquidityAAccount": {
+        "mint": "52qPXcXpo3us1p3gMiKA1NDqum8MNR3WB5TBwYfu1V8z",
+        "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+        "amount": 1242055875,
+        "delegate": null,
+        "state": 1,
+        "delegatedAmount": 0,
+        "closeAuthority": null
+      },
+      "liquidityBAccount": {
+        "mint": "So11111111111111111111111111111111111111112",
+        "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+        "amount": 188614,
+        "delegate": null,
+        "state": 1,
+        "delegatedAmount": 0,
+        "closeAuthority": null
+      },
+      "lp": {
+        "baseMint": "52qPXcXpo3us1p3gMiKA1NDqum8MNR3WB5TBwYfu1V8z",
+        "quoteMint": "So11111111111111111111111111111111111111112",
+        "lpMint": "11111111111111111111111111111111",
+        "quotePrice": 133.63470749071175,
+        "basePrice": 0.0026709017087348146,
+        "base": 1242.055875,
+        "quote": 0.000188614,
+        "reserveSupply": 0,
+        "currentSupply": 0,
+        "quoteUSD": 0.025205376718653107,
+        "baseUSD": 3.3174091588816155,
+        "pctReserve": 0,
+        "pctSupply": 0,
+        "holders": null,
+        "totalTokensUnlocked": 0,
+        "tokenSupply": 0,
+        "lpLocked": 0,
+        "lpUnlocked": 0,
+        "lpLockedPct": 0,
+        "lpLockedUSD": 0,
+        "lpMaxSupply": 0,
+        "lpCurrentSupply": 0,
+        "lpTotalSupply": 0
+      }
+    }
+  ],
+  "totalMarketLiquidity": 3.3426145356002688,
+  "totalStableLiquidity": 0.025205376718653107,
+  "totalLPProviders": 0,
+  "totalHolders": 3,
+  "price": 0.0026709017087348146,
+  "rugged": false,
+  "tokenType": "",
+  "transferFee": {
+    "pct": 0,
+    "maxAmount": 0,
+    "authority": "11111111111111111111111111111111"
+  },
+  "knownAccounts": {
+    "5NFEHRXQzqwELNj5nz9aSfidJPtW4CVzNTpS9SWm4TYf": {
+      "name": "Meteora DAMM v2 Pool",
+      "type": "AMM"
+    },
+    "8bB14y9k8ZWh5U1G7bBCVF2EC7kjpVLNkXnQnczqTHnT": {
+      "name": "Creator",
+      "type": "CREATOR"
+    },
+    "9UZKtAPsCQhVn4px8a38Pm25gYCThh6Rnu6zRAxQ7A2F": {
+      "name": "Meteora DAMM v2 Pool",
+      "type": "AMM"
+    }
+  },
+  "events": [],
+  "verification": null,
+  "graphInsidersDetected": 161,
+  "insiderNetworks": [
+    {
+      "id": "sad-straw-horse",
+      "size": 43317,
+      "type": "trade",
+      "tokenAmount": 91193649638,
+      "activeAccounts": 161
+    }
+  ],
+  "detectedAt": "2026-01-04T02:38:09.012850796Z",
+  "creatorTokens": null,
+  "launchpad": null,
+  "deployPlatform": "unknown"
+}

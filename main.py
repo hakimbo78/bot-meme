@@ -2,7 +2,6 @@ import argparse
 import argparse
 import time
 import asyncio
-import requests
 from colorama import init, Fore, Style
 from web3 import Web3
 from scanner import BaseScanner
@@ -12,7 +11,6 @@ from scanner import BaseScanner
 from analyzer import TokenAnalyzer
 from scorer import TokenScorer
 from telegram_notifier import TelegramNotifier
-from tokensniffer_analyzer import TokenSnifferAnalyzer
 from error_monitor import ErrorMonitor
 from config import BASE_RPC_URL, UNISWAP_V2_FACTORY, MIN_LIQUIDITY_USD, ALERT_THRESHOLDS, AUTO_UPGRADE_ENABLED, AUTO_UPGRADE_COOLDOWN_SECONDS, AUTO_UPGRADE_MAX_WAIT_MINUTES, ROTATION_CONFIG, PATTERN_CONFIG, NARRATIVE_CONFIG, SMART_MONEY_CONFIG, CONVICTION_CONFIG
 
@@ -47,38 +45,6 @@ try:
     SECONDARY_MODULE_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️  Secondary market scanner not available: {e}")
-
-# Activity Scanner (2025-12-29) - CU-Efficient Secondary Activity Detection
-ACTIVITY_SCANNER_AVAILABLE = False
-try:
-    from secondary_activity_scanner import SecondaryActivityScanner
-    from activity_integration import ActivityIntegration
-    ACTIVITY_SCANNER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  Activity scanner not available: {e}")
-
-# Off-Chain Screener (2025-12-29) - RPC-Saving Off-Chain Gatekeeper
-OFFCHAIN_SCREENER_AVAILABLE = False
-try:
-    from offchain.integration import OffChainScreenerIntegration
-    from offchain_config import get_offchain_config, is_offchain_enabled
-    OFFCHAIN_SCREENER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  Off-chain screener not available: {e}")
-
-# Trading Module (2025-12-31) - Auto-Trading Integration
-TRADING_MODULE_AVAILABLE = False
-try:
-    from trading.trade_executor import TradeExecutor
-    from trading.wallet_manager import WalletManager
-    from trading.okx_client import OKXDexClient
-    from trading.position_tracker import PositionTracker
-    from trading.db_handler import TradingDB
-    from trading.config_manager import ConfigManager as TradingConfig
-    from trading.telegram_trading import TelegramTrading
-    TRADING_MODULE_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  Trading module not available: {e} (Install 'solders' for Solana support)")
 
 init(autoreset=True)
 
@@ -135,8 +101,6 @@ async def main():
                         help="Enable running token scanner for post-launch rally detection")
     parser.add_argument("--solana-only", action="store_true",
                         help="Only monitor Solana (Pump.fun, Raydium, Jupiter)")
-    parser.add_argument("--offchain", action="store_true",
-                        help="Enable off-chain screener (GeckoTerminal + Auto-Trading)")
     args = parser.parse_args()
 
     # Import multi-chain components
@@ -334,57 +298,54 @@ async def main():
                 running_mode_enabled = False
         
         # SECONDARY MARKET SCANNER - Existing pair breakout detection
-        # DISABLED: Going full off-chain (GeckoTerminal only)
         secondary_scanner = None
-        secondary_enabled = False  # FORCE DISABLED
+        secondary_enabled = False
         
-        print(f"{Fore.YELLOW}⚠️  On-chain secondary scanner DISABLED (full off-chain mode)")
-        print(f"{Fore.CYAN}💡 Using GeckoTerminal for both NEW and TRENDING coins\n")
-        
-        # ================================================
-        # ACTIVITY SCANNER SETUP (2025-12-29)
-        # DISABLED: Going full off-chain (GeckoTerminal only)
-        # ================================================
-        activity_integration = None  # FORCE DISABLED
-        
-        print(f"{Fore.YELLOW}⚠️  On-chain activity scanner DISABLED (full off-chain mode)")
-        print(f"{Fore.CYAN}💡 GeckoTerminal trending pools will catch old coins with momentum\n")
-        
-        # ================================================
-        # OFF-CHAIN SCREENER SETUP (2025-12-29)
-        # ================================================
-        offchain_screener = None
-        if OFFCHAIN_SCREENER_AVAILABLE and is_offchain_enabled():
+        if SECONDARY_MODULE_AVAILABLE:
             try:
-                offchain_config = get_offchain_config()
+                # Get global secondary scanner config
+                secondary_config = CHAIN_CONFIGS.get('secondary_scanner', {})
                 
-                # IMPORTANT: Off-chain screener has its own enabled_chains
-                # It's independent from on-chain scanner (chains.yaml)
-                # This allows Solana off-chain scanning even when on-chain is disabled
-                offchain_enabled_chains = offchain_config.get('enabled_chains', ['base', 'ethereum', 'solana'])
+                # Initialize secondary scanner for each enabled EVM chain
+                secondary_scanners = {}
+                for chain_name in evm_chains:
+                    chain_config = CHAIN_CONFIGS.get('chains', {}).get(chain_name, {})
+                    if chain_config.get('enabled', False):
+                        # Get web3 provider from adapter
+                        adapter = scanner.get_adapter(chain_name)
+                        if adapter and hasattr(adapter, 'w3'):
+                            # Merge chain config with global secondary config
+                            full_config = {
+                                **chain_config, 
+                                'chain_name': chain_name,
+                                'secondary_scanner': secondary_config
+                            }
+                            
+                            sec_scanner = SecondaryScanner(
+                                adapter.w3, 
+                                full_config
+                            )
+                            
+                            # Discover and add pairs to monitor
+                            discovered_pairs = sec_scanner.discover_pairs()
+                            for pair_info in discovered_pairs:
+                                sec_scanner.add_pair_to_monitor(**pair_info)
+                            
+                            secondary_scanners[chain_name] = sec_scanner
                 
-                # Initialize off-chain screener with its own enabled_chains
-                offchain_screener = OffChainScreenerIntegration(offchain_config)
-                
-                print(f"\n{Fore.GREEN}🌐 OFF-CHAIN SCREENER: ENABLED")
-                print(f"{Fore.GREEN}    - Primary: DexScreener (FREE)")
-                if offchain_config.get('dextools_enabled'):
-                    print(f"{Fore.GREEN}    - Secondary: DEXTools (API key required)")
-                print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in offchain_enabled_chains])}")
-                print(f"{Fore.GREEN}    - Target: ~95% noise reduction")
-                print(f"{Fore.GREEN}    - RPC savings: < 5k calls/day\n")
-                
+                if secondary_scanners:
+                    secondary_enabled = True
+                    print(f"{Fore.GREEN}🚀 SECONDARY MARKET SCANNER: ENABLED")
+                    for chain_name, sec_scanner in secondary_scanners.items():
+                        stats = sec_scanner.get_stats()
+                        print(f"{Fore.GREEN}    - {chain_name.upper()}: Monitoring {stats.get('monitored_pairs', 0)} pairs")
+                    print()
+                    
             except Exception as e:
-                print(f"{Fore.YELLOW}⚠️  Off-chain screener failed to initialize: {e}")
+                print(f"{Fore.YELLOW}⚠️  Secondary scanner failed to initialize: {e}")
                 import traceback
                 traceback.print_exc()
-                offchain_screener = None
-        else:
-            if not OFFCHAIN_SCREENER_AVAILABLE:
-                print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Off-chain screener module not available")
-            elif not is_offchain_enabled():
-                print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Off-chain screener disabled in config")
-        
+                secondary_enabled = False
         
         # SOLANA MODULE - Isolated Solana chain handling
         solana_enabled = False
@@ -430,270 +391,6 @@ async def main():
             print(f"{Fore.YELLOW}⚠️  Solana requested but module not available")
         
         # TRADE-EARLY Enhanced Config
-        
-        # ================================================
-        # TRADING MODULE INITIALIZATION (2025-12-31)
-        # ================================================
-        trade_executor = None
-        position_tracker = None
-        
-        if TRADING_MODULE_AVAILABLE:
-            try:
-                print(f"\n{Fore.CYAN}🤖 TRADING MODULE: INITIALIZING...")
-                
-                # Check if trading is enabled in config
-                if TradingConfig.is_trading_enabled():
-                    # 1. Initialize Database
-                    trading_db = TradingDB()
-                    
-                    # 2. Initialize Wallet Manager
-                    wallet_manager = WalletManager()
-                    
-                    # Import Wallets from Environment
-                    import os
-                    pk_evm = os.getenv('PRIVATE_KEY_EVM')
-                    if pk_evm:
-                        if wallet_manager.import_wallet_evm(pk_evm, 'base'):
-                            print(f"{Fore.GREEN}    - EVM Wallet: CONNECTED")
-                        wallet_manager.import_wallet_evm(pk_evm, 'ethereum')
-                    
-                    pk_sol = os.getenv('PRIVATE_KEY_SOLANA')
-                    sol_enabled = TradingConfig.is_chain_enabled('solana')
-                    if pk_sol and sol_enabled:
-                         if wallet_manager.import_wallet_solana(pk_sol):
-                              print(f"{Fore.GREEN}    - Solana Wallet: CONNECTED")
-                    elif sol_enabled and not pk_sol:
-                         print(f"{Fore.RED}    - Solana Enabled but NO KEY found in .env!")
-                    
-                    # 3. Initialize OKX Client
-                    okx_client = OKXDexClient()
-                    
-                    # 4. Initialize Position Tracker
-                    position_tracker = PositionTracker(trading_db)
-                    
-                    # 5. Initialize Trade Executor
-                    trade_executor = TradeExecutor(
-                        wallet_manager=wallet_manager,
-                        okx_client=okx_client,
-                        position_tracker=position_tracker
-                    )
-                    
-                    print(f"{Fore.GREEN}    - Status: ENABLED")
-                    evm_budget = TradingConfig.get_budget('evm')
-                    sol_budget = TradingConfig.get_budget('solana')
-                    print(f"{Fore.GREEN}    - Budget: ${evm_budget} (EVM) | ${sol_budget} (SOL)")
-                    print(f"{Fore.GREEN}    - Auto-TP/SL: ENABLED")
-                    print(f"{Fore.GREEN}    - Chains: {', '.join([c.upper() for c in ['base', 'ethereum', 'solana'] if TradingConfig.is_chain_enabled(c)])}")
-                else:
-                    print(f"{Fore.YELLOW}    - Status: DISABLED in trading_config.py")
-            
-            except Exception as e:
-                print(f"{Fore.RED}⚠️  Trading module initialization failed: {e}")
-                import traceback
-                traceback.print_exc()
-
-        # START POSITION MONITORING TASK
-        async def run_position_monitor():
-            if not (trade_executor and position_tracker and okx_client): return
-            print(f"{Fore.CYAN}👀 Position Monitor task started")
-            
-            while True:
-                try:
-                    await asyncio.sleep(10)  # Check every 10 seconds
-                    
-                    positions = position_tracker.get_open_positions()
-                    if not positions: continue
-                    
-                    for pos in positions:
-                        try:
-                            # 0. CHECK MANUAL SELL (Balance Check)
-                            # Detect if user sold tokens externally to close position in DB
-                            if trade_executor and trade_executor.wm:
-                                try:
-                                    # GRACE PERIOD: Skip for new positions (< 2 minutes old)
-                                    # This prevents false positives when transaction is still confirming
-                                    from datetime import datetime
-                                    if 'timestamp' in pos:
-                                        try:
-                                            pos_time = datetime.fromisoformat(pos['timestamp'])
-                                            age_seconds = (datetime.now() - pos_time).total_seconds()
-                                            if age_seconds < 120:  # Less than 2 minutes
-                                                # Skip manual sell check for brand new positions
-                                                pass
-                                            else:
-                                                # Check if position was manually sold
-                                                # Get current token balance
-                                                current_balance = trade_executor.wm.get_token_balance(pos['chain'], pos['token_address'])
-                                                
-                                                # If valid balance (>=0) and < 5% of entry amount (meaning >95% sold)
-                                                if current_balance >= 0 and current_balance < (pos['entry_amount'] * 0.05):
-                                                    print(f"{Fore.YELLOW}⚠️  Detected MANUAL SELL for {pos['token_address']} (Bal: {current_balance})")
-                                                    position_tracker.force_close_position(pos['id'], reason="MANUAL_SELL_DETECTED")
-                                                    
-                                                    if telegram and telegram.enabled:
-                                                        await telegram.send_message_async(
-                                                            f"⚠️ *MANUAL SELL DETECTED* 🕵️\n"
-                                                            f"Token: `{pos['token_address']}`\n"
-                                                            f"Action: Closing Position in DB.\n"
-                                                            f"Status: MONITORING STOPPED 🛑"
-                                                        )
-                                                    continue # Stop monitoring this position
-                                        except:
-                                            pass
-                                except Exception as bal_e:
-                                    # Ignore balance check errors (e.g. RPC fail) to not disrupt monitoring
-                                    pass
-
-                            # 1. Prepare Native Token Address for Quote
-                            native_token = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
-                            decimals = 18
-                            native_price = 3300.0 # Approx ETH price
-                            
-                            if pos['chain'] == 'solana':
-                                native_token = "So11111111111111111111111111111111111111112"
-                                decimals = 9
-                                native_price = 190.0 # Approx SOL price
-                            
-                            # 2. Get Quote for SELLING (Token -> Native)
-                            # Input amount is the amount we hold (entry_amount)
-                            # Must convert float to int string
-                            amount_in = str(int(pos['entry_amount']))
-                            
-                            quote = await okx_client.get_quote(
-                                chain=pos['chain'],
-                                from_token=pos['token_address'],
-                                to_token=native_token,
-                                amount=amount_in,
-                                slippage=0.01
-                            )
-                            
-                            current_val_usd = 0
-                            
-                            if quote:
-                                # 3. Calculate Valuation
-                                # toTokenAmount is raw output amount
-                                raw_out = float(quote.get('toTokenAmount', '0'))
-                                real_out = raw_out / (10 ** decimals)
-                                current_val_usd = real_out * native_price
-                            else:
-                                print(f"{Fore.RED}⚠️  No quote for {pos['token_address']} - Assuming Liquidity Gone (Val=0)")
-                            
-                            # 4. Calculate PnL
-                            entry_usd = float(pos['entry_value_usd'])
-                            if entry_usd <= 0: entry_usd = 1 # Avoid div by zero
-                            
-                            pnl_pct = ((current_val_usd - entry_usd) / entry_usd) * 100
-                            
-                            # 5. Get Exit Strategy Config
-                            exit_config = TradingConfig.get_config().get('exit_strategy', {})
-                            if not exit_config.get('enabled', False):
-                                continue  # Skip if exit strategy disabled
-                            
-                            tp_pct = exit_config.get('take_profit_percent', 100)
-                            sl_pct = exit_config.get('stop_loss_percent', -30)
-                            liq_drop_threshold = exit_config.get('emergency_exit_liq_drop', 0.50)
-                            
-                            # 6. RUGPULL DETECTION: Liquidity Monitoring
-                            # Compare current liquidity vs entry liquidity
-                            rugpull_detected = False
-                            if 'entry_liquidity_usd' in pos and pos['entry_liquidity_usd']:
-                                entry_liq = float(pos['entry_liquidity_usd'])
-                                if entry_liq > 0:
-                                    # Get current liquidity from DexScreener or Quote
-                                    # For now, we infer from quote slippage
-                                    # If quote fails repeatedly, assume liquidity gone
-                                    if not quote and current_val_usd < entry_usd * 0.1:
-                                        # Quote failed + value dropped >90% = likely rugpull
-                                        rugpull_detected = True
-                                        print(f"{Fore.RED}🚨 RUGPULL DETECTED! Liquidity removed or token dead")
-                            
-                            # 7. EXECUTE EXIT DECISIONS
-                            should_sell = False
-                            sell_reason = ""
-                            sell_percentage = 100  # Default: sell all
-                            
-                            if rugpull_detected:
-                                should_sell = True
-                                sell_reason = f"🚨 RUGPULL (Liquidity Gone)"
-                                sell_percentage = 100
-                            elif pnl_pct <= sl_pct:
-                                should_sell = True
-                                sell_reason = f"🛑 STOP-LOSS ({pnl_pct:.1f}%)"
-                                sell_percentage = 100
-                            elif pnl_pct >= tp_pct:
-                                should_sell = True
-                                sell_reason = f"💰 TAKE-PROFIT (+{pnl_pct:.1f}%)"
-                                sell_percentage = 50  # Secure 50%, let 50% ride
-                            
-                            if should_sell:
-                                print(f"{Fore.YELLOW}    📤 {sell_reason} triggered for pos {pos['id']}")
-                                
-                                # Calculate sell amount
-                                if sell_percentage == 100:
-                                    sell_amount = int(pos['entry_amount'])
-                                    new_status = 'CLOSED'
-                                else:
-                                    sell_amount = int(pos['entry_amount'] * (sell_percentage / 100))
-                                    new_status = 'MOONBAG'
-                                
-                                # Execute sell
-                                success, msg = await trade_executor.execute_sell(
-                                    pos['chain'], 
-                                    pos['token_address'], 
-                                    sell_amount, 
-                                    pos['id'],
-                                    new_status=new_status
-                                )
-                                
-                                # Send Telegram notification
-                                if telegram and telegram.enabled:
-                                    if success:
-                                        profit_amt = current_val_usd * (sell_percentage / 100) - entry_usd * (sell_percentage / 100)
-                                        await telegram.send_message_async(
-                                            f"{'🚨' if rugpull_detected else '💰'} *AUTO-EXIT EXECUTED*\n"
-                                            f"--------------------------------\n"
-                                            f"Reason: {sell_reason}\n"
-                                            f"Token: `{pos['token_address'][:8]}...`\n"
-                                            f"Entry: ${entry_usd:.2f}\n"
-                                            f"Exit: ${current_val_usd:.2f}\n"
-                                            f"PnL: {pnl_pct:+.1f}% (${profit_amt:+.2f})\n"
-                                            f"Sold: {sell_percentage}%\n"
-                                            f"Status: {new_status}"
-                                        )
-                                    else:
-                                        # Sell failed - critical alert
-                                        
-                                        # FORCE CLOSE Logic for Dead/Rugpulled Tokens
-                                        # If we can't sell because liquidity is gone, we must free up the slot
-                                        force_closed_msg = "**MANUAL INTERVENTION REQUIRED**"
-                                        
-                                        if rugpull_detected or "Insufficient liquidity" in str(msg) or "SimulateTransaction" in str(msg) or ("Failed to get swap data" in str(msg) and pnl_pct < -50):
-                                            try:
-                                                print(f"{Fore.RED}💀 RUGPULL CONFIRMED: Force closing pos {pos['id']} in DB to free slot")
-                                                # Use the position_tracker instance from outer scope
-                                                # Need to ensure correct method call. force_close_position is in PositionTracker.
-                                                if hasattr(position_tracker, 'force_close_position'):
-                                                    position_tracker.force_close_position(pos['id'], reason="RUGPULL_DEAD")
-                                                    force_closed_msg = "🚫 Position Force Closed (Dead Token). Slot Freed."
-                                            except Exception as fc_e:
-                                                print(f"Error force closing: {fc_e}")
-
-                                        await telegram.send_message_async(
-                                            f"🚨 *AUTO-EXIT FAILED*\n"
-                                            f"--------------------------------\n"
-                                            f"Reason: {sell_reason}\n"
-                                            f"Token: `{pos['token_address'][:8]}...`\n"
-                                            f"Error: {msg}\n"
-                                            f"Action: {force_closed_msg}"
-                                        )
-                        except Exception as mon_e:
-                            print(f"{Fore.YELLOW}⚠️  Error monitoring pos {pos.get('id')}: {mon_e}")
-                            
-                except Exception as e:
-                    print(f"{Fore.RED}⚠️  Position monitor loop error: {e}")
-                    await asyncio.sleep(10)
-
-
         trade_early_config = None
         if is_trade_early_enabled():
             trade_early_config = get_trade_early_config()
@@ -716,53 +413,6 @@ async def main():
             print(f"{Fore.CYAN}🔄 Auto-upgrade: ENABLED")
             print(f"{Fore.CYAN}    - Cooldown: {AUTO_UPGRADE_COOLDOWN_SECONDS}s between upgrades")
             print(f"{Fore.CYAN}    - Max wait: {AUTO_UPGRADE_MAX_WAIT_MINUTES} min for momentum confirmation\n")
-
-
-        # TRADING MODULE INITIALIZATION
-        trade_executor = None
-        if TRADING_MODULE_AVAILABLE:
-            try:
-                # 1. Initialize DB
-                trading_db = TradingDB()
-                
-                # 2. Init Config Manager
-                # (Static class, no init needed)
-                
-                # 3. Request Private Key (Simulated/Env)
-                # Ideally load from .env using os.getenv("PRIVATE_KEY_BASE_EVM") etc.
-                import os
-                
-                wm = WalletManager()
-                
-                # Load Wallet - EVM (Base/ETH)
-                pk_evm = os.getenv("PRIVATE_KEY_EVM") or os.getenv("PRIVATE_KEY_BASE")
-                if pk_evm:
-                    wm.import_wallet_evm(pk_evm, 'base')
-                    wm.import_wallet_evm(pk_evm, 'ethereum')
-                    
-                # Load Wallet - Solana
-                pk_sol = os.getenv("PRIVATE_KEY_SOLANA")
-                if pk_sol:
-                    wm.import_wallet_solana(pk_sol)
-                    
-                # 4. Init Components
-                okx_client = OKXDexClient()
-                pt = PositionTracker(trading_db)
-                trade_executor = TradeExecutor(wm, okx_client, pt)
-                telegram_trading = TelegramTrading(trading_db)
-                
-                if TradingConfig.is_trading_enabled():
-                    print(f"{Fore.GREEN}🤖 AUTO-TRADING: ENABLED")
-                    print(f"{Fore.GREEN}    - Chains: {', '.join([c for c,d in TradingConfig.get_config()['chains'].items() if d['enabled']])}")
-                    print(f"{Fore.GREEN}    - Budget: ${TradingConfig.get_budget()} per trade")
-                else:
-                    print(f"{Fore.YELLOW}🤖 AUTO-TRADING: DISABLED (enable in trading_config.py)")
-                    
-            except Exception as e:
-                print(f"{Fore.RED}⚠️  Trading module init failed: {e}")
-                import traceback
-                traceback.print_exc()
-
         
         # Display chain-specific thresholds
         print(f"{Fore.CYAN}📊 Chain Thresholds:")
@@ -784,16 +434,9 @@ async def main():
             queue = asyncio.Queue()
             tasks = []
             
-            # Start Position Monitor Task
-            if trade_executor:
-                 tasks.append(asyncio.create_task(run_position_monitor(), name="position-monitor"))
-            
             # 1. Start MultiChainScanner (EVM) in background tasks
             # MultiChainScanner now manages its own isolated tasks per chain
-            # DISABLED: Not cost-effective - high CU usage, zero alerts
-            # await scanner.start_async(queue)
-            print(f"{Fore.YELLOW}⚠️  On-chain scanner DISABLED (saving CU costs)")
-            print(f"{Fore.CYAN}💡 Using off-chain screener only (DexScreener)")
+            await scanner.start_async(queue)
             
             # 2. Solana Producer Task
             async def run_solana_producer():
@@ -832,202 +475,41 @@ async def main():
             # 2.5. Secondary Market Scanner Producer Task
             async def run_secondary_producer():
                 if not secondary_enabled: return
-                print(f"{Fore.BLUE}🔍 Secondary market scanner task started (Event-Driven)")
+                print(f"{Fore.BLUE}🔍 Secondary market scanner task started")
                 
-                try:
-                    from modules.global_block_events import EventBus, BlockSnapshot
-                    from modules.market_heat import MarketHeatEngine
-                    
-                    active_chains = 0
-                    for chain_name, sec_scanner in secondary_scanners.items():
-                        try:
-                            # Use existing adapter logic or fallback to scanner web3
-                            adapter = scanner.get_adapter(chain_name)
-                            w3 = adapter.w3 if adapter else sec_scanner.web3
-                            
-                            # Note: GlobalBlockService is already started by MultiChainScanner
-                            heat_engine = MarketHeatEngine.get_instance(chain_name)
-                            
-                            # FIX: Capture loop variables in default args to avoid closure bug
-                            async def on_secondary_block(snapshot: BlockSnapshot, c_name=chain_name, s_scanner=sec_scanner, h_engine=heat_engine):
-                                try:
-                                    # MARKET HEAT GATE
-                                    if h_engine.is_cold():
-                                        return
+                while True:
+                    try:
+                        await asyncio.sleep(30)  # Scan every 30 seconds
+                        
+                        for chain_name, sec_scanner in secondary_scanners.items():
+                            if not sec_scanner.is_enabled():
+                                continue
+                                
+                            try:
+                                signals = await sec_scanner.scan_all_pairs()
+                                
+                                if signals:
+                                    print(f"{Fore.BLUE}🎯 [SECONDARY] {chain_name.upper()}: {len(signals)} breakout signals detected")
                                     
-                                    if not s_scanner.is_enabled():
-                                        return
+                                    for signal in signals:
+                                        # Add chain info and put in main queue for processing
+                                        signal['chain'] = chain_name
+                                        signal['signal_type'] = 'secondary_market'
+                                        await queue.put(signal)
                                         
-                                    try:
-                                        signals = await s_scanner.scan_all_pairs(target_block=snapshot.block_number)
-                                        
-                                        if signals:
-                                            print(f"{Fore.BLUE}🎯 [SECONDARY][{c_name.upper()}] {len(signals)} breakout signals detected")
-                                            # Record activity (lower weight for secondary)
-                                            h_engine.record_activity(weight=2)
-                                            
-                                            for signal in signals:
-                                                # Add chain info and put in main queue for processing
-                                                signal['chain'] = c_name
-                                                signal['signal_type'] = 'secondary_market'
-                                                await queue.put(signal)
+                                        # Send secondary alert
+                                        if telegram.enabled:
+                                            telegram.send_secondary_alert(signal)
                                                 
-                                                # Send secondary alert
-                                                if telegram.enabled:
-                                                    telegram.send_secondary_alert(signal)
-                                                    
-                                    except Exception as scan_e:
-                                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] {c_name.upper()} scan error: {scan_e}")
-
-                                except Exception as e:
-                                    print(f"{Fore.YELLOW}⚠️  [SECONDARY] Handler error: {e}")
-                            
-                            EventBus.subscribe(f"NEW_BLOCK_{chain_name.upper()}", on_secondary_block)
-                            active_chains += 1
-                            print(f"{Fore.BLUE}✅ [SECONDARY] Subscribed to {chain_name.upper()}")
-                        
-                        except Exception as e:
-                            print(f"{Fore.YELLOW}⚠️  [SECONDARY] Setup error for {chain_name}: {e}")
-                    
-                    if active_chains == 0:
-                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] No active chains connected")
-                        
-                    while True:
-                        await asyncio.sleep(60)
-                        
-                except Exception as e:
-                    print(f"{Fore.YELLOW}⚠️  [SECONDARY] Fatal producer error: {e}")
-                    # Fallback
-                    while True:
+                            except Exception as e:
+                                print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
+                                
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
                         await asyncio.sleep(30)
 
             if secondary_enabled:
                 tasks.append(asyncio.create_task(run_secondary_producer(), name="secondary-producer"))
-
-            # 2.75. Activity Scanner Producer Task (2025-12-29)
-            async def run_activity_producer():
-                """Event-driven activity scanner"""
-                if not ACTIVITY_SCANNER_AVAILABLE or not activity_integration:
-                    return
-                
-                print(f"{Fore.CYAN}🔥 Activity scanner task started (Event-Driven)")
-                
-                try:
-                    from modules.global_block_events import EventBus, BlockSnapshot
-                    from modules.market_heat import MarketHeatEngine
-                    
-                    # Setup listeners for each chain
-                    active_chains = 0
-                    for chain_name in activity_integration.scanners.keys():
-                        try:
-                            adapter = scanner.get_adapter(chain_name)
-                            if not adapter: 
-                                continue
-                                
-                            # Note: GlobalBlockService is already started by MultiChainScanner
-                            heat_engine = MarketHeatEngine.get_instance(chain_name)
-                            
-                            # Define handler
-                            # FIX: Capture loop variables in default args
-                            async def on_activity_block(snapshot: BlockSnapshot, c_name=chain_name, h_engine=heat_engine):
-                                try:
-                                    # MARKET HEAT GATE (Rule #6)
-                                    # If COLD -> DISABLED, unless Smart Wallet activity is being tracked
-                                    has_priority = activity_integration.has_smart_wallet_targets(c_name)
-                                    
-                                    if h_engine.is_cold() and not has_priority:
-                                        target_block = 0 # Dummy usage to avoid lint error if needed
-                                        return # Skip scan if market is cold and no priority targets
-                                    
-                                    # Scan specific chain on this block
-                                    signals = activity_integration.scan_chain_activity(c_name, snapshot.block_number)
-                                    
-                                    if signals:
-                                        # Record activity (Heat Up)
-                                        h_engine.record_activity(weight=5)
-                                        
-                                        print(f"{Fore.CYAN}🎯 [ACTIVITY][{c_name.upper()}] {len(signals)} signals detected in block {snapshot.block_number}")
-                                        
-                                        for signal in signals:
-                                            should_force = activity_integration.should_force_enqueue(signal)
-                                            
-                                            if should_force or signal.get('activity_score', 0) >= 60:
-                                                enriched_data = activity_integration.process_activity_signal(signal)
-                                                await queue.put(enriched_data)
-                                                
-                                                pool_addr = signal.get('pool_address', 'UNKNOWN')
-                                                print(f"{Fore.CYAN}🔥 [ACTIVITY] Enqueued: {pool_addr[:10]}... (score: {signal.get('activity_score', 0)})")
-                                                
-                                                if telegram.enabled and should_force:
-                                                    telegram.send_activity_alert(signal)
-                                                    
-                                except Exception as e:
-                                    print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Handler error: {e}")
-
-                            # Subscribe
-                            EventBus.subscribe(f"NEW_BLOCK_{chain_name.upper()}", on_activity_block)
-                            active_chains += 1
-                            print(f"{Fore.CYAN}✅ [ACTIVITY] Subscribed to {chain_name.upper()} block feed")
-                            
-                        except Exception as e:
-                             print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Setup error for {chain_name}: {e}")
-                    
-                    if active_chains == 0:
-                        print(f"{Fore.YELLOW}⚠️  [ACTIVITY] No active chains connected")
-                    
-                    # Keep task alive
-                    while True:
-                        await asyncio.sleep(60)
-                        
-                except Exception as e:
-                    print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Fatal producer error: {e}")
-                    # Fallback loop if event system fails
-                    while True:
-                        await asyncio.sleep(30)
-            
-            if ACTIVITY_SCANNER_AVAILABLE and activity_integration:
-                tasks.append(asyncio.create_task(run_activity_producer(), name="activity-producer"))
-                print(f"{Fore.GREEN}✅ Activity scanner producer added to task list")
-
-            # 2.8. Off-Chain Screener Producer Task (2025-12-29) - RPC Savings
-            async def run_offchain_producer():
-                """
-                Producer task for off-chain screener.
-                Reads normalized pairs from off-chain APIs and enqueues for processing.
-                """
-                if not offchain_screener:
-                    return
-                
-                print(f"{Fore.GREEN}🌐 Off-chain screener producer task started")
-                
-                # Start off-chain scanner background tasks
-                try:
-                    offchain_tasks = await offchain_screener.start()
-                    print(f"{Fore.GREEN}   Started {len(offchain_tasks)} off-chain scanner tasks")
-                except Exception as e:
-                    print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Failed to start tasks: {e}")
-                    return
-                
-                while True:
-                    try:
-                        # Get next normalized pair from off-chain screener
-                        normalized_pair = await offchain_screener.get_next_pair()
-                        
-                        # Add metadata for consumer
-                        normalized_pair['source_type'] = 'offchain'
-                        normalized_pair['requires_onchain_verify'] = True
-                        
-                        # Enqueue for main consumer processing
-                        await queue.put(normalized_pair)
-                        
-                    except Exception as e:
-                        print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Producer error: {e}")
-                        await asyncio.sleep(5)
-            
-            if offchain_screener:
-                tasks.append(asyncio.create_task(run_offchain_producer(), name="offchain-producer"))
-                print(f"{Fore.GREEN}✅ Off-chain screener producer added to task list")
-
 
             # 3. Upgrade Monitor Task (Periodic)
             async def run_upgrade_monitor():
@@ -1062,9 +544,9 @@ async def main():
                         chain = pair_data.get('chain', 'unknown')
                         
                         # ================================================
-                        # SOLANA PROCESSING (Native On-Chain)
+                        # SOLANA PROCESSING
                         # ================================================
-                        if chain == 'solana' and pair_data.get('source_type') != 'offchain':
+                        if chain == 'solana':
                             sol_token = pair_data
                             try:
                                 token_address = sol_token.get('token_address', '')
@@ -1114,414 +596,6 @@ async def main():
                                 print(f"{Fore.YELLOW}⚠️  [SOL] Token processing error: {sol_token_e}")
                         
                         # ================================================
-                        # OFF-CHAIN PAIR PROCESSING (2025-12-29)
-                        # ================================================
-                        elif pair_data.get('source_type') == 'offchain':
-                            try:
-                                chain_name = pair_data.get('chain', 'unknown')
-                                chain_prefix = f"[{chain_name.upper()}]"
-                                pair_address = pair_data.get('pair_address', 'UNKNOWN')
-                                
-                                print(f"{Fore.GREEN}🌐 {chain_prefix} [OFFCHAIN] {pair_data.get('token_symbol', 'UNKNOWN')} | Pair: {pair_address[:10]}...")
-                                
-                                # Extract off-chain score
-                                offchain_score = pair_data.get('offchain_score', 0)
-                                
-                                # Get scoring config
-                                scoring_config = offchain_screener.config.get('scoring', {})
-                                verify_threshold = scoring_config.get('verify_threshold', 60)
-                                offchain_weight = scoring_config.get('offchain_weight', 0.6)
-                                onchain_weight = scoring_config.get('onchain_weight', 0.4)
-                                
-                                print(f"{Fore.GREEN}    Off-chain score: {offchain_score:.1f} (threshold: {verify_threshold})")
-                                
-                                # Check if we should trigger on-chain verification
-                                if offchain_score >= verify_threshold:
-                                    print(f"{Fore.GREEN}    🔍 Triggering on-chain verification...")
-                                    
-                                    # Get chain adapter
-                                    adapter = scanner.get_adapter(chain_name)
-                                    if not adapter and chain_name != 'solana':
-                                        print(f"{Fore.YELLOW}    ⚠️  No adapter for {chain_name}, skipping RPC verify")
-                                        continue
-
-
-                                    # 1. ANALYZE ON-CHAIN
-                                    onchain_analysis = {}
-                                    if chain_name == 'solana':
-                                        # Solana - use solana_scanner if available or fallback to off-chain data
-                                        # Currently Solana scoring is mostly off-chain driven in this branch
-                                        if solana_scanner:
-                                             # Try to get fresh enrichment if possible
-                                             onchain_analysis = await solana_scanner._create_unified_event_async_wrapper(pair_data) or {}
-                                    else:
-                                        # EVM - use full TokenAnalyzer
-                                        # VALIDATION: Check if pair_address is valid before on-chain verification
-                                        pair_address = pair_data.get('pair_address', '')
-                                        
-                                        # Validate: Address should be 42 chars (0x + 40), TX hash is 66 chars (0x + 64)
-                                        if pair_address and len(pair_address) == 66:
-                                            print(f"{Fore.YELLOW}    ⚠️  Invalid pair_address (TX hash): {pair_address[:10]}...")
-                                            print(f"{Fore.YELLOW}    ⏭️  Skipping on-chain verification (using off-chain data only)")
-                                            onchain_analysis = {}
-                                        elif pair_address and len(pair_address) != 42:
-                                            print(f"{Fore.YELLOW}    ⚠️  Invalid pair_address length ({len(pair_address)}): {pair_address[:10]}...")
-                                            print(f"{Fore.YELLOW}    ⏭️  Skipping on-chain verification (using off-chain data only)")
-                                            onchain_analysis = {}
-                                        else:
-                                            try:
-                                                analyzer = TokenAnalyzer(adapter=adapter)
-                                                onchain_analysis = analyzer.analyze_token(pair_data)
-                                            except Exception as e:
-                                                print(f"{Fore.YELLOW}    ⚠️  On-chain analysis error: {e}")
-                                                onchain_analysis = {}
-
-                                    if onchain_analysis:
-                                        # 2. SCORE ON-CHAIN
-                                        chain_config = None
-                                        if chain_name != 'solana':
-                                            chain_config = scanner.get_chain_config(chain_name)
-                                            onchain_score_data = scorer.score_token(onchain_analysis, chain_config)
-                                            onchain_score = onchain_score_data.get('score', 0)
-                                        else:
-                                            # Solana scoring
-                                            if solana_score_engine:
-                                                onchain_score_data = solana_score_engine.calculate_score(onchain_analysis)
-                                                onchain_score = onchain_score_data.get('score', 0)
-                                            else:
-                                                # Fallback if module disabled - assume pass if offchain good
-                                                onchain_score = offchain_score
-                                                onchain_score_data = {'score': onchain_score, 'verdict': 'OFFCHAIN_ONLY', 'risk_flags': []}
-
-                                        # 3. COMBINED SCORING (Rule: Weight off-chain and on-chain)
-                                        final_score = (offchain_score * offchain_weight) + (onchain_score * onchain_weight)
-                                        
-                                        print(f"{Fore.GREEN}    📊 Final Score: {final_score:.1f} (Off: {offchain_score:.0f}, On: {onchain_score:.0f})")
-                                    else:
-                                        # FALLBACK: On-chain verification unavailable/failed
-                                        # Use off-chain score only
-                                        print(f"{Fore.YELLOW}    ⚠️  On-chain verification unavailable, using off-chain score only")
-                                        final_score = offchain_score
-                                        onchain_score_data = {'score': offchain_score, 'verdict': 'OFFCHAIN_ONLY', 'risk_flags': []}
-                                        print(f"{Fore.GREEN}    📊 Final Score: {final_score:.1f} (Off-chain Only)")
-                                    
-                                    # 4. DECISION & ALERT
-                                    check_score = final_score
-                                    
-                                    # Get thresholds safely
-                                    chain_config = None
-                                    if chain_name != 'solana':
-                                        try:
-                                            chain_config = scanner.get_chain_config(chain_name)
-                                        except:
-                                            pass
-                                    
-                                    if chain_config:
-                                        thresholds = chain_config.get('alert_thresholds', {})
-                                    elif solana_score_engine:
-                                        thresholds = solana_score_engine.get_thresholds()
-                                    else:
-                                        # Default fallback thresholds
-                                        thresholds = {'INFO': 40, 'WATCH': 60, 'TRADE': 75}
-                                    
-                                    # Use TradingConfig as authoritative source for TRADING threshold
-                                    # Fix: Use get_min_signal_score for chain awareness
-                                    trade_threshold = TradingConfig.get_min_signal_score(chain_name)
-                                    
-                                    if check_score >= trade_threshold:
-                                        print(f"{Fore.GREEN}    🚀 TRADE SIGNAL VALIDATED!")
-                                        onchain_score_data['verdict'] = 'TRADE'
-                                        onchain_score_data['score'] = check_score
-                                        # Send updated alert if needed or just log
-                                        # Send updated alert if needed or just log
-                                        if telegram.enabled:
-                                            await telegram.send_message_async(f"🚀 *FINAL VALIDATION PASSED*\n{pair_data.get('token_symbol')} ({chain_name.upper()})\nFinal Score: {check_score:.1f}\nStatus: RPC VERIFIED ✅")
-
-                                        # AUTO-TRADING EXECUTION
-                                        if trade_executor and TradingConfig.is_trading_enabled():
-                                            try:
-                                                # SECURITY GUARD: Deep Check (Holders & Risk)
-                                                risk_score = 50
-                                                risk_level = 'UNKNOWN'
-                                                
-                                                try:
-                                                    # Helper for telegram escape
-                                                    def esc(t): return str(t).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
-                                                    
-                                                    sniff_w3 = adapter.w3 if (chain_name != 'solana' and adapter) else None
-                                                    ts_analyzer = TokenSnifferAnalyzer(sniff_w3, chain_name)
-                                                    
-                                                    # Get external liquidity from DexScreener data SAFE PARSING
-                                                    dex_liq = 0.0
-                                                    raw_liq = pair_data.get('liquidity', 0)
-                                                    if isinstance(raw_liq, dict):
-                                                        dex_liq = float(raw_liq.get('usd', 0))
-                                                    else:
-                                                        try:
-                                                            dex_liq = float(raw_liq)
-                                                        except:
-                                                            dex_liq = 0.0
-                                                    
-                                                    sec_data = ts_analyzer.analyze_comprehensive(
-                                                        pair_data['token_address'], 
-                                                        external_liquidity_usd=dex_liq
-                                                    )
-                                                    
-                                                    # 1. SCORE-BASED SECURITY CHECK (New 0-100 System)
-                                                    risk_score = sec_data.get('risk_score', 100)
-                                                    risk_level = sec_data.get('risk_level', 'FAIL')
-                                                    
-                                                    # DYNAMIC THRESHOLD from Config
-                                                    # Default to 60 (allow WARN) if not set, but user requested 30 (SAFE only)
-                                                    max_allowed_score = TradingConfig.get_config()['risk'].get('max_risk_score', 60)
-                                                    
-                                                    # Helper to format details breakdown
-                                                    raw_details = sec_data.get('contract_analysis', {}).get('details', [])
-                                                    # Filter out the summary headers we added (RugCheck Base Score..., Final Risk Score...)
-                                                    filtered_details = [d for d in raw_details if 'Base Score' not in d and 'Final Risk' not in d]
-                                                    formatted_breakdown = "\n".join([f"• {d}" for d in filtered_details])
-                                                    if not formatted_breakdown: formatted_breakdown = "• No specific flags detected"
-                                                    
-                                                    # THRESHOLD CHECK
-                                                    if risk_score > max_allowed_score:
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY SECURITY: Risk Score {risk_score}/100 ({risk_level}) > Config Limit {max_allowed_score}")
-                                                        
-                                                        if telegram.enabled:
-                                                            await telegram.send_message_async(
-                                                                f"⛔ *AUTO-BUY BLOCKED*\n"
-                                                                f"Token: `{esc(pair_data.get('token_symbol'))}`\n"
-                                                                f"Reason: Risk Score {risk_score}/100 > Limit {max_allowed_score}\n"
-                                                                f"Status: {risk_level} (Config Restricted)\n\n"
-                                                                f"*Risk Analysis:*\n"
-                                                                f"{esc(formatted_breakdown)}"
-                                                            )
-                                                        continue
-                                                        
-                                                    # WARNING LEVEL (If allowed by config)
-                                                    elif risk_score > 30:
-                                                        print(f"{Fore.YELLOW}    ⚠️ SECURITY WARNING: Risk Score {risk_score}/100 ({risk_level}) - Proceeding (Allowed > 30)")
-                                                        for d in filtered_details:
-                                                            if '⚠️' in d or '🚨' in d:
-                                                                print(f"{Fore.YELLOW}       {d}")
-
-                                                    # 3. LP INTENT RISK CHECK (NEW - Behavioral)
-                                                    from lp_intent_analyzer import LPIntentAnalyzer
-                                                    lp_analyzer = LPIntentAnalyzer(chain_name)
-                                                    lp_risk = lp_analyzer.calculate_risk(pair_data)
-                                                    
-                                                    # ULTRA-AGGRESSIVE: Block even moderate risk (30 vs original 70)
-                                                    if lp_risk['risk_score'] > 30:
-                                                        print(f"{Fore.RED}    ❌ BLOCKED BY LP INTENT: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) [ULTRA-STRICT]")
-                                                        if telegram.enabled:
-                                                            await telegram.send_message_async(
-                                                                f"⛔ *AUTO-BUY BLOCKED*\n"
-                                                                f"Token: `{esc(pair_data.get('token_symbol'))}`\n"
-                                                                f"Reason: LP Risk Too High ({lp_risk['risk_score']:.0f}/100 > 30)\n"
-                                                                f"Behavioral Risk: {lp_risk['risk_level']}"
-                                                            )
-                                                        continue
-                                                    
-                                                    elif lp_risk['risk_score'] > 20:
-                                                        print(f"{Fore.YELLOW}    ⚠️ LP INTENT WARNING: Risk Score {lp_risk['risk_score']:.0f}/100 ({lp_risk['risk_level']}) - Proceeding with caution")
-                                                    
-                                                    top10_pct = sec_data.get('holder_analysis', {}).get('top10_holders_percent', 0)
-                                                    print(f"{Fore.GREEN}    ✅ Security Check Passed (Risk: {risk_level}, Top 10: {top10_pct:.1f}%, LP Intent: {lp_risk['risk_score']:.0f}/100)")
-                                                except Exception as sec_e:
-                                                    print(f"{Fore.YELLOW}    ⚠️ Security Check Skipped: {sec_e}")
-                                                    formatted_breakdown = "• Security Check Skipped (Error)"
-
-                                                # FOMO GUARD: Check Volatility
-                                                # Access config safely
-                                                fomo_limit = 100.0
-                                                try:
-                                                    fomo_limit = offchain_screener.config['scoring_v3'].get('max_price_change_5m', 100.0)
-                                                except:
-                                                    pass
-                                                    
-                                                current_pump = pair_data.get('price_change_m5', 0)
-                                                
-                                                if current_pump > fomo_limit:
-                                                    print(f"{Fore.YELLOW}    🛡️  FOMO GUARD: Skipped (Pump +{current_pump:.1f}% > {fomo_limit}%)")
-                                                    if telegram.enabled:
-                                                        await telegram.send_message_async(
-                                                            f"🛡️ *AUTO-BUY SKIPPED*\n"
-                                                            f"Token: {pair_data.get('token_symbol')}\n"
-                                                            f"Reason: Pumped +{current_pump:.0f}% in 5m (Risky)\n"
-                                                            f"Guard Limit: +{fomo_limit:.0f}%"
-                                                        )
-                                                    continue
-
-                                                # ============================================================
-                                                # 🛡️ PRE-FLIGHT CHECK: Live Liquidity Verification (Anti-Flash Rug)
-                                                # ============================================================
-                                                try:
-                                                    print(f"{Fore.CYAN}    🛡️  Running Pre-Flight Liquidity Check...")
-                                                    pf_start = time.time()
-                                                    pf_url = f"https://api.dexscreener.com/latest/dex/tokens/{pair_data.get('token_address')}"
-                                                    pf_resp = requests.get(pf_url, timeout=5)
-                                                    
-                                                    if pf_resp.status_code == 200:
-                                                        pf_data = pf_resp.json()
-                                                        pf_pairs = pf_data.get('pairs', [])
-                                                        if pf_pairs:
-                                                            # Find the target pair or use the most liquid one
-                                                            pf_pair = pf_pairs[0]
-                                                            pf_liq_usd = float(pf_pair.get('liquidity', {}).get('usd', 0))
-                                                            pf_liq_quote = float(pf_pair.get('liquidity', {}).get('quote', 0))
-                                                            pf_mkt_cap = float(pf_pair.get('marketCap', 0))
-                                                            pf_symbol = pf_pair.get('baseToken', {}).get('symbol', 'UNKNOWN')
-                                                            
-                                                            # Threshold: $2,000 (Flash Rug Detection)
-                                                            PRE_FLIGHT_MIN_LIQ = 2000.0
-                                                            
-                                                            # BONDING CURVE EXCEPTION:
-                                                            # Pump.fun/Meteora/LaunchLab tokens often return 0 USD Liq but valid Quote Liq (SOL) or Market Cap.
-                                                            is_bonding_curve = any(x in pf_pair.get('url', '').lower() or x in pf_pair.get('dexId', '').lower() for x in ['pump', 'meteora', 'launchlab'])
-                                                            
-                                                            # Calculate implied liquidity if USD is 0 but we have Quote (SOL)
-                                                            # Assume SOL ~$150 (Safe conservative estimate or just check unit count)
-                                                            # If > 10 SOL in pool, it's roughly > $1500
-                                                            if pf_liq_usd == 0 and is_bonding_curve and pf_liq_quote > 10:
-                                                                 print(f"       ⚠️ Bonding Curve Detected (USD 0). Using Quote Liq: {pf_liq_quote:.2f} SOL")
-                                                                 pf_liq_usd = pf_liq_quote * 150 # Estimate
-                                                            
-                                                            print(f"       Live Check: Liq ${pf_liq_usd:,.0f} | MC ${pf_mkt_cap:,.0f} (Threshold: ${PRE_FLIGHT_MIN_LIQ:,.0f})")
-                                                            
-                                                            # Fail if Liq < Threshold AND Market Cap < Threshold (Double Fail)
-                                                            # For BC, if Liq is 0 but MC is healthy (>5k), we trust MC.
-                                                            if pf_liq_usd < PRE_FLIGHT_MIN_LIQ and pf_mkt_cap < 5000:
-                                                                print(f"{Fore.RED}    ❌ PRE-FLIGHT FAIL: Liquidity ${pf_liq_usd:,.0f} & MC ${pf_mkt_cap:,.0f} Too Low (Flash Rug?)")
-                                                                if telegram.enabled:
-                                                                    await telegram.send_message_async(
-                                                                        f"🛡️ *PRE-FLIGHT ABORTED*\n"
-                                                                        f"Token: {pair_data.get('token_symbol')}\n"
-                                                                        f"Reason: Liquidity Dropped to ${pf_liq_usd:,.0f}\n"
-                                                                        f"Status: FLASH RUG DETECTED ❌"
-                                                                    )
-                                                                continue # ABORT BUY
-                                                    else:
-                                                        print(f"{Fore.YELLOW}    ⚠️ Pre-Flight API Error ({pf_resp.status_code}) - Proceeding with caution")
-                                                except Exception as pf_e:
-                                                     print(f"{Fore.YELLOW}    ⚠️ Pre-Flight Check Error: {pf_e}")
-                                                
-                                                # Verify Pre-Flight duration
-                                                print(f"       Pre-Flight Time: {(time.time() - pf_start)*1000:.0f}ms")
-
-                                                print(f"{Fore.CYAN}    🤖 Attempting Auto-Buy (via State Machine)...")
-                                                
-                                                # PHASE 3: STATE MACHINE EXECUTION
-                                                # New logic: PROBE -> WATCH -> SCALE -> EXIT
-                                                # Replaces direct trade_executor.execute_buy
-                                                
-                                                # Instantiate State Machine (Lazy init or ideally moved to setup)
-                                                # For now, instantiated here to ensure fresh config
-                                                from trading.trading_state_machine import TradingStateMachine
-                                                state_machine = TradingStateMachine(trade_executor, position_tracker)
-                                                
-                                                # Initialize fallback values (Prevent UnboundLocalError)
-                                                tx_success = False
-                                                msg = "State Machine Failed (Unknown)"
-
-                                                sm_success, sm_msg = await state_machine.process_signal(
-                                                    chain=chain_name,
-                                                    token_address=pair_data.get('token_address'),
-                                                    signal_score=check_score,
-                                                    market_data=pair_data
-                                                )
-                                                
-                                                if sm_success:
-                                                    # State Machine handles its own logging/actions
-                                                    # We just confirm the handoff
-                                                    tx_success = True
-                                                    msg = sm_msg  # Use the specific success message
-                                                else:
-                                                    # Capture failure reason
-                                                    msg = sm_msg
-                                                    print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
-                                                
-                                                if tx_success:
-                                                    print(f"{Fore.GREEN}    ✅ AUTO-TRADE SUCCESSFUL (Tx: {msg})")
-                                                    if telegram.enabled:
-                                                        risk_status_emoji = "✅" if risk_score <= 30 else "⚠️"
-                                                        
-                                                        # Use the formatted breakdown generated above
-                                                        # If it wasn't generated (e.g. exception), define default
-                                                        if 'formatted_breakdown' not in locals(): formatted_breakdown = "• Analysis unavailable"
-                                                        
-                                                        await telegram.send_message_async(
-                                                            f"🤖 *AUTO-BUY EXECUTED* ✅\n"
-                                                            f"--------------------------------\n"
-                                                            f"Token: {pair_data.get('token_symbol')} `{pair_data.get('token_address')}`\n"
-                                                            f"Chain: {chain_name.upper()}\n"
-                                                            f"Signal Score: {check_score:.1f}\n"
-                                                            f"Risk Status: {risk_score:.0f}/100 {risk_status_emoji} ({risk_level})\n"
-                                                            f"Tx Hash: {msg}\n"
-                                                            f"Status: MOONING SOON? 🚀\n\n"
-                                                            f"*Risk Analysis Details:*\n"
-                                                            f"{esc(formatted_breakdown)}"
-                                                        )
-                                                else:
-                                                    print(f"{Fore.RED}    ❌ AUTO-TRADE FAILED: {msg}")
-                                                    
-                                                    # Parse error for better user feedback
-                                                    error_category = "Unknown Error"
-                                                    error_action = "Check logs"
-                                                    
-                                                    if "Position limit reached" in msg:
-                                                        error_category = "🚫 Position Limit"
-                                                        error_action = "Close existing positions or increase max_open_positions in config"
-                                                    elif "Slippage" in msg or "0x177e" in str(msg):
-                                                        error_category = "📈 High Slippage"
-                                                        error_action = "Token too volatile or low liquidity. Skipped for safety."
-                                                    elif any(x in msg.lower() for x in ["insufficient funds", "insufficient lamports", "broadcast failed", "0x1"]):
-                                                        error_category = "💰 Insufficient Balance / Gas"
-                                                        error_action = "Top up wallet with more SOL/ETH (Need > 0.01 SOL)"
-                                                    elif "disabled" in msg.lower():
-                                                        error_category = "⛔ Chain/Trading Disabled"
-                                                        error_action = "Enable in trading_config.py"
-                                                    elif "Failed to fetch swap data" in msg:
-                                                        error_category = "🔌 API Connection"
-                                                        error_action = "DEX API temporarily unavailable"
-                                                    
-                                                    if telegram.enabled:
-                                                        # Escape special chars to prevent Telegram parse errors
-                                                        def esc(t): return str(t).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
-                                                        
-                                                        alert_title = "❌ *AUTO-BUY BLOCKED*"
-                                                        if "disabled" in msg.lower():
-                                                            alert_title = "⚠️ *SIGNAL SKIPPED* (Chain Disabled)"
-                                                            
-                                                        await telegram.send_message_async(
-                                                            f"{alert_title}\n"
-                                                            f"--------------------------------\n"
-                                                            f"Token: {esc(pair_data.get('token_symbol'))}\n"
-                                                            f"Chain: {esc(chain_name.upper())}\n"
-                                                            f"Category: {esc(error_category)}\n"
-                                                            f"Reason: {esc(msg[:100])}\n"
-                                                            f"Action: {esc(error_action)}"
-                                                        )
-                                            except Exception as trade_e:
-                                                print(f"{Fore.RED}    ❌ Auto-trade error: {trade_e}")
-                                        
-                                    print(f"{Fore.GREEN}    ⚡ RPC VERIFICATION COMPLETE")
-                                    
-                                    # Display off-chain statistics every 10 pairs
-                                    if offchain_screener.stats.get('passed_to_queue', 0) % 10 == 0:
-                                        stats = offchain_screener.get_stats()
-                                        pipeline = stats.get('pipeline', {})
-                                        if pipeline.get('total_raw_pairs', 0) > 0:
-                                            noise_reduction = (1 - pipeline['passed_to_queue'] / pipeline['total_raw_pairs']) * 100
-                                            print(f"{Fore.CYAN}    📊 [OFFCHAIN STATS] Noise reduction: {noise_reduction:.1f}% | Passed: {pipeline['passed_to_queue']}/{pipeline['total_raw_pairs']}")
-                                    
-                                else:
-                                    print(f"{Fore.YELLOW}    ⏭️  Skipped (score < {verify_threshold}) - RPC calls SAVED!")
-                                
-                            except Exception as offchain_e:
-                                print(f"{Fore.YELLOW}⚠️  [OFFCHAIN] Processing error: {offchain_e}")
-                                import traceback
-                                traceback.print_exc()
-                        
-                        # ================================================
                         # SECONDARY MARKET PROCESSING
                         # ================================================
                         elif pair_data.get('signal_type') == 'secondary_market':
@@ -1537,73 +611,6 @@ async def main():
                                 
                             except Exception as sec_e:
                                 print(f"{Fore.YELLOW}⚠️  [SECONDARY] Signal processing error: {sec_e}")
-                        
-                        # ================================================
-                        # ACTIVITY-DETECTED TOKEN PROCESSING (2025-12-29)
-                        # ================================================
-                        elif pair_data.get('activity_override') or pair_data.get('source') == 'secondary_activity':
-                            try:
-                                chain_name = pair_data.get('chain', 'unknown')
-                                chain_prefix = f"[{chain_name.upper()}]"
-                                pool_address = pair_data.get('pool_address', pair_data.get('pair_address', 'UNKNOWN'))
-                                
-                                print(f"{Fore.CYAN}🔥 {chain_prefix} [ACTIVITY] Processing pool {pool_address[:10]}...")
-                                
-                                # Get chain config
-                                chain_config = scanner.get_chain_config(chain_name)
-                                
-                                # Import activity integration helpers
-                                from activity_integration import apply_activity_context_to_analysis
-                                
-                                # Get token address (may be empty initially)
-                                token_address = pair_data.get('token_address')
-                                
-                                if token_address:
-                                    # Run full analysis
-                                    try:
-                                        # Get adapter
-                                        adapter = scanner.get_adapter(chain_name)
-                                        if not adapter:
-                                            print(f"{Fore.YELLOW}   ⚠️  No adapter for {chain_name}")
-                                            continue
-                                        
-                                        # Analyze token
-                                        analyzer = TokenAnalyzer(adapter=adapter)
-                                        analysis = analyzer.analyze_token({'address': token_address, 'pair_address': pool_address})
-                                        
-                                        if analysis:
-                                            # Apply activity context
-                                            enriched_analysis = apply_activity_context_to_analysis(
-                                                analysis,
-                                                pair_data
-                                            )
-                                            
-                                            # Score with activity overrides
-                                            score_data = scorer.score_token(enriched_analysis, chain_config)
-                                            
-                                            # Log result
-                                            print(f"{Fore.CYAN}   Score: {score_data.get('score', 0)} | Verdict: {score_data.get('verdict', 'UNKNOWN')}")
-                                            
-                                            # Send activity alert if qualifies
-                                            if score_data.get('alert_level'):
-                                                telegram.send_activity_alert(pair_data, score_data)
-                                                print(f"{Fore.GREEN}📨 {chain_prefix} [ACTIVITY] Alert sent!")
-                                        else:
-                                            print(f"{Fore.YELLOW}   ⚠️  Analysis failed")
-                                    
-                                    except Exception as analyze_e:
-                                        print(f"{Fore.YELLOW}⚠️  {chain_prefix} [ACTIVITY] Analysis error: {analyze_e}")
-                                
-                                else:
-                                    # No token address yet - send initial activity alert
-                                    print(f"{Fore.YELLOW}   Token address not resolved - sending initial alert")
-                                    telegram.send_activity_alert(pair_data)
-                            
-                            except Exception as act_e:
-                                print(f"{Fore.YELLOW}⚠️  [ACTIVITY] Processing error: {act_e}")
-                                import traceback
-                                traceback.print_exc()
-                                
                                 
                         # ================================================
                         # EVM PROCESSING
@@ -1694,11 +701,6 @@ async def main():
                                 
                                 # Score it
                                 score_result = scorer.score_token(analysis, chain_config)
-
-                                # ACTIVITY SCANNER ADMISSION (2025-12-29)
-                                # Feed high-value pools into the hunter-mode scanner
-                                if activity_integration:
-                                    activity_integration.track_new_pool(analysis, score_result)
                                 
                                 # Apply bias
                                 if rotation_bonus > 0:
@@ -1912,39 +914,6 @@ async def main():
                     finally:
                         queue.task_done()
 
-            # PHASE 5: EVENT-DRIVEN MODE (Optional)
-            # if args.event_mode: ... (Logic already in place for blocks)
-
-            # --- INTEGRATION: ACTIVE POSITION MONITOR ---
-            # Automatically start position monitoring in background
-            try:
-                from monitor_positions import monitor_positions
-                print(f"{Fore.CYAN}🚀 Launching Integrated Position Monitor...")
-                tasks.append(asyncio.create_task(monitor_positions(), name="position_monitor"))
-            except ImportError:
-                 print(f"{Fore.RED}⚠️ Failed to import monitor_positions (Module not found)")
-            except Exception as mon_e:
-                 print(f"{Fore.RED}⚠️ Failed to start Position Monitor: {mon_e}")
-            # --------------------------------------------
-            
-            # --- INTEGRATION: TELEGRAM COMMAND HANDLER ---
-            # Add interactive commands for trade monitoring
-            try:
-                if trade_executor and telegram:
-                    from telegram_commands import TelegramCommandHandler
-                    command_handler = TelegramCommandHandler(trade_executor.pt, trade_executor, telegram)
-                    if command_handler.enabled:
-                        print(f"{Fore.CYAN}📱 Launching Telegram Command Handler...")
-                        tasks.append(asyncio.create_task(command_handler.start_polling(), name="telegram_commands"))
-                        print(f"{Fore.GREEN}   Commands: /positions, /summary, /close [id]")
-                    else:
-                        print(f"{Fore.YELLOW}⚠️ Telegram commands disabled (check config)")
-            except ImportError:
-                print(f"{Fore.YELLOW}⚠️ Telegram commands module not found")
-            except Exception as cmd_e:
-                print(f"{Fore.RED}⚠️ Failed to start Telegram commands: {cmd_e}")
-            # ----------------------------------------------
-
             tasks.append(asyncio.create_task(consumer_task(), name="consumer"))
             
             # Run everything
@@ -1952,11 +921,6 @@ async def main():
 
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}Monitoring stopped.")
-            
-            # Cleanup off-chain screener
-            if offchain_screener:
-                print(f"{Fore.CYAN}🌐 Closing off-chain screener...")
-                await offchain_screener.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

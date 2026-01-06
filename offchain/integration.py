@@ -207,23 +207,28 @@ class OffChainScreenerIntegration:
                 
                 self.stats['total_raw_pairs'] += len(unique_pairs)
                 
-                # Process each pair
-                processed = 0
-                for idx, raw_pair in enumerate(unique_pairs, 1):
-                    try:
-                        pair_addr = raw_pair.get('pairAddress', 'UNKNOWN')
-                        print(f"[OFFCHAIN DEBUG] [{idx}/{len(unique_pairs)}] Processing pool: {pair_addr[:10]}...")
-                        
-                        passed_pair = await self._process_pair(raw_pair, 'geckoterminal', chain)
-                        if passed_pair:
-                            all_passed_pairs.append(passed_pair)
-                            processed += 1
-                    except Exception as e:
-                        print(f"[OFFCHAIN ERROR] Failed to process pair {idx}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                # Process each pair CONCURRENTLY
+                print(f"[OFFCHAIN] ⚡ Processing {len(unique_pairs)} pairs concurrently...")
                 
-                print(f"[OFFCHAIN DEBUG] Processed {processed} pairs that passed filters")
+                tasks = []
+                for idx, raw_pair in enumerate(unique_pairs, 1):
+                    pair_addr = raw_pair.get('pairAddress', 'UNKNOWN')
+                    # print(f"[OFFCHAIN DEBUG] [{idx}] Queueing: {pair_addr[:10]}...")
+                    tasks.append(self._process_pair(raw_pair, 'geckoterminal', chain))
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                processed = 0
+                for res in results:
+                    if isinstance(res, Exception):
+                        print(f"[OFFCHAIN ERROR] Task failed: {res}")
+                        continue
+                        
+                    if res:
+                        all_passed_pairs.append(res)
+                        processed += 1
+                
+                print(f"[OFFCHAIN] ✅ Processed {processed}/{len(unique_pairs)} pairs passed filters")
                 
             except Exception as e:
                 print(f"[OFFCHAIN ERROR] Failed to scan {chain}: {e}")
