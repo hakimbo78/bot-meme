@@ -132,22 +132,11 @@ class SecondaryScanner:
                     if not pair_created_sig:
                         continue
                     
-                    # Set topics based on dex type
-                    if dex_type == 'uniswap_v2':
-                        topics = [pair_created_sig]  # Array with single topic
-                    elif dex_type == 'uniswap_v3':
-                        topics = [pair_created_sig]  # Array with single topic
-                    else:
-                        continue
-                    
-                    # Enforce topics as list
-                    assert isinstance(topics, list), f"Topics must be list, got {type(topics)}"
-                    assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
-                    
                     # Build valid eth_getLogs payload
+                    # Topics format: [[event_signature]] for filtering by single event
                     payload = {
                         'address': factory_address,
-                        'topics': topics,  # Now correctly as array
+                        'topics': [[pair_created_sig]],  # Nested array for topic filtering
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
                     }
@@ -277,18 +266,10 @@ class SecondaryScanner:
             latest_block = self.web3.eth.block_number
             from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
 
-            # Use checksum address
-            pair_address = Web3.to_checksum_address(pair_address)
-
-            # Enforce topics as list
-            topics = [signature]  # Wrap in array
-            assert isinstance(topics, list)
-            assert isinstance(from_block, int)
-
-            # Build valid payload
+            # Build valid payload with nested topics array
             payload = {
                 'address': pair_address,
-                'topics': topics,  # Now correctly as array
+                'topics': [[signature]],  # Nested array for topic filtering
                 'fromBlock': hex(from_block),
                 'toBlock': hex(latest_block)
             }
