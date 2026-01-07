@@ -448,31 +448,35 @@ class TelegramNotifier:
         # DexScreener URL
         dexscreener_url = f"https://dexscreener.com/{chain_name.lower()}/{token_address}"
         
-        message = f"""👀 WATCH \\- MONITOR 👀
+        # Escape HTML entities in token_symbol
+        token_symbol_safe = token_symbol.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        trigger_summary_safe = trigger_summary.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        message = f"""👀 <b>WATCH - MONITOR</b> 👀
 
-🪙 Token: {token_symbol} ({token_symbol})
-🔗 Chain: {chain_name}
-📊 Score: {score_out_of_100}/100
+🪙 Token: <code>{token_symbol_safe}</code>
+🔗 Chain: <b>{chain_name}</b>
+📊 Score: <b>{score_out_of_100}/100</b>
 
-📊 Stats:
+📊 <b>Stats:</b>
 • Liq: ${liquidity_now:,.0f} | Vol 24h: ${volume_24h:,.0f}
 • Age: {age_str} | Price 1h: {price_change_1h:+.1f}%
 
-⚠️ Why Watch: {trigger_summary} | Score {score_out_of_100}
+⚠️ Why Watch: {trigger_summary_safe} | Score {score_out_of_100}
 
 🔐 Security:
 • Status: ✅ MONITOR
 • LP Lock: {liquidity_locked:.0f}%
 
 📝 Contract:
-`{token_address[:20]}...{token_address[-8:]}`
+<code>{token_address}</code>
 
-[🔗 View on DexScreener]({dexscreener_url})
+🔗 <a href="{dexscreener_url}">View on DexScreener</a>
 
 💡 Monitor for volume spike or LP improvement."""
         
-        # Send via Safe Queue
-        return await self._enqueue_message(message)
+        # Send via Safe Queue with HTML parse mode
+        return await self._enqueue_message(message, parse_mode='HTML')
     
     async def send_activity_alert_async(self, signal_data: dict, score_data: dict = None):
         """
