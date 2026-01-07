@@ -140,14 +140,14 @@ class SecondaryScanner:
                     else:
                         continue
                     
-                    # Enforce topics string guard
+                    # Enforce topics array (eth_getLogs expects list)
                     assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
                     assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
-                    
-                    # Build valid eth_getLogs payload
+
+                    # Build valid eth_getLogs payload (topics must be list)
                     payload = {
                         'address': factory_address,
-                        'topics': topics,
+                        'topics': [topics],
                         'fromBlock': hex(from_block),
                         'toBlock': hex(latest_block)
                     }
