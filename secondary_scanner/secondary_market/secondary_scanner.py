@@ -11,6 +11,25 @@ from .triggers import TriggerEngine
 from .secondary_state import SecondaryStateManager, SecondaryState
 
 
+# ERC20 ABI for token symbol and name
+ERC20_ABI = [
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "symbol",
+        "outputs": [{"name": "", "type": "string"}],
+        "type": "function"
+    },
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "name",
+        "outputs": [{"name": "", "type": "string"}],
+        "type": "function"
+    }
+]
+
+
 class SecondaryScanner:
     """
     Main scanner for secondary market opportunities.
@@ -26,6 +45,9 @@ class SecondaryScanner:
         self.metrics = MarketMetrics(web3_provider, chain_config)
         self.triggers = TriggerEngine(chain_config.get('secondary_scanner', {}))
         self.state_manager = SecondaryStateManager()
+        
+        # Token symbol cache to avoid repeated RPC calls
+        self.token_symbol_cache = {}
 
         # Configuration
         self.scan_interval = 30  # seconds
@@ -244,6 +266,44 @@ class SecondaryScanner:
             'last_scan': 0,
             'weth_address': weth_addr_cs
         }
+
+    def get_token_symbol(self, token_address: str) -> str:
+        """
+        Fetch token symbol from blockchain, with caching.
+        Returns symbol or fallback address shorthand if unavailable.
+        """
+        # Check cache first
+        if token_address in self.token_symbol_cache:
+            return self.token_symbol_cache[token_address]
+        
+        try:
+            token_addr_cs = Web3.to_checksum_address(token_address)
+            contract = self.web3.eth.contract(address=token_addr_cs, abi=ERC20_ABI)
+            
+            # Try to get symbol
+            try:
+                symbol = contract.functions.symbol().call()
+                if symbol and isinstance(symbol, str):
+                    self.token_symbol_cache[token_address] = symbol
+                    return symbol
+            except:
+                pass
+            
+            # Fallback to name if symbol fails
+            try:
+                name = contract.functions.name().call()
+                if name and isinstance(name, str):
+                    self.token_symbol_cache[token_address] = name
+                    return name
+            except:
+                pass
+        except Exception as e:
+            print(f"⚠️  Error fetching token symbol for {token_address}: {e}")
+        
+        # Final fallback: token address shorthand
+        fallback = f"{token_address[:6]}...{token_address[-4:]}"
+        self.token_symbol_cache[token_address] = fallback
+        return fallback
 
     async def scan_pair_events(self, pair_address: str, pair_data: Dict) -> List[Dict]:
         """
@@ -468,7 +528,7 @@ class SecondaryScanner:
 
                 return {
                     'token_address': token_address,
-                    'token_symbol': f"TOKEN_{token_address[:6]}",
+                    'token_symbol': self.get_token_symbol(token_address),
                     'pair_address': pair_address,
                     'dex_type': pair_data['dex_type'],
                     'chain': self.chain_name,

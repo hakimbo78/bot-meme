@@ -19,7 +19,7 @@ chains:
       enabled: true
   
   ethereum:
-    enabled: false
+    enabled: true
     chain_id: 1
     rpc_url: "https://eth-mainnet.g.alchemy.com/v2/V1JFM6ky14zmXtFdWdGgm" # Validated
     dexes: ["uniswap_v2", "uniswap_v3"]
@@ -56,7 +56,7 @@ chains:
   # Modes: SNIPER, RUNNING
   # DISABLED: Using off-chain DexScreener API only (cost optimization)
   solana:
-    enabled: false
+    enabled: true
     rpc_url: "https://mainnet.helius-rpc.com/?api-key=e06bc5e1-0e03-41e4-b354-2a78cbd121bc"
     
     # Program IDs
