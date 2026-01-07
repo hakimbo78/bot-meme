@@ -90,7 +90,10 @@ class SecondaryScanner:
 
     def is_enabled(self) -> bool:
         """Check if secondary scanner is enabled"""
-        return self.config.get('secondary_scanner', {}).get('enabled', False)
+        # TEMPORARILY DISABLED: Web3.py v7 event.get_logs() API compatibility issue
+        # TODO: Fix event query syntax for Web3.py v7
+        return False
+        # return self.config.get('secondary_scanner', {}).get('enabled', False)
 
     def resolve_secondary_block_range(self, lookback_blocks: int):
         """Resolve block range for secondary scanning"""
@@ -133,13 +136,14 @@ class SecondaryScanner:
                         continue
                     
                     try:
-                        # Use Web3 contract event get_logs (handles topics automatically)
+                        # Use Web3 contract event get_logs with argument_filters
                         if dex_type == 'uniswap_v2':
                             factory_contract = self.web3.eth.contract(
                                 address=factory_address,
                                 abi=self.v2_factory_abi
                             )
                             logs = factory_contract.events.PairCreated.get_logs(
+                                argument_filters={},
                                 fromBlock=from_block,
                                 toBlock=latest_block
                             )
@@ -149,6 +153,7 @@ class SecondaryScanner:
                                 abi=self.v3_factory_abi
                             )
                             logs = factory_contract.events.PoolCreated.get_logs(
+                                argument_filters={},
                                 fromBlock=from_block,
                                 toBlock=latest_block
                             )
@@ -162,12 +167,9 @@ class SecondaryScanner:
                         
                     except Exception as e:
                         # Handle errors gracefully
-                        error_msg = str(e)
-                        if 'code' in error_msg and '-32602' in error_msg:
-                            print(f"⚠️  [SECONDARY] RPC parameter error for {dex_type}, skipping...")
-                            self.secondary_status = "DEGRADED"
-                            continue
-                        raise e
+                        print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
+                        self.secondary_status = "DEGRADED"
+                        continue
                     
                     # Process events
                     for log in logs[-100:]:  # Last 100 events
