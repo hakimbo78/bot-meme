@@ -157,54 +157,42 @@ class SecondaryScanner:
                     # Process last 100 pairs (most recent)
                     for log in logs[-100:]:
                         try:
-                            # Decode event data
-                            data = log['data']
-                            topics = log['topics']
-                            
-                            if len(topics) >= 3:
-                                # topics[1] = token0, topics[2] = token1
-                                token0 = '0x' + topics[1].hex()[26:]  # Remove padding
-                                token1 = '0x' + topics[2].hex()[26:]
-                                
-                                # Extract pair/pool address from data
-                                if dex_type == 'uniswap_v2':
-                                    # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
-                                    if len(data) >= 64:
-                                        pair_word = data[2:66]  # 32 bytes padded
-                                        pair_address = '0x' + pair_word[-40:]  # last 20 bytes
-                                    else:
-                                        continue
-                                elif dex_type == 'uniswap_v3':
-                                    # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
-                                    if len(data) >= 128:
-                                        pool_word = data[66:130]  # 32 bytes padded
-                                        pair_address = '0x' + pool_word[-40:]  # last 20 bytes
-                                    else:
-                                        continue
-                                
-                                # For simplicity, assume token1 is the meme token (not WETH)
-                                weth_address = chain_config.get('weth_address', '').lower()
-                                if token0.lower() == weth_address:
-                                    token_address = token1
-                                elif token1.lower() == weth_address:
-                                    token_address = token0
-                                else:
-                                    # Skip non-WETH pairs for now
-                                    continue
-                                
-                                pair_data = {
-                                    'pair_address': Web3.to_checksum_address(pair_address),
-                                    'token_address': Web3.to_checksum_address(token_address),
-                                    'dex_type': dex_type,
-                                    'token_decimals': 18,  # Assume 18 decimals
-                                    'block_number': log['blockNumber'],
-                                    'chain': self.chain_name,
-                                    'weth_address': chain_config.get('weth_address')
-                                }
-                                
-                                pairs.append(pair_data)
-                                
-                        except Exception as e:
+                            # Use decoded args from Web3 instead of manual topic slicing
+                            args = log.get('args', {})
+                            token0 = args.get('token0')
+                            token1 = args.get('token1')
+
+                            if dex_type == 'uniswap_v2':
+                                pair_address = args.get('pair')
+                            elif dex_type == 'uniswap_v3':
+                                pair_address = args.get('pool')
+                            else:
+                                continue
+
+                            if not (token0 and token1 and pair_address):
+                                continue
+
+                            weth_address = chain_config.get('weth_address', '').lower()
+                            if token0.lower() == weth_address:
+                                token_address = token1
+                            elif token1.lower() == weth_address:
+                                token_address = token0
+                            else:
+                                continue  # Non-WETH pairs skipped
+
+                            pair_data = {
+                                'pair_address': Web3.to_checksum_address(pair_address),
+                                'token_address': Web3.to_checksum_address(token_address),
+                                'dex_type': dex_type,
+                                'token_decimals': 18,  # Assume 18 decimals
+                                'block_number': log['blockNumber'],
+                                'chain': self.chain_name,
+                                'weth_address': chain_config.get('weth_address')
+                            }
+
+                            pairs.append(pair_data)
+
+                        except Exception:
                             continue  # Skip malformed logs
                     
                 except Exception as e:
