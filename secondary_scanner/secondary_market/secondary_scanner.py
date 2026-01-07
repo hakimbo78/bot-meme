@@ -383,6 +383,8 @@ class SecondaryScanner:
 
         except Exception as e:
             print(f"⚠️  Error scanning events for {pair_address}: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     async def process_pair(self, pair_address: str) -> Optional[Dict]:
@@ -411,11 +413,11 @@ class SecondaryScanner:
 
             # Scan recent swap events for volume
             swap_events = await self.scan_pair_events(pair_address, pair_data)
-
-            # Add volume data (simplified - would sum actual volumes)
             total_volume = sum(event.get('volume_usd', 0) for event in swap_events)
+            
             if total_volume > 0:
                 self.metrics.add_swap_volume(pair_address, total_volume)
+                print(f"💰 [DEBUG] {pair_address}: volume_usd={total_volume:.2f}, events={len(swap_events)}")
 
             # Get rolling metrics
             metrics = self.metrics.get_rolling_metrics(pair_address)
@@ -423,23 +425,25 @@ class SecondaryScanner:
                 return None
 
             # Calculate risk score for this token
-            # For secondary market (existing pairs), assume moderate-low risk if:
-            # - Has liquidity > $5k
-            # - Has active trading
-            # - No rug indicators
-            # Simplified: use config default or calculate from metrics
             base_risk_score = self.config.get('secondary_scanner', {}).get('default_risk_score', 60)
-            
-            # Adjust risk score based on metrics
             risk_score = base_risk_score
             effective_liq = metrics.get('effective_liquidity', 0)
             if effective_liq < 10000:
-                risk_score -= 10  # Lower risk score for low liquidity
+                risk_score -= 10
             elif effective_liq > 100000:
-                risk_score += 5   # Slightly higher confidence for high liquidity
+                risk_score += 5
             
             # Evaluate triggers with risk_score
             trigger_result = self.triggers.evaluate_triggers(metrics, risk_score)
+            
+            # Debug: Log trigger evaluation
+            triggers = trigger_result.get('triggers', {})
+            trigger_count = sum(1 for v in triggers.values() if v)
+            secondary_signal = trigger_result.get('secondary_signal', False)
+            
+            print(f"🔍 [TRIGGER] {pair_address}: vol={metrics.get('volume_5m', 0):.0f}, liq={effective_liq:.0f}, "
+                  f"risk={risk_score}, triggers={trigger_count}/4, signal={secondary_signal}")
+            print(f"   triggers: {triggers}")
 
             # Update last scan time
             pair_data['last_scan'] = time.time()
