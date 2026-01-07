@@ -202,13 +202,6 @@ class SecondaryScanner:
                             else:
                                 continue
                             
-                            # Determine meme token (not WETH)
-                            weth_address = chain_config.get('weth_address', '').lower()
-                            if token0.lower() == weth_address:
-                                token_address = token1
-                            elif token1.lower() == weth_address:
-                                token_address = token0
-                            else:
                                 continue
                             
                             pair_data = {
