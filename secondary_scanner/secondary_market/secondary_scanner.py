@@ -29,7 +29,8 @@ class SecondaryScanner:
 
         # Configuration
         self.scan_interval = 30  # seconds
-        self.max_pairs_per_scan = chain_config.get('secondary_scanner', {}).get('max_pairs', 50) # Default limit 50 pairs
+        self.max_pairs_per_scan = chain_config.get('secondary_scanner', {}).get('max_pairs', 50)
+        self.max_pairs = self.max_pairs_per_scan # Add explicit alias for compatibility
         self.min_liquidity_threshold = chain_config.get('secondary_scanner', {}).get('min_liquidity', 50000)
 
         # Block range configuration (6 hours worth)
