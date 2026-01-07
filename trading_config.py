@@ -6,19 +6,19 @@ NOTE: Trading is DISABLED. Bot operates in SIGNAL-ONLY mode.
 TRADING_CONFIG = {
     'enabled': False,  # DISABLED - Signal Only Mode
     
-    # SIGNAL MODE SETTINGS (NEW)
+    #SIGNAL MODE SETTINGS (NEW)
     'signal_mode': {
         'enabled': True,
         'max_age_hours': 24.0,          # Max age 24 hours (Stable)
-        'min_age_hours': 1.0,           # Min age 1 hour (Avoid fresh launch chaos)
+        'min_age_hours': 0.1,           # Min age 6 minutes (was 1.0h - TOO RESTRICTIVE!)
         'scan_interval_seconds': 30,    # Scan every 30 seconds
-        'min_liquidity': 20000,         # Minimum $20K liquidity for recommendations
+        'min_liquidity': 5000,          # Minimum $5K liquidity (was $20K - TOO HIGH!)
         
         # Score Thresholds for Recommendations
         'score_thresholds': {
             'buy': 70,    # Score >= 70: BUY recommendation
-            'watch': 50,  # Score 50-69: WATCH recommendation
-            # Score < 50: No recommendation (skip)
+            'watch': 40,  # Score 40-69: WATCH recommendation (was 50 - lowered to catch more)
+            # Score < 40: No recommendation (skip)
         },
         
         # Chains to scan
