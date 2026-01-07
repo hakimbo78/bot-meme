@@ -486,7 +486,10 @@ async def main():
                                 continue
                                 
                             try:
-                                signals = await sec_scanner.scan_all_pairs()
+                                    num_pairs = len(sec_scanner.monitored_pairs)
+                                    signals = await sec_scanner.scan_all_pairs()
+                                
+                                    print(f"{Fore.BLUE}🔄 [SECONDARY] {chain_name.upper()}: Scanned {num_pairs} pairs, found {len(signals)} signals")
                                 
                                 if signals:
                                     print(f"{Fore.BLUE}🎯 [SECONDARY] {chain_name.upper()}: {len(signals)} breakout signals detected")
@@ -502,10 +505,14 @@ async def main():
                                             telegram.send_secondary_alert(signal)
                                                 
                             except Exception as e:
-                                print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
+                                    print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
                                 
                     except Exception as e:
-                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
+                            print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
+                            import traceback
+                            traceback.print_exc()
                         await asyncio.sleep(30)
 
             if secondary_enabled:
