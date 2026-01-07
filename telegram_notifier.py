@@ -410,73 +410,66 @@ class TelegramNotifier:
         return False
     
     async def send_secondary_alert_async(self, signal_data: dict):
-        """Send secondary market breakout alert to Telegram."""
+        """Send secondary market breakout alert to Telegram with detailed format."""
         if not self.enabled:
             return False
         
-        token_address = signal_data.get('token_address')
+        token_address = signal_data.get('token_address', 'UNKNOWN')
+        token_symbol = signal_data.get('token_symbol', 'UNKNOWN')
         metrics = signal_data.get('metrics', {})
         triggers = signal_data.get('triggers', {})
         state = signal_data.get('state')
         
-        # Get chain prefix
+        # Chain info
         chain_name = signal_data.get('chain', 'UNKNOWN').upper()
-        chain_prefix = f"[{chain_name}]"
         
-        # DEX info
-        dex_type = signal_data.get('dex_type', 'uniswap_v2')
-        dex_name = "Uniswap V3" if dex_type == "uniswap_v3" else "Uniswap V2"
+        # Risk/Score calculation
+        risk_score = triggers.get('risk_score_threshold', 60)
+        score_out_of_100 = int(min(100, max(0, risk_score * 1.5)))  # Scale to 100
         
         # Age calculation
         age_minutes = metrics.get('token_age_minutes', 0)
         if age_minutes < 60:
             age_str = f"{age_minutes:.0f} min"
         else:
-            # SAFE: Prevent division in age hours
             age_hours = safe_div(age_minutes, 60, 0)
             age_str = f"{age_hours:.1f} hours"
         
-        # Volume and changes
-        volume_5m = metrics.get('volume_5m', 0)
-        price_change_1h = metrics.get('price_change_1h', 0)
+        # Metrics
         liquidity_now = metrics.get('liquidity_now', 0)
-        liquidity_delta = metrics.get('liquidity_delta_1h', 0)
-        holders_now = metrics.get('holders_now', 0)
-        holder_growth = metrics.get('holder_growth_rate', 0)
+        volume_24h = metrics.get('volume_24h', metrics.get('volume_5m', 0))
+        price_change_1h = metrics.get('price_change_1h', 0)
+        liquidity_locked = metrics.get('liquidity_locked_pct', 0)
         
-        # Triggers - escape underscores in trigger names
+        # Triggers
         active_triggers = triggers.get('active_triggers', [])
-        escaped_triggers = [t.replace('_', '\\_') for t in active_triggers]
-        trigger_list = ', '.join(escaped_triggers) if escaped_triggers else 'None'
+        trigger_summary = ', '.join(active_triggers) if active_triggers else 'Volume Spike'
         
-        # Momentum type - escape underscores
-        momentum_type = triggers.get('momentum_type', 'normal').replace('_', '\\_')
+        # DexScreener URL
+        dexscreener_url = f"https://dexscreener.com/{chain_name.lower()}/{token_address}"
         
-        # Risk score (placeholder - would come from main scorer)
-        risk_score = triggers.get('risk_score_threshold', 70)
-        
-        # State
-        state_str = state.value.upper() if hasattr(state, 'value') else str(state).upper()
-        
-        # Token symbol - escape underscores
-        token_symbol = signal_data.get('token_symbol', 'UNKNOWN').replace('_', '\\_')
-        
-        message = f"""🚀 *SECONDARY MARKET BREAKOUT*
+        message = f"""👀 WATCH \\- MONITOR 👀
 
-*Token:* `{token_symbol}`
-*Chain:* {chain_name}
-*DEX:* {dex_name}
-*Age:* {age_str}
-*Volume 5m:* ${volume_5m:,.0f} (+{price_change_1h:.1f}%)
-*Liquidity:* ${liquidity_now:,.0f} (+{liquidity_delta:.1f}%)
-*Holders:* {holders_now:.0f} (+{holder_growth:.1f}/min)
-*Triggers:* {trigger_list}
-*Momentum:* {momentum_type}
-*Risk Score:* {risk_score}
+🪙 Token: {token_symbol} ({token_symbol})
+🔗 Chain: {chain_name}
+📊 Score: {score_out_of_100}/100
 
-*Status:* {state_str}
+📊 Stats:
+• Liq: ${liquidity_now:,.0f} | Vol 24h: ${volume_24h:,.0f}
+• Age: {age_str} | Price 1h: {price_change_1h:+.1f}%
 
-⚠️ Secondary market signal. Monitor closely."""
+⚠️ Why Watch: {trigger_summary} | Score {score_out_of_100}
+
+🔐 Security:
+• Status: ✅ MONITOR
+• LP Lock: {liquidity_locked:.0f}%
+
+📝 Contract:
+`{token_address[:20]}...{token_address[-8:]}`
+
+[🔗 View on DexScreener]({dexscreener_url})
+
+💡 Monitor for volume spike or LP improvement."""
         
         # Send via Safe Queue
         return await self._enqueue_message(message)
