@@ -70,9 +70,10 @@ class TriggerEngine:
         active_triggers = [k for k, v in triggers.items() if v]
         trigger_count = len(active_triggers)
 
-        # Combined signal
+        # Combined signal - require at least 1 trigger + adequate risk score
+        # (Relaxed from >= 2 triggers to allow single strong triggers like volume spike)
         secondary_signal = (
-            trigger_count >= 2 and risk_score >= self.min_risk_score
+            trigger_count >= 1 and risk_score >= self.min_risk_score
         )
 
         # Retroactive momentum detection
