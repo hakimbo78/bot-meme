@@ -132,45 +132,27 @@ class SecondaryScanner:
                     if not pair_created_sig:
                         continue
                     
-                    # Set topics based on dex type
+                    # Build event contract to let Web3.py craft topics payload correctly
+                    logs = []
+                    event_contract = None
                     if dex_type == 'uniswap_v2':
-                        topics = pair_created_sig  # Single topic as string
+                        event_contract = self.web3.eth.contract(address=factory_address, abi=self.v2_factory_abi).events.PairCreated
                     elif dex_type == 'uniswap_v3':
-                        topics = pair_created_sig  # Single topic as string, fee from data
+                        event_contract = self.web3.eth.contract(address=factory_address, abi=self.v3_factory_abi).events.PoolCreated
                     else:
                         continue
-                    
-                    # Enforce topics array (eth_getLogs expects list)
-                    assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
-                    assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
 
-                    # Build valid eth_getLogs payload (topics must be list)
-                    payload = {
-                        'address': factory_address,
-                        'topics': [topics],
-                        'fromBlock': hex(from_block),
-                        'toBlock': hex(latest_block)
-                    }
-                    
+                    # Query using Web3.py helpers (handles topics array internally). Try snake_case then camelCase for compatibility.
                     try:
-                        # Query PairCreated/PoolCreated events
-                        logs = self.web3.eth.get_logs(payload)
-                        
-                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
-                        
-                        # Update last scanned block
-                        self.last_scanned_block[dex_type] = latest_block
-                        
-                    except Exception as e:
-                        # Handle RPC payload errors
-                        if hasattr(e, 'args') and len(e.args) > 0:
-                            error_data = e.args[0]
-                            if isinstance(error_data, dict) and error_data.get('code') == -32602:
-                                print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {payload}")
-                                self.secondary_status = "DEGRADED"
-                                continue
-                        # Re-raise other errors
-                        raise e
+                        logs = event_contract.get_logs(from_block=from_block, to_block=latest_block)
+                    except TypeError:
+                        # Some nodes/web3 versions expect camelCase
+                        logs = event_contract.getLogs(fromBlock=from_block, toBlock=latest_block)
+
+                    print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
+
+                    # Update last scanned block
+                    self.last_scanned_block[dex_type] = latest_block
                     
                     # Process last 100 pairs (most recent)
                     for log in logs[-100:]:
