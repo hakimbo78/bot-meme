@@ -202,7 +202,30 @@ class SecondaryScanner:
                             else:
                                 continue
                             
+                            # Determine meme token (not WETH)
+                            weth_address = self.config.get('weth_address')
+                            if not weth_address:
+                                # Fallback WETH addresses
+                                if self.chain_name == 'base':
+                                    weth_address = '0x4200000000000000000000000000000000000006'
+                                else:
+                                    weth_address = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+                            
+                            weth_address = weth_address.lower()
+                            
+                            if not token0 or not token1:
                                 continue
+
+                            if token0.lower() == weth_address:
+                                token_address = token1
+                            elif token1.lower() == weth_address:
+                                token_address = token0
+                            else:
+                                # Both are not WETH? Might be stable pair or other.
+                                # For safety, assume token0 is the token if token1 is stable, etc.
+                                # But simpler to skip if we strictly want ETH pairs.
+                                # Let's accept it and assume token0 is target for now to capture more pairs.
+                                token_address = token0
                             
                             pair_data = {
                                 'pair_address': Web3.to_checksum_address(pair_address),
@@ -216,6 +239,7 @@ class SecondaryScanner:
                             pairs.append(pair_data)
                             
                         except Exception as e:
+                            # print(f"DEBUG: Malformed log: {e}") 
                             continue  # Skip malformed events
                     
                 except Exception as e:
@@ -225,6 +249,10 @@ class SecondaryScanner:
             # Remove duplicates and limit to 50 pairs per chain
             seen_pairs = set()
             unique_pairs = []
+            
+            # Debug:
+            # print(f"DEBUG: Raw pairs found: {len(pairs)}")
+            
             for pair in pairs:
                 pair_key = (pair['pair_address'], pair['token_address'])
                 if pair_key not in seen_pairs:
