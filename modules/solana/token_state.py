@@ -393,6 +393,10 @@ class TokenStateMachine:
     def get_token(self, mint: str) -> Optional[TokenStateRecord]:
         """Get token record."""
         return self._states.get(mint)
+
+    def has_token(self, mint: str) -> bool:
+        """Check whether a mint is tracked."""
+        return mint in self._states
     
     def get_armed_tokens(self) -> list:
         """Get all tokens ready for execution."""
