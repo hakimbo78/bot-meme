@@ -90,10 +90,7 @@ class SecondaryScanner:
 
     def is_enabled(self) -> bool:
         """Check if secondary scanner is enabled"""
-        # TEMPORARILY DISABLED: Web3.py v7 event.get_logs() API compatibility issue
-        # TODO: Fix event query syntax for Web3.py v7
-        return False
-        # return self.config.get('secondary_scanner', {}).get('enabled', False)
+        return self.config.get('secondary_scanner', {}).get('enabled', False)
 
     def resolve_secondary_block_range(self, lookback_blocks: int):
         """Resolve block range for secondary scanning"""
@@ -136,14 +133,14 @@ class SecondaryScanner:
                         continue
                     
                     try:
-                        # Use Web3 contract event get_logs with argument_filters
+                        # Use Web3 contract events getLogs (correct method for historical events)
                         if dex_type == 'uniswap_v2':
                             factory_contract = self.web3.eth.contract(
                                 address=factory_address,
                                 abi=self.v2_factory_abi
                             )
-                            logs = factory_contract.events.PairCreated.get_logs(
-                                argument_filters={},
+                            # Correct syntax: getLogs() not get_logs()
+                            logs = factory_contract.events.PairCreated.getLogs(
                                 fromBlock=from_block,
                                 toBlock=latest_block
                             )
@@ -152,8 +149,8 @@ class SecondaryScanner:
                                 address=factory_address,
                                 abi=self.v3_factory_abi
                             )
-                            logs = factory_contract.events.PoolCreated.get_logs(
-                                argument_filters={},
+                            # Correct syntax: getLogs() not get_logs()
+                            logs = factory_contract.events.PoolCreated.getLogs(
                                 fromBlock=from_block,
                                 toBlock=latest_block
                             )
