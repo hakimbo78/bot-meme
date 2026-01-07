@@ -444,12 +444,13 @@ class TelegramNotifier:
         holders_now = metrics.get('holders_now', 0)
         holder_growth = metrics.get('holder_growth_rate', 0)
         
-        # Triggers
+        # Triggers - escape underscores in trigger names
         active_triggers = triggers.get('active_triggers', [])
-        trigger_list = ', '.join(active_triggers) if active_triggers else 'None'
+        escaped_triggers = [t.replace('_', '\\_') for t in active_triggers]
+        trigger_list = ', '.join(escaped_triggers) if escaped_triggers else 'None'
         
-        # Momentum type
-        momentum_type = triggers.get('momentum_type', 'normal')
+        # Momentum type - escape underscores
+        momentum_type = triggers.get('momentum_type', 'normal').replace('_', '\\_')
         
         # Risk score (placeholder - would come from main scorer)
         risk_score = triggers.get('risk_score_threshold', 70)
@@ -457,9 +458,12 @@ class TelegramNotifier:
         # State
         state_str = state.value.upper() if hasattr(state, 'value') else str(state).upper()
         
+        # Token symbol - escape underscores
+        token_symbol = signal_data.get('token_symbol', 'UNKNOWN').replace('_', '\\_')
+        
         message = f"""🚀 *SECONDARY MARKET BREAKOUT*
 
-*Token:* `{signal_data.get('token_symbol', 'UNKNOWN')}`
+*Token:* `{token_symbol}`
 *Chain:* {chain_name}
 *DEX:* {dex_name}
 *Age:* {age_str}
@@ -472,7 +476,7 @@ class TelegramNotifier:
 
 *Status:* {state_str}
 
-⚠️ _Secondary market signal. Monitor closely._"""
+⚠️ Secondary market signal. Monitor closely."""
         
         # Send via Safe Queue
         return await self._enqueue_message(message)
@@ -546,7 +550,7 @@ class TelegramNotifier:
 🎯 *Signals ({active_signals_count}/4):*
 {signals_str}{score_str}
 
-⚠️ _DEXTools-style momentum detected. Secondary market opportunity._"""
+⚠️ DEXTools style momentum detected. Secondary market opportunity."""
         
         # Send via Safe Queue
         if await self._enqueue_message(message):
