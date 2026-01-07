@@ -267,10 +267,10 @@ class SecondaryScanner:
             assert isinstance(signature, str)
             assert isinstance(from_block, int)
 
-            # Build valid payload with nested topics array and hex block numbers (Base node prefers hex)
+            # Build payload with flat topics list (single signature) and hex blocks
             payload = {
                 'address': pair_address,
-                'topics': [[signature]],
+                'topics': [signature],
                 'fromBlock': hex(from_block),
                 'toBlock': hex(latest_block)
             }
