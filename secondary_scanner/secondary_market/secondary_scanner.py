@@ -3,11 +3,8 @@ Secondary Market Scanner
 Main orchestrator for detecting existing tokens with breakout potential
 """
 import asyncio
-import json
-import logging
 import time
-from typing import Dict, List, Optional, Set
-from datetime import datetime
+from typing import Dict, List, Optional
 from web3 import Web3
 from .market_metrics import MarketMetrics
 from .triggers import TriggerEngine
@@ -32,8 +29,7 @@ class SecondaryScanner:
 
         # Configuration
         self.scan_interval = 30  # seconds
-        self.max_pairs_per_scan = chain_config.get('secondary_scanner', {}).get('max_pairs', 50)
-        self.max_pairs = self.max_pairs_per_scan # Add explicit alias for compatibility
+        self.max_pairs_per_scan = 100
         self.min_liquidity_threshold = chain_config.get('secondary_scanner', {}).get('min_liquidity', 50000)
 
         # Block range configuration (6 hours worth)
@@ -136,112 +132,96 @@ class SecondaryScanner:
                     if not pair_created_sig:
                         continue
                     
-                    try:
-                        # Strategy 1: Use contract.events.get_logs with snake_case params (Web3.py v7 style)
-                        # The previous error 'unexpected keyword fromBlock' suggests it enforces snake_case
-                        
-                        event_contract = None
-                        if dex_type == 'uniswap_v2':
-                            event_contract = self.web3.eth.contract(address=factory_address, abi=self.v2_factory_abi).events.PairCreated
-                        elif dex_type == 'uniswap_v3':
-                            event_contract = self.web3.eth.contract(address=factory_address, abi=self.v3_factory_abi).events.PoolCreated
-                        
-                        if event_contract:
-                            try:
-                                # Try standard v6/v7 get_logs with snake_case
-                                logs = event_contract.get_logs(
-                                    from_block=from_block,  # snake_case
-                                    to_block=latest_block
-                                )
-                            except TypeError:
-                                # Fallback: Try camelCase (older Web3.py)
-                                logs = event_contract.get_logs(
-                                    fromBlock=from_block,
-                                    toBlock=latest_block
-                                )
-                            
-                            print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
-                            
-                            # Update last scanned block
-                            self.last_scanned_block[dex_type] = latest_block
-                            
-                    except Exception as e:
-                        # Strategy 2: Raw eth_getLogs fallback (if Contract API fails)
-                        # This is the lowest level and most robust if params are correct
-                        try:
-                            payload = {
-                                'address': factory_address,
-                                'topics': [pair_created_sig], # Array of 32-byte hex strings
-                                'fromBlock': hex(from_block),
-                                'toBlock': hex(latest_block)
-                            }
-                            logs = self.web3.eth.get_logs(payload)
-                            print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs (RAW FALLBACK)")
-                            self.last_scanned_block[dex_type] = latest_block
-                            
-                        except Exception as raw_e:
-                            # If both fail, report but don't crash
-                            print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e} | Raw: {raw_e}")
-                            self.secondary_status = "DEGRADED"
-                            continue
+                    # Set topics based on dex type
+                    if dex_type == 'uniswap_v2':
+                        topics = pair_created_sig  # Single topic as string
+                    elif dex_type == 'uniswap_v3':
+                        topics = pair_created_sig  # Single topic as string, fee from data
+                    else:
+                        continue
                     
-                    # Process events
-                    for log in logs[-100:]:  # Last 100 events
+                    # Enforce topics string guard
+                    assert isinstance(topics, str), f"Topics must be string, got {type(topics)}"
+                    assert isinstance(from_block, int), f"from_block must be int, got {type(from_block)}"
+                    
+                    # Build valid eth_getLogs payload
+                    payload = {
+                        'address': factory_address,
+                        'topics': topics,
+                        'fromBlock': hex(from_block),
+                        'toBlock': hex(latest_block)
+                    }
+                    
+                    try:
+                        # Query PairCreated/PoolCreated events
+                        logs = self.web3.eth.get_logs(payload)
+                        
+                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
+                        
+                        # Update last scanned block
+                        self.last_scanned_block[dex_type] = latest_block
+                        
+                    except Exception as e:
+                        # Handle RPC payload errors
+                        if hasattr(e, 'args') and len(e.args) > 0:
+                            error_data = e.args[0]
+                            if isinstance(error_data, dict) and error_data.get('code') == -32602:
+                                print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {payload}")
+                                self.secondary_status = "DEGRADED"
+                                continue
+                        # Re-raise other errors
+                        raise e
+                    
+                    # Process last 100 pairs (most recent)
+                    for log in logs[-100:]:
                         try:
-                            # Extract data from event
-                            event_data = dict(log['args'])
+                            # Decode event data
+                            data = log['data']
+                            topics = log['topics']
                             
-                            if dex_type == 'uniswap_v2':
-                                token0 = event_data.get('token0')
-                                token1 = event_data.get('token1')
-                                pair_address = event_data.get('pair')
-                            elif dex_type == 'uniswap_v3':
-                                token0 = event_data.get('token0')
-                                token1 = event_data.get('token1')
-                                pair_address = event_data.get('pool')
-                            else:
-                                continue
-                            
-                            # Determine meme token (not WETH)
-                            weth_address = self.config.get('weth_address')
-                            if not weth_address:
-                                # Fallback WETH addresses
-                                if self.chain_name == 'base':
-                                    weth_address = '0x4200000000000000000000000000000000000006'
+                            if len(topics) >= 3:
+                                # topics[1] = token0, topics[2] = token1
+                                token0 = '0x' + topics[1].hex()[26:]  # Remove padding
+                                token1 = '0x' + topics[2].hex()[26:]
+                                
+                                # Extract pair/pool address from data
+                                if dex_type == 'uniswap_v2':
+                                    # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
+                                    if len(data) >= 64:
+                                        pair_address = '0x' + data[2:66]  # Skip 0x, take 64 chars (32 bytes)
+                                    else:
+                                        continue
+                                elif dex_type == 'uniswap_v3':
+                                    # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
+                                    if len(data) >= 128:
+                                        pair_address = '0x' + data[66:130]  # After tickSpacing
+                                    else:
+                                        continue
+                                
+                                # For simplicity, assume token1 is the meme token (not WETH)
+                                weth_address = chain_config.get('weth_address', '').lower()
+                                if token0.lower() == weth_address:
+                                    token_address = token1
+                                elif token1.lower() == weth_address:
+                                    token_address = token0
                                 else:
-                                    weth_address = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
-                            
-                            weth_address = weth_address.lower()
-                            
-                            if not token0 or not token1:
-                                continue
-
-                            if token0.lower() == weth_address:
-                                token_address = token1
-                            elif token1.lower() == weth_address:
-                                token_address = token0
-                            else:
-                                # Both are not WETH? Might be stable pair or other.
-                                # For safety, assume token0 is the token if token1 is stable, etc.
-                                # But simpler to skip if we strictly want ETH pairs.
-                                # Let's accept it and assume token0 is target for now to capture more pairs.
-                                token_address = token0
-                            
-                            pair_data = {
-                                'pair_address': Web3.to_checksum_address(pair_address),
-                                'token_address': Web3.to_checksum_address(token_address),
-                                'dex_type': dex_type,
-                                'token_decimals': 18,
-                                'block_number': log['blockNumber'],
-                                'chain': self.chain_name,
-                                'weth_address': weth_address # CRITICAL: Required for process_pair
-                            }
-                            
-                            pairs.append(pair_data)
-                            
+                                    # Skip non-WETH pairs for now
+                                    continue
+                                
+                                pair_data = {
+                                    'pair_address': Web3.to_checksum_address(pair_address),
+                                    'token_address': Web3.to_checksum_address(token_address),
+                                    'dex_type': dex_type,
+                                    'token_decimals': 18,  # Assume 18 decimals
+                                    'block_number': log['blockNumber'],
+                                    'chain': self.chain_name,
+                                    'weth_address': chain_config.get('weth_address')
+                                }
+                                
+                                pairs.append(pair_data)
+                                
                         except Exception as e:
-                            # print(f"DEBUG: Malformed log: {e}") 
-                            continue  # Skip malformed events
+                            continue  # Skip malformed logs
                     
                 except Exception as e:
                     print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
@@ -250,10 +230,6 @@ class SecondaryScanner:
             # Remove duplicates and limit to 50 pairs per chain
             seen_pairs = set()
             unique_pairs = []
-            
-            # Debug:
-            # print(f"DEBUG: Raw pairs found: {len(pairs)}")
-            
             for pair in pairs:
                 pair_key = (pair['pair_address'], pair['token_address'])
                 if pair_key not in seen_pairs:
@@ -276,46 +252,26 @@ class SecondaryScanner:
             print(f"⚠️  [SECONDARY] Error discovering pairs: {e}")
             return []
 
-    def add_pair_to_monitor(self, pair_address: str, token_address: str, dex_type: str, chain: str = 'base', token_decimals: int = 18, **kwargs):
-        """
-        Add a pair to monitoring list.
-        
-        Args:
-            pair_address: Address of the pair/pool
-            token_address: Address of the token we care about
-            dex_type: 'uniswap_v2' or 'uniswap_v3'
-            chain: Chain name (e.g. 'base')
-            token_decimals: Token decimals (default 18)
-            **kwargs: Additional arguments (like block_number)
-        """
-        try:
-            # Check maximum pairs
-            if len(self.monitored_pairs) >= self.max_pairs:
-                return False
-                
-            # Add to monitored list
-            # Use chain-prefixed ID to allow multi-chain monitoring
-            pair_id = f"{chain}:{pair_address.lower()}"
-            
-            # Also support legacy lookups by raw address (for now)
-            self.monitored_pairs[pair_address.lower()] = {
-                'pair_address': pair_address,
-                'token_address': token_address,
-                'dex_type': dex_type,
-                'chain': chain,
-                'decimals': token_decimals,
-                'block_number': kwargs.get('block_number', 0),
-                'added_at': datetime.now().isoformat()
-            }
-            
-            # Log success (first time only)
-            pass
-            
-            return True
-            
-        except Exception as e:
-            print(f"⚠️  [SECONDARY] Error adding pair: {e}")
-            return False
+    def add_pair_to_monitor(self, pair_address: str, token_address: str,
+                           dex_type: str, token_decimals: int = 18,
+                           weth_address: Optional[str] = None, **kwargs):
+        """Add a pair to the monitoring list"""
+        resolved_weth = (weth_address or self.config.get(
+            'weth_address', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+        ))
+
+        # Normalize addresses to checksum to avoid mismatches
+        pair_addr_cs = Web3.to_checksum_address(pair_address)
+        token_addr_cs = Web3.to_checksum_address(token_address)
+        weth_addr_cs = Web3.to_checksum_address(resolved_weth)
+
+        self.monitored_pairs[pair_addr_cs] = {
+            'token_address': token_addr_cs,
+            'dex_type': dex_type,
+            'token_decimals': token_decimals,
+            'last_scan': 0,
+            'weth_address': weth_addr_cs
+        }
 
     async def scan_pair_events(self, pair_address: str, pair_data: Dict) -> List[Dict]:
         """
@@ -332,10 +288,18 @@ class SecondaryScanner:
             latest_block = self.web3.eth.block_number
             from_block = max(0, latest_block - 100)  # Last ~5 minutes assuming 12s blocks
 
-            # Build valid payload with nested topics array
+            # Use checksum address
+            pair_address = Web3.to_checksum_address(pair_address)
+
+            # Enforce topics string
+            topics = signature
+            assert isinstance(topics, str)
+            assert isinstance(from_block, int)
+
+            # Build valid payload
             payload = {
                 'address': pair_address,
-                'topics': [[signature]],  # Nested array for topic filtering
+                'topics': topics,
                 'fromBlock': hex(from_block),
                 'toBlock': hex(latest_block)
             }
@@ -384,7 +348,9 @@ class SecondaryScanner:
                 pair_address,
                 pair_data['dex_type'],
                 pair_data['token_address'],
-                pair_data['weth_address'],
+                pair_data.get('weth_address') or self.config.get(
+                    'weth_address', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+                ),
                 pair_data['token_decimals']
             )
 
