@@ -145,6 +145,6 @@ secondary_scanner:
   min_volume_5m: 10000
   min_liquidity: 30000
   min_holders: 100
-  min_risk_score: 70
+  min_risk_score: 50
 
 
