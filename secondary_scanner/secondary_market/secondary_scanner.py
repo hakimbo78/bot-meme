@@ -451,7 +451,12 @@ class SecondaryScanner:
                     self.add_pair_to_monitor(**pair)
 
                 # Scan existing pairs
-                signals = await self.scan_all_pairs()
+                if len(self.monitored_pairs) > 0:
+                    signals = await self.scan_all_pairs()
+                    print(f"🔄 [SECONDARY] {self.chain_name.upper()}: Scanned {len(self.monitored_pairs)} pairs, found {len(signals)} signals")
+                else:
+                    signals = []
+                    print(f"⏭️  [SECONDARY] {self.chain_name.upper()}: No pairs to scan")
 
                 # Process signals (would integrate with main pipeline)
                 for signal in signals:
