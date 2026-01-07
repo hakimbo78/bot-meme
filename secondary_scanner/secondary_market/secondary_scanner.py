@@ -170,13 +170,15 @@ class SecondaryScanner:
                                 if dex_type == 'uniswap_v2':
                                     # V2: data = pair_address (32 bytes) + liquidity (32 bytes)
                                     if len(data) >= 64:
-                                        pair_address = '0x' + data[2:66]  # Skip 0x, take 64 chars (32 bytes)
+                                        pair_word = data[2:66]  # 32 bytes padded
+                                        pair_address = '0x' + pair_word[-40:]  # last 20 bytes
                                     else:
                                         continue
                                 elif dex_type == 'uniswap_v3':
                                     # V3: data = tickSpacing (32 bytes) + pool_address (32 bytes)
                                     if len(data) >= 128:
-                                        pair_address = '0x' + data[66:130]  # After tickSpacing
+                                        pool_word = data[66:130]  # 32 bytes padded
+                                        pair_address = '0x' + pool_word[-40:]  # last 20 bytes
                                     else:
                                         continue
                                 
