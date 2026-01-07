@@ -133,40 +133,53 @@ class SecondaryScanner:
                         continue
                     
                     try:
-                        # Use Web3 contract events getLogs (correct method for historical events)
+                        # Strategy 1: Use contract.events.get_logs with snake_case params (Web3.py v7 style)
+                        # The previous error 'unexpected keyword fromBlock' suggests it enforces snake_case
+                        
+                        event_contract = None
                         if dex_type == 'uniswap_v2':
-                            factory_contract = self.web3.eth.contract(
-                                address=factory_address,
-                                abi=self.v2_factory_abi
-                            )
-                            # Correct syntax: getLogs() not get_logs()
-                            logs = factory_contract.events.PairCreated.getLogs(
-                                fromBlock=from_block,
-                                toBlock=latest_block
-                            )
+                            event_contract = self.web3.eth.contract(address=factory_address, abi=self.v2_factory_abi).events.PairCreated
                         elif dex_type == 'uniswap_v3':
-                            factory_contract = self.web3.eth.contract(
-                                address=factory_address,
-                                abi=self.v3_factory_abi
-                            )
-                            # Correct syntax: getLogs() not get_logs()
-                            logs = factory_contract.events.PoolCreated.getLogs(
-                                fromBlock=from_block,
-                                toBlock=latest_block
-                            )
-                        else:
-                            continue
+                            event_contract = self.web3.eth.contract(address=factory_address, abi=self.v3_factory_abi).events.PoolCreated
                         
-                        print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
-                        
-                        # Update last scanned block
-                        self.last_scanned_block[dex_type] = latest_block
-                        
+                        if event_contract:
+                            try:
+                                # Try standard v6/v7 get_logs with snake_case
+                                logs = event_contract.get_logs(
+                                    from_block=from_block,  # snake_case
+                                    to_block=latest_block
+                                )
+                            except TypeError:
+                                # Fallback: Try camelCase (older Web3.py)
+                                logs = event_contract.get_logs(
+                                    fromBlock=from_block,
+                                    toBlock=latest_block
+                                )
+                            
+                            print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs in last {self.lookback_blocks} blocks")
+                            
+                            # Update last scanned block
+                            self.last_scanned_block[dex_type] = latest_block
+                            
                     except Exception as e:
-                        # Handle errors gracefully
-                        print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e}")
-                        self.secondary_status = "DEGRADED"
-                        continue
+                        # Strategy 2: Raw eth_getLogs fallback (if Contract API fails)
+                        # This is the lowest level and most robust if params are correct
+                        try:
+                            payload = {
+                                'address': factory_address,
+                                'topics': [pair_created_sig], # Array of 32-byte hex strings
+                                'fromBlock': hex(from_block),
+                                'toBlock': hex(latest_block)
+                            }
+                            logs = self.web3.eth.get_logs(payload)
+                            print(f"🔍 [SECONDARY] {self.chain_name.upper()}: Found {len(logs)} {dex_type.upper()} pairs (RAW FALLBACK)")
+                            self.last_scanned_block[dex_type] = latest_block
+                            
+                        except Exception as raw_e:
+                            # If both fail, report but don't crash
+                            print(f"⚠️  [SECONDARY] Error scanning {dex_type} factory: {e} | Raw: {raw_e}")
+                            self.secondary_status = "DEGRADED"
+                            continue
                     
                     # Process events
                     for log in logs[-100:]:  # Last 100 events
