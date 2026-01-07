@@ -468,13 +468,15 @@ class SecondaryScanner:
 
                 return {
                     'token_address': token_address,
+                    'token_symbol': f"TOKEN_{token_address[:6]}",
                     'pair_address': pair_address,
                     'dex_type': pair_data['dex_type'],
                     'chain': self.chain_name,
                     'metrics': metrics,
                     'triggers': trigger_result,
                     'state': new_state or current_state,
-                    'signal_type': 'secondary_market'
+                    'signal_type': 'secondary_market',
+                    'alert_sent_time': 0
                 }
 
         except Exception as e:

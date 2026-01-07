@@ -445,8 +445,9 @@ class TelegramNotifier:
         active_triggers = triggers.get('active_triggers', [])
         trigger_summary = ', '.join(active_triggers) if active_triggers else 'Volume Spike'
         
-        # DexScreener URL
-        dexscreener_url = f"https://dexscreener.com/{chain_name.lower()}/{token_address}"
+        # DexScreener URL - use token address directly
+        chain_short = 'base' if chain_name == 'BASE' else chain_name.lower()
+        dexscreener_url = f"https://dexscreener.com/{chain_short}/{token_address}"
         
         # Escape HTML entities in token_symbol
         token_symbol_safe = token_symbol.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')

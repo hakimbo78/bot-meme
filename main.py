@@ -501,9 +501,13 @@ async def main():
                                         signal['signal_type'] = 'secondary_market'
                                         await queue.put(signal)
 
-                                        # Send secondary alert
+                                        # Send secondary alert (with spam prevention - max 1 alert per token per 5 minutes)
                                         if telegram.enabled:
-                                            telegram.send_secondary_alert(signal)
+                                            current_time = time.time()
+                                            last_alert_time = signal.get('alert_sent_time', 0)
+                                            if current_time - last_alert_time >= 300:  # 5 minute cooldown
+                                                telegram.send_secondary_alert(signal)
+                                                signal['alert_sent_time'] = current_time
 
                             except Exception as e:
                                 print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
