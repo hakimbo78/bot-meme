@@ -474,45 +474,46 @@ async def main():
 
             # 2.5. Secondary Market Scanner Producer Task
             async def run_secondary_producer():
-                if not secondary_enabled: return
+                if not secondary_enabled:
+                    return
                 print(f"{Fore.BLUE}🔍 Secondary market scanner task started")
-                
+
                 while True:
                     try:
                         await asyncio.sleep(30)  # Scan every 30 seconds
-                        
+
                         for chain_name, sec_scanner in secondary_scanners.items():
                             if not sec_scanner.is_enabled():
                                 continue
-                                
+
                             try:
-                                    num_pairs = len(sec_scanner.monitored_pairs)
-                                    signals = await sec_scanner.scan_all_pairs()
-                                
-                                    print(f"{Fore.BLUE}🔄 [SECONDARY] {chain_name.upper()}: Scanned {num_pairs} pairs, found {len(signals)} signals")
-                                
+                                num_pairs = len(sec_scanner.monitored_pairs)
+                                signals = await sec_scanner.scan_all_pairs()
+
+                                print(f"{Fore.BLUE}🔄 [SECONDARY] {chain_name.upper()}: Scanned {num_pairs} pairs, found {len(signals)} signals")
+
                                 if signals:
                                     print(f"{Fore.BLUE}🎯 [SECONDARY] {chain_name.upper()}: {len(signals)} breakout signals detected")
-                                    
+
                                     for signal in signals:
                                         # Add chain info and put in main queue for processing
                                         signal['chain'] = chain_name
                                         signal['signal_type'] = 'secondary_market'
                                         await queue.put(signal)
-                                        
+
                                         # Send secondary alert
                                         if telegram.enabled:
                                             telegram.send_secondary_alert(signal)
-                                                
+
                             except Exception as e:
-                                    print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
-                                    import traceback
-                                    traceback.print_exc()
-                                
+                                print(f"{Fore.YELLOW}⚠️  [SECONDARY] {chain_name.upper()} scan error: {e}")
+                                import traceback
+                                traceback.print_exc()
+
                     except Exception as e:
-                            print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
-                            import traceback
-                            traceback.print_exc()
+                        print(f"{Fore.YELLOW}⚠️  [SECONDARY] Producer error: {e}")
+                        import traceback
+                        traceback.print_exc()
                         await asyncio.sleep(30)
 
             if secondary_enabled:
