@@ -321,16 +321,63 @@ class SecondaryScanner:
                         return []
                 raise e
 
+            # Get pair token addresses for price calculation
+            pair_token0 = pair_data.get('token_address')
+            pair_token1 = pair_data.get('weth_address')
+            
             events = []
             for log in logs:
-                # Parse swap event (simplified)
-                # In practice, you'd decode the event data properly
-                events.append({
-                    'block_number': log['blockNumber'],
-                    'transaction_hash': log['transactionHash'].hex(),
-                    'timestamp': self.web3.eth.get_block(log['blockNumber'])['timestamp'],
-                    'volume_usd': 0  # Would calculate from event data
-                })
+                try:
+                    # Extract event arguments
+                    args = log.get('args', {})
+                    
+                    # Calculate volume in USD
+                    volume_usd = 0
+                    
+                    if dex_type == 'uniswap_v2':
+                        # V2 Swap: (sender, amount0In, amount1In, amount0Out, amount1Out, to)
+                        amount0_in = int(args.get('amount0In', 0))
+                        amount1_in = int(args.get('amount1In', 0))
+                        amount0_out = int(args.get('amount0Out', 0))
+                        amount1_out = int(args.get('amount1Out', 0))
+                        
+                        # Use the larger amount as volume proxy
+                        # In reality, one will be input, one will be output
+                        if amount0_in > 0 or amount0_out > 0:
+                            # Token0 swapped
+                            amount_0 = max(amount0_in, amount0_out)
+                            # Assume WETH is token1, so estimate price from reserves if available
+                            # For now: use amount0 * price0 (simplified)
+                            volume_usd = amount_0 / (10 ** 18)  # Assume 18 decimals
+                        else:
+                            # Token1 swapped (likely WETH)
+                            amount_1 = max(amount1_in, amount1_out)
+                            volume_usd = amount_1 / (10 ** 18)
+                    
+                    elif dex_type == 'uniswap_v3':
+                        # V3 Swap: (sender, recipient, amount0, amount1, sqrtPriceX96, liquidity, tick)
+                        amount0 = int(args.get('amount0', 0))
+                        amount1 = int(args.get('amount1', 0))
+                        
+                        # V3 uses signed amounts; sum absolute values
+                        amount_0_abs = abs(amount0)
+                        amount_1_abs = abs(amount1)
+                        
+                        # Volume = sum of both sides
+                        # Assume one is WETH (18 decimals)
+                        volume_usd = (amount_0_abs + amount_1_abs) / (10 ** 18)
+                    
+                    # Append event with calculated volume
+                    events.append({
+                        'block_number': log['blockNumber'],
+                        'transaction_hash': log['transactionHash'].hex(),
+                        'timestamp': self.web3.eth.get_block(log['blockNumber'])['timestamp'],
+                        'volume_usd': volume_usd
+                    })
+                    
+                except Exception as e:
+                    # Skip malformed events, continue processing
+                    continue
 
             return events
 
@@ -375,8 +422,24 @@ class SecondaryScanner:
             if not metrics:
                 return None
 
-            # Evaluate triggers
-            trigger_result = self.triggers.evaluate_triggers(metrics)
+            # Calculate risk score for this token
+            # For secondary market (existing pairs), assume moderate-low risk if:
+            # - Has liquidity > $5k
+            # - Has active trading
+            # - No rug indicators
+            # Simplified: use config default or calculate from metrics
+            base_risk_score = self.config.get('secondary_scanner', {}).get('default_risk_score', 60)
+            
+            # Adjust risk score based on metrics
+            risk_score = base_risk_score
+            effective_liq = metrics.get('effective_liquidity', 0)
+            if effective_liq < 10000:
+                risk_score -= 10  # Lower risk score for low liquidity
+            elif effective_liq > 100000:
+                risk_score += 5   # Slightly higher confidence for high liquidity
+            
+            # Evaluate triggers with risk_score
+            trigger_result = self.triggers.evaluate_triggers(metrics, risk_score)
 
             # Update last scan time
             pair_data['last_scan'] = time.time()
