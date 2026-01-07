@@ -233,7 +233,8 @@ class SecondaryScanner:
                                 'dex_type': dex_type,
                                 'token_decimals': 18,
                                 'block_number': log['blockNumber'],
-                                'chain': self.chain_name
+                                'chain': self.chain_name,
+                                'weth_address': weth_address # CRITICAL: Required for process_pair
                             }
                             
                             pairs.append(pair_data)
