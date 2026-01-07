@@ -250,16 +250,46 @@ class SecondaryScanner:
             print(f"⚠️  [SECONDARY] Error discovering pairs: {e}")
             return []
 
-    def add_pair_to_monitor(self, pair_address: str, token_address: str,
-                           dex_type: str, token_decimals: int = 18):
-        """Add a pair to the monitoring list"""
-        self.monitored_pairs[pair_address] = {
-            'token_address': token_address,
-            'dex_type': dex_type,
-            'token_decimals': token_decimals,
-            'last_scan': 0,
-            'weth_address': self.config.get('weth_address', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2')
-        }
+    def add_pair_to_monitor(self, pair_address: str, token_address: str, dex_type: str, chain: str = 'base', token_decimals: int = 18, **kwargs):
+        """
+        Add a pair to monitoring list.
+        
+        Args:
+            pair_address: Address of the pair/pool
+            token_address: Address of the token we care about
+            dex_type: 'uniswap_v2' or 'uniswap_v3'
+            chain: Chain name (e.g. 'base')
+            token_decimals: Token decimals (default 18)
+            **kwargs: Additional arguments (like block_number)
+        """
+        try:
+            # Check maximum pairs
+            if len(self.monitored_pairs) >= self.max_pairs:
+                return False
+                
+            # Add to monitored list
+            # Use chain-prefixed ID to allow multi-chain monitoring
+            pair_id = f"{chain}:{pair_address.lower()}"
+            
+            # Also support legacy lookups by raw address (for now)
+            self.monitored_pairs[pair_address.lower()] = {
+                'pair_address': pair_address,
+                'token_address': token_address,
+                'dex_type': dex_type,
+                'chain': chain,
+                'decimals': token_decimals,
+                'block_number': kwargs.get('block_number', 0),
+                'added_at': datetime.now().isoformat()
+            }
+            
+            # Log success (first time only)
+            pass
+            
+            return True
+            
+        except Exception as e:
+            print(f"⚠️  [SECONDARY] Error adding pair: {e}")
+            return False
 
     async def scan_pair_events(self, pair_address: str, pair_data: Dict) -> List[Dict]:
         """
