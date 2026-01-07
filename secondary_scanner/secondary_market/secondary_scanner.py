@@ -267,25 +267,53 @@ class SecondaryScanner:
             assert isinstance(signature, str)
             assert isinstance(from_block, int)
 
-            # Build payload with flat topics list (single signature) and hex blocks
-            payload = {
-                'address': pair_address,
-                'topics': [signature],
-                'fromBlock': hex(from_block),
-                'toBlock': hex(latest_block)
-            }
+            # Try multiple payload variants to satisfy RPC variadic parsing
+            payload_variants = [
+                {
+                    'address': pair_address,
+                    'topics': [signature],
+                    'fromBlock': hex(from_block),
+                    'toBlock': hex(latest_block)
+                },
+                {
+                    'address': pair_address,
+                    'topics': [[signature]],
+                    'fromBlock': hex(from_block),
+                    'toBlock': hex(latest_block)
+                },
+                {
+                    'address': pair_address,
+                    'topics': [signature],
+                    'fromBlock': from_block,
+                    'toBlock': latest_block
+                },
+                {
+                    'address': pair_address,
+                    'topics': [[signature]],
+                    'fromBlock': from_block,
+                    'toBlock': latest_block
+                },
+            ]
 
-            try:
-                # Query events
-                logs = self.web3.eth.get_logs(payload)
-            except Exception as e:
-                if hasattr(e, 'args') and len(e.args) > 0:
-                    error_data = e.args[0]
+            logs = []
+            last_error = None
+            for payload in payload_variants:
+                try:
+                    logs = self.web3.eth.get_logs(payload)
+                    last_error = None
+                    break
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            if last_error is not None:
+                if hasattr(last_error, 'args') and len(last_error.args) > 0:
+                    error_data = last_error.args[0]
                     if isinstance(error_data, dict) and error_data.get('code') == -32602:
                         print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {payload}")
                         self.secondary_status = "DEGRADED"
                         return []
-                raise e
+                raise last_error
 
             events = []
             for log in logs:
