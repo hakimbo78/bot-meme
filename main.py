@@ -505,7 +505,10 @@ async def main():
                                         if telegram.enabled:
                                             current_time = time.time()
                                             last_alert_time = signal.get('alert_sent_time', 0)
-                                            if current_time - last_alert_time >= 300:  # 5 minute cooldown
+                                            risk_score = signal.get('triggers', {}).get('risk_score_threshold', 60)
+                                            
+                                            # Only alert if score > 55 AND cooldown passed
+                                            if risk_score > 55 and (current_time - last_alert_time >= 300):
                                                 telegram.send_secondary_alert(signal)
                                                 signal['alert_sent_time'] = current_time
 

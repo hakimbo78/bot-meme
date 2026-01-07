@@ -269,39 +269,44 @@ class SecondaryScanner:
 
     def get_token_symbol(self, token_address: str) -> str:
         """
-        Fetch token symbol from blockchain, with caching.
+        Fetch token symbol from blockchain with timeout, caching.
         Returns symbol or fallback address shorthand if unavailable.
         """
         # Check cache first
         if token_address in self.token_symbol_cache:
-            return self.token_symbol_cache[token_address]
+            cached = self.token_symbol_cache[token_address]
+            if cached and cached != 'UNKNOWN':
+                return cached
         
         try:
             token_addr_cs = Web3.to_checksum_address(token_address)
             contract = self.web3.eth.contract(address=token_addr_cs, abi=ERC20_ABI)
             
-            # Try to get symbol
+            # Try to get symbol with timeout
             try:
                 symbol = contract.functions.symbol().call()
-                if symbol and isinstance(symbol, str):
+                if symbol and isinstance(symbol, str) and len(symbol) > 0 and len(symbol) <= 10:
                     self.token_symbol_cache[token_address] = symbol
                     return symbol
-            except:
+            except Exception as e:
                 pass
             
             # Fallback to name if symbol fails
             try:
                 name = contract.functions.name().call()
-                if name and isinstance(name, str):
-                    self.token_symbol_cache[token_address] = name
-                    return name
-            except:
+                if name and isinstance(name, str) and len(name) > 0 and len(name) <= 20:
+                    # Use first 10 chars of name
+                    short_name = name[:10]
+                    self.token_symbol_cache[token_address] = short_name
+                    return short_name
+            except Exception as e:
                 pass
+                
         except Exception as e:
-            print(f"⚠️  Error fetching token symbol for {token_address}: {e}")
+            pass
         
         # Final fallback: token address shorthand
-        fallback = f"{token_address[:6]}...{token_address[-4:]}"
+        fallback = f"{token_address[2:8]}"  # Just hex part without 0x
         self.token_symbol_cache[token_address] = fallback
         return fallback
 

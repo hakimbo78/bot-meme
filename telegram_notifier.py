@@ -427,6 +427,10 @@ class TelegramNotifier:
         risk_score = triggers.get('risk_score_threshold', 60)
         score_out_of_100 = int(min(100, max(0, risk_score * 1.5)))  # Scale to 100
         
+        # Skip alerts with low scores (< 55)
+        if score_out_of_100 < 55:
+            return False
+        
         # Age calculation
         age_minutes = metrics.get('token_age_minutes', 0)
         if age_minutes < 60:
@@ -453,6 +457,12 @@ class TelegramNotifier:
         token_symbol_safe = token_symbol.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         trigger_summary_safe = trigger_summary.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
+        # Security info from metrics (if available from GoPlus API)
+        honeypot_safe = "✅" if not metrics.get('honeypot', False) else "❌"
+        mint_enabled = "✅" if metrics.get('mint_enabled', True) else "❌"
+        freeze_enabled = "✅" if metrics.get('freeze_enabled', True) else "❌"
+        top10_holders = metrics.get('top10_holders_pct', 0)
+        
         message = f"""👀 <b>WATCH - MONITOR</b> 👀
 
 🪙 Token: <code>{token_symbol_safe}</code>
@@ -465,9 +475,9 @@ class TelegramNotifier:
 
 ⚠️ Why Watch: {trigger_summary_safe} | Score {score_out_of_100}
 
-🔐 Security:
-• Status: ✅ MONITOR
-• LP Lock: {liquidity_locked:.0f}%
+🔐 <b>Security (GoPlus):</b>
+• Honeypot: {honeypot_safe} | Mint: {mint_enabled} | Freeze: {freeze_enabled}
+• LP Lock: {liquidity_locked:.0f}% | Top 10 Holders: {top10_holders:.1f}%
 
 📝 Contract:
 <code>{token_address}</code>
