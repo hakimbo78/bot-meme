@@ -263,57 +263,63 @@ class SecondaryScanner:
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
 
-            # Enforce topics list-of-list per eth_getLogs variadic rules
-            assert isinstance(signature, str)
-            assert isinstance(from_block, int)
+            # Build minimal Swap event ABI per dex
+            if dex_type == 'uniswap_v2':
+                swap_event_abi = [{
+                    "anonymous": False,
+                    "inputs": [
+                        {"indexed": True, "internalType": "address", "name": "sender", "type": "address"},
+                        {"indexed": False, "internalType": "uint256", "name": "amount0In", "type": "uint256"},
+                        {"indexed": False, "internalType": "uint256", "name": "amount1In", "type": "uint256"},
+                        {"indexed": False, "internalType": "uint256", "name": "amount0Out", "type": "uint256"},
+                        {"indexed": False, "internalType": "uint256", "name": "amount1Out", "type": "uint256"},
+                        {"indexed": True, "internalType": "address", "name": "to", "type": "address"}
+                    ],
+                    "name": "Swap",
+                    "type": "event"
+                }]
+            else:  # uniswap_v3
+                swap_event_abi = [{
+                    "anonymous": False,
+                    "inputs": [
+                        {"indexed": True, "internalType": "address", "name": "sender", "type": "address"},
+                        {"indexed": True, "internalType": "address", "name": "recipient", "type": "address"},
+                        {"indexed": False, "internalType": "int256", "name": "amount0", "type": "int256"},
+                        {"indexed": False, "internalType": "int256", "name": "amount1", "type": "int256"},
+                        {"indexed": False, "internalType": "uint160", "name": "sqrtPriceX96", "type": "uint160"},
+                        {"indexed": False, "internalType": "uint128", "name": "liquidity", "type": "uint128"},
+                        {"indexed": False, "internalType": "int24", "name": "tick", "type": "int24"}
+                    ],
+                    "name": "Swap",
+                    "type": "event"
+                }]
 
-            # Try multiple payload variants to satisfy RPC variadic parsing
-            payload_variants = [
-                {
-                    'address': pair_address,
-                    'topics': [signature],
-                    'fromBlock': hex(from_block),
-                    'toBlock': hex(latest_block)
-                },
-                {
-                    'address': pair_address,
-                    'topics': [[signature]],
-                    'fromBlock': hex(from_block),
-                    'toBlock': hex(latest_block)
-                },
-                {
-                    'address': pair_address,
-                    'topics': [signature],
-                    'fromBlock': from_block,
-                    'toBlock': latest_block
-                },
-                {
-                    'address': pair_address,
-                    'topics': [[signature]],
-                    'fromBlock': from_block,
-                    'toBlock': latest_block
-                },
-            ]
+            pair_contract = self.web3.eth.contract(address=pair_address, abi=swap_event_abi)
 
+            # Try snake_case then camelCase helper; the ABI builder should craft a valid payload
             logs = []
-            last_error = None
-            for payload in payload_variants:
+            try:
                 try:
-                    logs = self.web3.eth.get_logs(payload)
-                    last_error = None
-                    break
-                except Exception as e:
-                    last_error = e
-                    continue
-
-            if last_error is not None:
-                if hasattr(last_error, 'args') and len(last_error.args) > 0:
-                    error_data = last_error.args[0]
+                    logs = pair_contract.events.Swap.get_logs(from_block=from_block, to_block=latest_block)
+                except TypeError:
+                    logs = pair_contract.events.Swap.getLogs(fromBlock=from_block, toBlock=latest_block)
+            except Exception as e:
+                # Capture RPC invalid params to avoid crashing the scan loop
+                err_payload = {
+                    'address': pair_address,
+                    'from_block': from_block,
+                    'to_block': latest_block,
+                    'dex_type': dex_type,
+                    'signature': signature,
+                    'method': 'contract.events.Swap'
+                }
+                if hasattr(e, 'args') and len(e.args) > 0:
+                    error_data = e.args[0]
                     if isinstance(error_data, dict) and error_data.get('code') == -32602:
-                        print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {payload}")
+                        print(f"❌ [SECONDARY_RPC_PAYLOAD_INVALID] {self.chain_name.upper()}: {err_payload}")
                         self.secondary_status = "DEGRADED"
                         return []
-                raise last_error
+                raise e
 
             events = []
             for log in logs:
