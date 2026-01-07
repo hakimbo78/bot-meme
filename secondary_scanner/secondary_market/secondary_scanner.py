@@ -263,16 +263,16 @@ class SecondaryScanner:
             # Use checksum address
             pair_address = Web3.to_checksum_address(pair_address)
 
-            # Enforce topics list (eth_getLogs expects list)
+            # Enforce topics list-of-list per eth_getLogs variadic rules
             assert isinstance(signature, str)
             assert isinstance(from_block, int)
 
-            # Build valid payload with topics array
+            # Build valid payload with nested topics array and integer block numbers
             payload = {
                 'address': pair_address,
-                'topics': [signature],
-                'fromBlock': hex(from_block),
-                'toBlock': hex(latest_block)
+                'topics': [[signature]],
+                'fromBlock': from_block,
+                'toBlock': latest_block
             }
 
             try:
